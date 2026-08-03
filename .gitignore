@@ -1,0 +1,25 @@
+# 环境与密钥
+.env
+*.local
+.garminconnect/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+backend/data/
+
+# Node
+node_modules/
+frontend/dist/
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# 备份
+backups/
