@@ -2,6 +2,7 @@
 .env
 *.local
 .garminconnect/
+素材/训记key*.txt
 
 # Python
 __pycache__/
