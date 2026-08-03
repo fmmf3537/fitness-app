@@ -90,6 +90,18 @@
 - AC2：识别结果先入预览页，用户确认后入库；
 - AC3：训记标准报表截图的字段识别准确率 ≥ 95%。
 
+### US-12 身体数据记录（V1，2026-08-03 新增）
+> 作为用户，我希望手动记录身高/体重/血压/血糖并看趋势，体重还能同步进训记。
+
+- AC1：录入页支持四类指标：身高(cm)、体重(kg)、血压(收缩压/舒张压 mmHg)、血糖(mmol/L)；
+  按 `date + type` upsert，同日同类型重复录入覆盖旧值；
+- AC2：身体数据页展示各指标趋势曲线（ECharts），体重曲线与训练容量趋势可同屏对照；
+- AC3：体重（及体脂率）可选"同步到训记"：调用训记身体数据 API，严格走
+  `dry_run: true` → 展示 res.summary 变更摘要 → 用户确认 → `confirmed: true` 流程；
+- AC4：身高/血压/血糖仅存本地（训记 API 无对应类型），界面明确标注"仅本地"；
+- AC5：首次使用引导录入身高，身高变化频率低，按 `date + height` 存历史；
+- AC6：AI 单次点评/复盘的上下文中纳入近 4 周体重趋势（US-6/US-10 输入扩展）。
+
 ## 4. 数据模型（开发以此为准）
 
 ```sql
@@ -107,6 +119,13 @@ garmin_activity(id PK, activity_id UNIQUE, activity_type, name, start_ts, end_ts
 -- 佳明每日健康（按日期幂等）
 garmin_daily(id PK, date UNIQUE, steps, resting_hr, stress_avg, body_battery_high, body_battery_low,
              hrv_status, sleep_json, raw_json, fetched_at)
+
+-- 身体数据（手动录入，按 date+type 幂等）
+body_metric(id PK, date, type,      -- height / weight / bp_systolic / bp_diastolic / blood_glucose
+            value REAL, unit,       -- cm / kg / mmHg / mmol/L
+            synced_to_xunji BOOLEAN DEFAULT FALSE,   -- 仅 weight/bodyfat 可能为 TRUE
+            note, created_at, updated_at,
+            UNIQUE(date, type))
 
 -- 融合训练档案（核心表）
 workout(id PK, date, title,
@@ -192,6 +211,29 @@ POST https://trains.xunjiapp.cn/api_upsert_trains_for_llm_v2
 
 Key 从环境变量 `XUNJI_API_KEY` 读取，**禁止硬编码进代码库**。
 
+### 6.1b 训记身体数据 API（2026-08-03 新版 Key 新增）
+
+```
+# 查询身体数据（gzip 响应）
+POST https://api.xunjiapp.cn/open/body/query_gzip
+Authorization: Bearer <XUNJI_BODY_API_KEY>
+{"start_date": "2026-01-01", "end_date": "2026-08-03",
+ "types": ["weight", "bodyfat"], "include_latest": true, "include_records": true,
+ "limit": 500, "offset": 0}
+
+# 写入身体数据（按 datestr+type upsert）
+POST https://api.xunjiapp.cn/open/body/upsert_gzip
+{"schema_version": "body_open_api_v1", "client_request_id": "<uuid>",
+ "dry_run": true,                                  # 第一步：预览，展示 res.summary
+ "records": [{"datestr": "2026-08-03", "type": "weight", "value": 72.4}]}
+# 第二步：用户确认后 → 同记录 + "dry_run": false, "confirmed": true
+```
+
+- Key 从环境变量 `XUNJI_BODY_API_KEY` 读取（`xjbody_...`）；接口文档原件 `素材/训记key_新版.txt`；
+- 训记类型仅 `weight/bodyfat/围度`；腰围字段固定拼写 `weist`；身高/血压/血糖不支持，仅本地；
+- 限频：同 key 同 endpoint 15s/次；
+- 同文件新增的饮食 API（`xjfood_...` + 食物搜索 Key）**本期不实现**，仅登记环境变量占位。
+
 ### 6.2 佳明
 
 - 库：`garminconnect`，登录 token 缓存于 `~/.garminconnect`（服务器上加密目录）；
@@ -224,5 +266,6 @@ Key 存 settings 表（加密），设置页可切换默认模型；每次调用
 
 - 不做小米运动健康接入（用户已放弃）；睡眠数据佳明单源；
 - 不做训记官方计划的修改（API 只读）；
-- 不做多用户、社交、饮食记录；
+- 不做饮食/营养记录（训记饮食 API 已备案，后续可扩展）；
+- 不做多用户、社交功能；
 - MVP 不做桌面套壳与手机推送（V2 再说）。
