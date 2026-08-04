@@ -234,11 +234,16 @@ POST https://api.xunjiapp.cn/open/body/upsert_gzip
 - 限频：同 key 同 endpoint 15s/次；
 - 同文件新增的饮食 API（`xjfood_...` + 食物搜索 Key）**本期不实现**，仅登记环境变量占位。
 
-### 6.2 佳明
+### 6.2 佳明（2026-08-04 修正：中国区账号）
 
-- 库：`garminconnect`，登录 token 缓存于 `~/.garminconnect`（服务器上加密目录）；
-- 账号无 MFA，可账号密码直接登录；凭据从环境变量 `GARMIN_EMAIL` / `GARMIN_PASSWORD` 读取；
-- 主要方法：`get_activities_by_date`、`get_activity_details`（含 exercise sets）、`get_sleep_data`、`get_hrv_data`、`get_body_battery`、`get_user_summary`；
+- **用户账号在中国区（garmin.cn）**，全球区端点登录可成功但返回空数据（陷阱，已在 M3 踩实）；
+- **接入方式**：`garminconnect` 封装库对 CN 区 resume 会话有 bug，**改用底层 `garth` 库直连**：
+  - 登录：`garth.configure(domain='garmin.cn')` → `garth.login(email, password)` → `garth.save(token_store)`；
+  - 后续会话：`garth.configure(...)` → `garth.resume(token_store)`；
+  - 取数：`garth.connectapi(path, params=...)`（活动列表 `/activitylist-service/activities/search/activities` 等）；
+  - 已实测（2026-08-04）：可拉到 strength_training/badminton 等活动；
+- **风控**：佳明有 IP 级 429（连续登录 2-3 次即触发）——同一进程只登录一次并复用会话；收到 429 指数退避；历史导入期间禁止重复登录；
+- 凭据从环境变量 `GARMIN_EMAIL` / `GARMIN_PASSWORD` 读取；token 缓存于 `~/.garminconnect`；
 - 失效降级：保留 FIT/TCX 文件手动导入入口（`/import/fit`）。
 
 ### 6.3 LLM 适配层
