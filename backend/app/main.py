@@ -4,7 +4,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.api.auth import router as auth_router
+from app.api.match_candidates import router as match_candidates_router
 from app.api.sync import router as sync_router
+from app.api.workouts import router as workouts_router
 
 _scheduler = None  # 模块级持引用，防止 GC
 
@@ -20,7 +23,10 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Fitness Hub", version="0.1.0", lifespan=lifespan)
+app.include_router(auth_router)
 app.include_router(sync_router)
+app.include_router(workouts_router)
+app.include_router(match_candidates_router)
 
 
 @app.get("/health")
