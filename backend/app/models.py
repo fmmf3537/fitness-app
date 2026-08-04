@@ -117,6 +117,7 @@ class Workout(Base):
     garmin_activity_id: Mapped[int | None] = mapped_column(ForeignKey("garmin_activity.id"))
     match_status: Mapped[str | None] = mapped_column(String(20))
     # auto_matched / manual_matched / xunji_only / garmin_only / pending
+    tags: Mapped[str | None] = mapped_column(String(200))  # 佳明活动类型作标签（PRD §5.2）
     duration_s: Mapped[int | None] = mapped_column(Integer)  # 以佳明为准
     calories: Mapped[int | None] = mapped_column(Integer)
     avg_hr: Mapped[int | None] = mapped_column(Integer)

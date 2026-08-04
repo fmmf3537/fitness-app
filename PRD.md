@@ -131,6 +131,7 @@ body_metric(id PK, date, type,      -- height / weight / bp_systolic / bp_diasto
 workout(id PK, date, title,
         xunji_train_id FK NULL, garmin_activity_id FK NULL,
         match_status,          -- auto_matched / manual_matched / xunji_only / garmin_only / pending
+        tags,                  -- 佳明活动类型作标签（M4 2026-08-04 补充，落实 §5.2）
         duration_s, calories, avg_hr, max_hr,   -- 以佳明为准
         movements_json,                         -- 以训记为准：[{name, difficulty?, sets:[{weight,unit,reps,time,done,rpe?}]}]
         created_at, updated_at)
