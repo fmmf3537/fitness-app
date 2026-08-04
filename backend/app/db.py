@@ -5,7 +5,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.config import get_settings
+from app.config import get_settings, resolve_database_url
 from app.models import Base
 
 
@@ -20,7 +20,8 @@ def _set_sqlite_pragma(dbapi_connection, connection_record):  # SQLite 开启外
 
 
 def make_engine(url: str | None = None) -> Engine:
-    url = url or get_settings().database_url
+    # 显式传入的相对 URL 同样锚定到项目根目录，保证与 alembic 解析结果一致
+    url = resolve_database_url(url) if url else get_settings().database_url
     connect_args = {}
     if url.startswith("sqlite"):
         connect_args["check_same_thread"] = False

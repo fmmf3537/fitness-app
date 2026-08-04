@@ -19,6 +19,21 @@ load_dotenv(BACKEND_DIR / ".env", override=False)
 DEFAULT_DATABASE_URL = f"sqlite:///{BACKEND_DIR}/data/app.db"
 
 
+def resolve_database_url(url: str | None) -> str:
+    """相对路径的 sqlite URL 一律锚定到项目根目录，避免随 CWD 漂移。
+
+    make_engine / alembic env.py / Settings 统一走本函数，保证无论从哪个
+    目录启动都指向同一个数据库文件。
+    """
+    url = url or DEFAULT_DATABASE_URL
+    prefix = "sqlite:///"
+    if url.startswith(prefix):
+        path = url[len(prefix):]
+        if path != ":memory:" and not Path(path).is_absolute():
+            url = prefix + str((ROOT_DIR / path).resolve())
+    return url
+
+
 class Settings:
     """从环境变量读取的全部配置（属性不存在时为空字符串，绝不提供默认密钥）。"""
 
@@ -41,14 +56,8 @@ class Settings:
 
     @staticmethod
     def _resolve_database_url(url: str | None) -> str:
-        """相对路径的 sqlite URL 一律锚定到项目根目录，避免随 CWD 漂移。"""
-        url = url or DEFAULT_DATABASE_URL
-        prefix = "sqlite:///"
-        if url.startswith(prefix):
-            path = url[len(prefix):]
-            if path != ":memory:" and not Path(path).is_absolute():
-                url = prefix + str(ROOT_DIR / path)
-        return url
+        """锚定逻辑见模块级 resolve_database_url（与 make_engine/alembic 同源）。"""
+        return resolve_database_url(url)
 
 
 @lru_cache

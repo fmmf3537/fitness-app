@@ -8,7 +8,7 @@ from sqlalchemy import engine_from_config, pool
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.config import get_settings  # noqa: E402
+from app.config import get_settings, resolve_database_url  # noqa: E402
 from app.models import Base  # noqa: E402
 
 config = context.config
@@ -20,10 +20,11 @@ target_metadata = Base.metadata
 
 
 def get_url() -> str:
-    return (
-        config.get_main_option("sqlalchemy.url")
-        or get_settings().database_url
-    )
+    # 与 make_engine 同源锚定：-x/配置覆盖给出的相对 URL 也锚定到项目根目录
+    override = config.get_main_option("sqlalchemy.url")
+    if override:
+        return resolve_database_url(override)
+    return get_settings().database_url
 
 
 def run_migrations_offline() -> None:
