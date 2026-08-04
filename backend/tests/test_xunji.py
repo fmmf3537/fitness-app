@@ -379,11 +379,14 @@ def test_missing_api_key_raises(session, monkeypatch):
 
 
 @pytest.mark.integration
-@pytest.mark.skipif(not os.getenv("XUNJI_API_KEY"), reason="未配置 XUNJI_API_KEY，跳过真实外呼")
+@pytest.mark.skipif(
+    os.getenv("RUN_XUNJI_INTEGRATION") != "1",
+    reason="真实外呼训记会消耗限频额度，默认跳过；手动运行：$env:RUN_XUNJI_INTEGRATION='1'; pytest -m integration tests/test_xunji.py",
+)
 def test_integration_fetch_real_2026_08_03(session):
     """手动验证：用真实 XUNJI_API_KEY 拉 2026-08-03（当日有真实训练"背二头2"）。
 
-    运行方式：pytest -m integration tests/test_xunji.py
+    运行方式：$env:RUN_XUNJI_INTEGRATION='1'; pytest -m integration tests/test_xunji.py
     """
     from app.adapters.xunji import XunjiClient
 
