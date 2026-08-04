@@ -1,19 +1,22 @@
-"""M3 佳明适配器测试（TDD）。
+"""M3-FIX 佳明适配器测试（TDD，garth 直连中国区版本）。
 
-- garminconnect 库的全部外部调用用 FakeGarmin 桩替代，禁止真实外呼（集成测试除外，默认跳过）；
-- 时钟与睡眠通过注入假实现控制，验证 0.5s 全局限速而不真实等待；
-- 业务侧只应见到 GarminAdapterError，不得泄漏 garminconnect 原始异常。
+- garth 库的全部外部调用用 FakeGarth 桩替代，禁止真实外呼（集成测试除外，默认跳过）；
+- 时钟与睡眠通过注入假实现控制，验证 0.5s 全局限速与 429 退避而不真实等待；
+- 业务侧只应见到 GarminAdapterError，不得泄漏 garth 原始异常。
 """
 import json
 import os
 from datetime import date
 
 import pytest
-from garminconnect.exceptions import GarminConnectAuthenticationError
+import requests
+from garth.exc import GarthException, GarthHTTPError
 
 from app.models import GarminActivity, GarminDaily
 
 DATESTR = "2026-08-03"
+
+ACTIVITIES_PATH = "/activitylist-service/activities/search/activities"
 
 ACTIVITY_1 = {
     "activityId": 9001,
@@ -55,26 +58,27 @@ BODY_BATTERY = [
 ]
 
 
+def make_http_error(status: int) -> GarthHTTPError:
+    """构造与 garth 真实抛出结构一致的 HTTP 错误（含 response.status_code）。"""
+    resp = requests.Response()
+    resp.status_code = status
+    return GarthHTTPError(f"HTTP {status}", requests.HTTPError(response=resp))
+
+
 class FakeGarth:
-    """garth 客户端桩：仅记录 dump 调用。"""
+    """garth 模块桩：configure/login/resume/save/connectapi 全部为本地数据，不触网。"""
 
     def __init__(self):
-        self.dumps: list[str] = []
-
-    def dump(self, path):
-        self.dumps.append(path)
-
-
-class FakeGarmin:
-    """garminconnect.Garmin 桩：全部方法为本地数据，不触网。"""
-
-    def __init__(self):
-        self.garth = FakeGarth()
-        self.login_calls: list = []
-        self.token_login_fails = False  # 模拟 token 过期
+        self.configured_domains: list = []
+        self.login_calls: list[tuple] = []  # (email, password) 凭据全量登录
+        self.resume_calls: list[str] = []  # token 缓存恢复
+        self.save_calls: list[str] = []  # token 保存
+        self.api_calls: list[tuple] = []  # (path, params)
+        self.resume_fails = False  # 模拟 token 缓存失效
         self.credential_login_fails = False
-        self.summary_auth_fails = 0  # 模拟前 N 次 get_user_summary 认证失败
+        self.summary_auth_fails = 0  # 模拟前 N 次 summary 调用 401
         self.activities_error: Exception | None = None
+        self.error_queue: list[Exception] = []  # 接下来 N 次任意 API 调用依次抛出
         self.activities = [ACTIVITY_1, ACTIVITY_2]
         self.details = {"activityId": 9001, "samples": []}
         self.exercise_sets = {"exerciseSets": [{"setType": "ACTIVE", "repetitionCount": 8}]}
@@ -84,41 +88,53 @@ class FakeGarmin:
         self.body_battery = BODY_BATTERY
 
     # ---- 认证 ----
-    def login(self, tokenstore=None):
-        self.login_calls.append(tokenstore)
-        if tokenstore and self.token_login_fails:
-            raise GarminConnectAuthenticationError("token expired")
-        if not tokenstore and self.credential_login_fails:
-            raise RuntimeError("oauth error")
-        return None, None
+    def configure(self, domain=None, **kwargs):
+        self.configured_domains.append(domain)
 
-    # ---- 活动 ----
-    def get_activities_by_date(self, startdate, enddate=None, activitytype=None):
-        if self.activities_error:
-            raise self.activities_error
-        return list(self.activities)
+    def login(self, email, password):
+        if self.credential_login_fails:
+            raise GarthException("oauth error")
+        self.login_calls.append((email, password))
 
-    def get_activity_details(self, activity_id):
-        return dict(self.details, activityId=int(activity_id))
+    def resume(self, dir_path):
+        self.resume_calls.append(dir_path)
+        if self.resume_fails:
+            raise GarthException("token expired")
 
-    def get_activity_exercise_sets(self, activity_id):
-        return dict(self.exercise_sets)
+    def save(self, dir_path):
+        self.save_calls.append(dir_path)
 
-    # ---- 每日健康 ----
-    def get_user_summary(self, cdate):
-        if self.summary_auth_fails > 0:
-            self.summary_auth_fails -= 1
-            raise GarminConnectAuthenticationError("401")
-        return dict(self.summary)
-
-    def get_sleep_data(self, cdate):
-        return self.sleep
-
-    def get_hrv_data(self, cdate):
-        return self.hrv
-
-    def get_body_battery(self, startdate, enddate=None):
-        return self.body_battery
+    # ---- 数据 ----
+    def connectapi(self, path, method="GET", **kwargs):
+        params = kwargs.get("params") or {}
+        self.api_calls.append((path, params))
+        if self.error_queue:
+            raise self.error_queue.pop(0)
+        if path == ACTIVITIES_PATH:
+            if self.activities_error:
+                raise self.activities_error
+            start = int(params.get("start", 0))
+            limit = int(params.get("limit", 20))
+            return self.activities[start : start + limit]
+        if path.startswith("/activity-service/activity/"):
+            if path.endswith("/details"):
+                return dict(self.details)
+            if path.endswith("/exerciseSets"):
+                return dict(self.exercise_sets)
+        if path == "/userprofile-service/socialProfile":
+            return {"displayName": "tester"}
+        if path.startswith("/usersummary-service/usersummary/daily/"):
+            if self.summary_auth_fails > 0:
+                self.summary_auth_fails -= 1
+                raise make_http_error(401)
+            return dict(self.summary)
+        if path.startswith("/wellness-service/wellness/dailySleepData/"):
+            return self.sleep
+        if path.startswith("/hrv-service/hrv/"):
+            return self.hrv
+        if path == "/wellness-service/wellness/bodyBattery/reports/daily":
+            return self.body_battery
+        raise AssertionError(f"FakeGarth 未预期的路径: {path}")
 
 
 class FakeClock:
@@ -142,12 +158,12 @@ def clock():
 
 
 @pytest.fixture
-def fake_garmin():
-    return FakeGarmin()
+def fake_garth():
+    return FakeGarth()
 
 
 @pytest.fixture
-def client(session, fake_garmin, clock, tmp_path):
+def client(session, fake_garth, clock, tmp_path):
     from app.adapters.garmin_adapter import GarminClient
 
     return GarminClient(
@@ -155,7 +171,7 @@ def client(session, fake_garmin, clock, tmp_path):
         email="u@example.com",
         password="pw",
         token_store=tmp_path / "tokens",
-        garmin=fake_garmin,
+        garth=fake_garth,
         sleep=clock.sleep,
         time_fn=clock.time,
     )
@@ -164,48 +180,75 @@ def client(session, fake_garmin, clock, tmp_path):
 # ---------- 登录与 token 缓存 ----------
 
 
-def test_login_uses_cached_token_store(client, fake_garmin, tmp_path):
-    """token 缓存目录存在时直接用缓存恢复会话，不走凭据重登。"""
+def test_login_uses_cached_token_store(client, fake_garth, tmp_path):
+    """token 缓存目录存在时直接 resume 恢复会话，不走凭据重登。"""
     (tmp_path / "tokens").mkdir()
     client.login()
 
-    assert fake_garmin.login_calls == [str(tmp_path / "tokens")]
-    assert fake_garmin.garth.dumps == []
+    assert fake_garth.resume_calls == [str(tmp_path / "tokens")]
+    assert fake_garth.login_calls == []
+    assert fake_garth.save_calls == []
 
 
-def test_login_relogs_with_credentials_when_no_cache(client, fake_garmin, tmp_path):
-    """无缓存时：凭据全量登录并把 token dump 到缓存目录。"""
+def test_login_relogs_with_credentials_when_no_cache(client, fake_garth, tmp_path):
+    """无缓存时：凭据全量登录并把 token save 到缓存目录。"""
     client.login()
 
-    assert fake_garmin.login_calls == [None]
-    assert fake_garmin.garth.dumps == [str(tmp_path / "tokens")]
+    assert fake_garth.login_calls == [("u@example.com", "pw")]
+    assert fake_garth.save_calls == [str(tmp_path / "tokens")]
     assert (tmp_path / "tokens").is_dir()
 
 
-def test_login_falls_back_when_cached_token_expired(client, fake_garmin, tmp_path):
+def test_login_falls_back_when_cached_token_expired(client, fake_garth, tmp_path):
     """缓存 token 过期：自动用 GARMIN_EMAIL/GARMIN_PASSWORD 重登并刷新缓存。"""
     (tmp_path / "tokens").mkdir()
-    fake_garmin.token_login_fails = True
+    fake_garth.resume_fails = True
     client.login()
 
-    assert fake_garmin.login_calls == [str(tmp_path / "tokens"), None]
-    assert fake_garmin.garth.dumps == [str(tmp_path / "tokens")]
+    assert fake_garth.resume_calls == [str(tmp_path / "tokens")]
+    assert fake_garth.login_calls == [("u@example.com", "pw")]
+    assert fake_garth.save_calls == [str(tmp_path / "tokens")]
 
 
-def test_login_failure_wrapped(client, fake_garmin):
+def test_login_failure_wrapped(client, fake_garth):
     """凭据重登也失败：包装为 GarminAdapterError，不泄漏原始异常。"""
     from app.adapters.garmin_adapter import GarminAdapterError
 
-    fake_garmin.credential_login_fails = True
+    fake_garth.credential_login_fails = True
     with pytest.raises(GarminAdapterError):
         client.login()
 
 
-def test_login_only_once_per_client(client, fake_garmin):
-    """同一客户端重复 sync 只登录一次。"""
+def test_login_only_once_per_client(client, fake_garth):
+    """同一客户端重复 sync 只登录一次（resume/login 合计仅一次）。"""
     client.login()
     client.login()
-    assert len(fake_garmin.login_calls) == 1
+    assert len(fake_garth.resume_calls) + len(fake_garth.login_calls) == 1
+
+
+def test_domain_defaults_to_garmin_cn(client, fake_garth):
+    """默认域名为中国区 garmin.cn，登录前完成 configure。"""
+    client.login()
+    assert fake_garth.configured_domains[0] == "garmin.cn"
+
+
+def test_domain_from_env(session, monkeypatch, tmp_path, fake_garth):
+    """GARMIN_DOMAIN 环境变量可覆盖默认域名，不写死。"""
+    from app.adapters.garmin_adapter import GarminClient
+
+    monkeypatch.setenv("GARMIN_DOMAIN", "garmin.com")
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    c = GarminClient(
+        session,
+        email="u@example.com",
+        password="pw",
+        token_store=tmp_path / "t",
+        garth=fake_garth,
+    )
+    c.login()
+    assert fake_garth.configured_domains[0] == "garmin.com"
 
 
 # ---------- 活动同步 ----------
@@ -230,10 +273,10 @@ def test_sync_activities_stores_and_maps_fields(client, session):
     assert raw["exercise_sets"]["exerciseSets"][0]["repetitionCount"] == 8
 
 
-def test_sync_activities_idempotent_upsert(client, session, fake_garmin):
+def test_sync_activities_idempotent_upsert(client, session, fake_garth):
     """重复同步同一天：按 activity_id upsert，不产生重复行，字段更新。"""
     client.sync_activities(DATESTR)
-    fake_garmin.activities = [dict(ACTIVITY_1, calories=500.0), ACTIVITY_2]
+    fake_garth.activities = [dict(ACTIVITY_1, calories=500.0), ACTIVITY_2]
     client.sync_activities(DATESTR)
 
     assert session.query(GarminActivity).count() == 2
@@ -241,9 +284,9 @@ def test_sync_activities_idempotent_upsert(client, session, fake_garmin):
     assert r.calories == 500
 
 
-def test_sync_activities_empty_day(client, session, fake_garmin):
+def test_sync_activities_empty_day(client, session, fake_garth):
     """当日无活动：返回空列表，不写库。"""
-    fake_garmin.activities = []
+    fake_garth.activities = []
     rows = client.sync_activities(DATESTR)
     assert rows == []
     assert session.query(GarminActivity).count() == 0
@@ -270,10 +313,10 @@ def test_sync_daily_stores_fields(client, session):
     assert raw["hrv"]["hrvSummary"]["weeklyAvg"] == 65
 
 
-def test_sync_daily_upsert_by_date(client, session, fake_garmin):
+def test_sync_daily_upsert_by_date(client, session, fake_garth):
     """同一天重复同步：按 date upsert，只一行且字段更新。"""
     client.sync_daily(DATESTR)
-    fake_garmin.summary = dict(SUMMARY, restingHeartRate=55)
+    fake_garth.summary = dict(SUMMARY, restingHeartRate=55)
     client.sync_daily(DATESTR)
 
     assert session.query(GarminDaily).count() == 1
@@ -281,17 +324,17 @@ def test_sync_daily_upsert_by_date(client, session, fake_garmin):
     assert db.resting_hr == 55
 
 
-def test_sync_daily_body_battery_fallback(client, session, fake_garmin):
-    """summary 缺 Body Battery 极值时，从 get_body_battery 明细取最大/最小兜底。"""
-    fake_garmin.summary = {k: v for k, v in SUMMARY.items() if not k.startswith("bodyBattery")}
+def test_sync_daily_body_battery_fallback(client, session, fake_garth):
+    """summary 缺 Body Battery 极值时，从 body battery 明细取最大/最小兜底。"""
+    fake_garth.summary = {k: v for k, v in SUMMARY.items() if not k.startswith("bodyBattery")}
     row = client.sync_daily(DATESTR)
     assert row.body_battery_high == 95
     assert row.body_battery_low == 20
 
 
-def test_sync_daily_no_sleep_data(client, session, fake_garmin):
+def test_sync_daily_no_sleep_data(client, session, fake_garth):
     """当日无睡眠数据：sleep_json 为 NULL，其余字段正常。"""
-    fake_garmin.sleep = None
+    fake_garth.sleep = None
     row = client.sync_daily(DATESTR)
     assert row.sleep_json is None
     assert row.steps == 12345
@@ -302,8 +345,8 @@ def test_sync_daily_no_sleep_data(client, session, fake_garmin):
 
 def test_rate_limit_half_second_between_calls(client, clock):
     """任意两次佳明 API 调用间隔 ≥ 0.5s（跨不同接口的全局限速）。"""
-    client.sync_daily(DATESTR)  # 4 次 API 调用
-    assert len(clock.sleeps) == 3
+    client.sync_daily(DATESTR)  # 5 次 API 调用：profile + summary + sleep + hrv + body battery
+    assert len(clock.sleeps) == 4
     for wait in clock.sleeps:
         assert 0.49 <= wait <= 0.5
 
@@ -312,40 +355,63 @@ def test_rate_limit_applies_across_methods(client, clock):
     """sync_activities 与 sync_daily 之间同样限速。"""
     client.sync_daily(DATESTR)
     client.sync_activities(DATESTR)  # 活动列表 + 2×(详情+组次) = 5 次调用
-    assert len(clock.sleeps) == 3 + 5
+    assert len(clock.sleeps) == 4 + 5
     assert all(0.49 <= w <= 0.5 for w in clock.sleeps)
+
+
+# ---------- 429 指数退避 ----------
+
+
+def test_429_backoff_and_recovery(client, fake_garth, clock):
+    """收到 429 按 60s/300s/900s 指数退避重试，恢复后正常返回。"""
+    fake_garth.error_queue = [make_http_error(429) for _ in range(3)]
+    row = client.sync_daily(DATESTR)
+
+    assert row.steps == 12345
+    assert clock.sleeps[:3] == [60.0, 300.0, 900.0]
+
+
+def test_429_exhausted_raises_adapter_error(client, fake_garth, clock):
+    """429 连续 3 次退避后仍失败：抛 GarminAdapterError。"""
+    from app.adapters.garmin_adapter import GarminAdapterError
+
+    fake_garth.error_queue = [make_http_error(429) for _ in range(4)]
+    with pytest.raises(GarminAdapterError):
+        client.sync_daily(DATESTR)
+    assert clock.sleeps == [60.0, 300.0, 900.0]
 
 
 # ---------- 异常包装 ----------
 
 
-def test_network_error_wrapped_as_adapter_error(client, fake_garmin):
-    """garminconnect 任意原始异常统一包装为 GarminAdapterError。"""
+def test_network_error_wrapped_as_adapter_error(client, fake_garth):
+    """garth 任意原始异常统一包装为 GarminAdapterError。"""
     from app.adapters.garmin_adapter import GarminAdapterError
 
-    fake_garmin.activities_error = ConnectionError("connection reset")
+    fake_garth.activities_error = ConnectionError("connection reset")
     with pytest.raises(GarminAdapterError) as excinfo:
         client.sync_activities(DATESTR)
     assert isinstance(excinfo.value.__cause__, ConnectionError)
 
 
-def test_auth_error_triggers_relogin_and_retry(client, fake_garmin):
+def test_auth_error_triggers_relogin_and_retry(client, fake_garth, tmp_path):
     """API 调用中 token 失效（401）：自动凭据重登一次并重试，调用方无感知。"""
-    (client._token_store).mkdir()
-    fake_garmin.summary_auth_fails = 1
+    (tmp_path / "tokens").mkdir()
+    fake_garth.summary_auth_fails = 1
     row = client.sync_daily(DATESTR)
 
     assert row.steps == 12345
-    # 缓存登录 1 次 + 失效后凭据重登 1 次
-    assert fake_garmin.login_calls == [str(client._token_store), None]
-    assert fake_garmin.garth.dumps == [str(client._token_store)]
+    # 缓存 resume 1 次 + 失效后凭据重登 1 次并刷新缓存
+    assert fake_garth.resume_calls == [str(tmp_path / "tokens")]
+    assert fake_garth.login_calls == [("u@example.com", "pw")]
+    assert fake_garth.save_calls == [str(tmp_path / "tokens")]
 
 
-def test_auth_error_retry_failure_wrapped(client, fake_garmin):
+def test_auth_error_retry_failure_wrapped(client, fake_garth):
     """重登后重试仍失败：包装为 GarminAdapterError。"""
     from app.adapters.garmin_adapter import GarminAdapterError
 
-    fake_garmin.summary_auth_fails = 99
+    fake_garth.summary_auth_fails = 99
     with pytest.raises(GarminAdapterError):
         client.sync_daily(DATESTR)
 
@@ -362,7 +428,7 @@ def test_credentials_from_env_not_hardcoded(session, monkeypatch, tmp_path):
     from app.config import get_settings
 
     get_settings.cache_clear()
-    c = GarminClient(session, token_store=tmp_path / "t", garmin=FakeGarmin())
+    c = GarminClient(session, token_store=tmp_path / "t", garth=FakeGarth())
     assert c._email == "env@example.com"
     assert c._password == "env-pw"
 
@@ -376,16 +442,16 @@ def test_missing_credentials_raises(session, monkeypatch, tmp_path):
 
     get_settings.cache_clear()
     with pytest.raises(RuntimeError):
-        GarminClient(session, token_store=tmp_path / "t", garmin=FakeGarmin())
+        GarminClient(session, token_store=tmp_path / "t", garth=FakeGarth())
 
 
-def test_default_token_store_is_home_dir(session, fake_garmin):
+def test_default_token_store_is_home_dir(session, fake_garth):
     """默认 token 缓存目录为 ~/.garminconnect。"""
     from pathlib import Path
 
     from app.adapters.garmin_adapter import GarminClient
 
-    c = GarminClient(session, email="u@example.com", password="pw", garmin=fake_garmin)
+    c = GarminClient(session, email="u@example.com", password="pw", garth=fake_garth)
     assert c._token_store == Path.home() / ".garminconnect"
 
 
@@ -406,19 +472,17 @@ def test_import_fit_file_not_implemented(client):
     os.getenv("RUN_GARMIN_INTEGRATION") != "1",
     reason="真实外呼佳明易触发 429，默认跳过；手动运行：$env:RUN_GARMIN_INTEGRATION='1'; pytest -m integration",
 )
-def test_integration_fetch_last_3_days(session):
-    """手动验证：真实凭据拉近 3 天活动与健康数据。
+def test_integration_fetch_2026_08_03_strength(session):
+    """手动验证：真实凭据拉 2026-08-03，必须包含 strength_training 活动（该日确定有数据）。
 
     运行方式：pytest -m integration tests/test_garmin_adapter.py
     """
-    from datetime import timedelta
-
     from app.adapters.garmin_adapter import GarminClient
 
     client = GarminClient(session)
-    today = date.today()
-    for i in range(3):
-        datestr = (today - timedelta(days=i)).isoformat()
-        client.sync_activities(datestr)
-        client.sync_daily(datestr)
-    assert session.query(GarminDaily).count() >= 1
+    rows = client.sync_activities(DATESTR)
+    types = {r.activity_type for r in rows}
+    assert "strength_training" in types, f"2026-08-03 未拉到力量训练活动，实际类型: {types}"
+
+    daily = client.sync_daily(DATESTR)
+    assert daily.date == date(2026, 8, 3)

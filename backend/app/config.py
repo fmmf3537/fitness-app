@@ -28,6 +28,8 @@ class Settings:
         self.xunji_body_api_key = os.getenv("XUNJI_BODY_API_KEY", "")
         self.garmin_email = os.getenv("GARMIN_EMAIL", "")
         self.garmin_password = os.getenv("GARMIN_PASSWORD", "")
+        # 佳明域名：中国区 garmin.cn（PRD §6.2），可用 GARMIN_DOMAIN 覆盖
+        self.garmin_domain = os.getenv("GARMIN_DOMAIN", "garmin.cn")
         # LLM Keys
         self.kimi_api_key = os.getenv("KIMI_API_KEY", "")
         self.deepseek_api_key = os.getenv("DEEPSEEK_API_KEY", "")
