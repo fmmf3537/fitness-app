@@ -1,7 +1,26 @@
 """FastAPI 入口。"""
+import os
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
-app = FastAPI(title="Fitness Hub", version="0.1.0")
+from app.api.sync import router as sync_router
+
+_scheduler = None  # 模块级持引用，防止 GC
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global _scheduler
+    if os.getenv("SCHEDULER_ENABLED", "1") == "1":
+        from app.scheduler import create_scheduler
+        _scheduler = create_scheduler()
+        _scheduler.start()
+    yield
+
+
+app = FastAPI(title="Fitness Hub", version="0.1.0", lifespan=lifespan)
+app.include_router(sync_router)
 
 
 @app.get("/health")
