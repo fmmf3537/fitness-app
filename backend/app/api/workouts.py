@@ -29,7 +29,9 @@ def extract_heart_rate_series(raw_json: str | None) -> list[dict]:
     """从佳明活动 raw_json 提取心率序列 [{t, hr}]。
 
     优先识别 garminconnect 活动详情的 metricDescriptors + activityDetailMetrics
-    结构；兜底接受任意 key 含 heart 的纯数值列表。无数据返回 []。
+    结构（真实返回中描述符字段名为 metricsIndex，兼容旧的 index）；
+    其次尝试 heartRateDTOs 列表；兜底接受任意 key 含 heart 的纯数值列表。
+    无数据返回 []。
     """
     raw = _parse_json(raw_json)
     if not isinstance(raw, dict):
@@ -40,7 +42,9 @@ def extract_heart_rate_series(raw_json: str | None) -> list[dict]:
         rows = details.get("activityDetailMetrics") or []
         for d in descriptors:
             key = str(d.get("key") or "").lower()
-            idx = d.get("index")
+            idx = d.get("metricsIndex")
+            if not isinstance(idx, int):
+                idx = d.get("index")
             if "heart" in key and isinstance(idx, int):
                 series = [
                     r["metrics"][idx]
@@ -51,6 +55,19 @@ def extract_heart_rate_series(raw_json: str | None) -> list[dict]:
                     and isinstance(r["metrics"][idx], (int, float))
                 ]
                 return [{"t": i, "hr": int(v)} for i, v in enumerate(series)]
+        # 兜底一：heartRateDTOs 列表（部分活动类型直接返回该结构）
+        hr_dtos = details.get("heartRateDTOs")
+        if isinstance(hr_dtos, list):
+            values = []
+            for item in hr_dtos:
+                if not isinstance(item, dict):
+                    continue
+                for k, v in item.items():
+                    if "heart" in k.lower() and isinstance(v, (int, float)):
+                        values.append(v)
+                        break
+            if values:
+                return [{"t": i, "hr": int(v)} for i, v in enumerate(values)]
     # 兜底：summary/details 下任意 key 含 heart 的数值列表
     for container in (details, raw.get("summary")):
         if isinstance(container, dict):

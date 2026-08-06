@@ -478,11 +478,19 @@ def test_integration_fetch_2026_08_03_strength(session):
     运行方式：pytest -m integration tests/test_garmin_adapter.py
     """
     from app.adapters.garmin_adapter import GarminClient
+    from app.api.workouts import extract_heart_rate_series
 
     client = GarminClient(session)
     rows = client.sync_activities(DATESTR)
     types = {r.activity_type for r in rows}
     assert "strength_training" in types, f"2026-08-03 未拉到力量训练活动，实际类型: {types}"
+
+    # 心率时间序列：真实 details 响应中 heartRateDTOs 可能为 null，
+    # 序列在 activityDetailMetrics（描述符字段名 metricsIndex），必须提取出足够点数
+    strength = next(r for r in rows if r.activity_type == "strength_training")
+    series = extract_heart_rate_series(strength.raw_json)
+    assert len(series) > 100, f"2026-08-03 力量活动心率序列点数不足: {len(series)}"
+    assert all(0 < p["hr"] < 250 for p in series)
 
     daily = client.sync_daily(DATESTR)
     assert daily.date == date(2026, 8, 3)

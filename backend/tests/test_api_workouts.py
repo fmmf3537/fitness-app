@@ -166,3 +166,51 @@ def test_hr_extraction_tolerates_bad_json_and_missing_data():
     assert extract_heart_rate_series("not json") == []
     assert extract_heart_rate_series(json.dumps([1, 2])) == []
     assert extract_heart_rate_series(json.dumps({"details": {"foo": "bar"}})) == []
+
+
+# ---------- 真实佳明返回结构（2026-08-03 strength_training 实测） ----------
+
+# 真实 details 端点返回：描述符字段名为 metricsIndex（非 index），
+# heartRateDTOs 为 null，心率序列在 activityDetailMetrics 中
+REAL_SHAPE_DETAILS = {
+    "metricDescriptors": [
+        {"metricsIndex": 0, "key": "directTimestamp", "unit": "ms"},
+        {"metricsIndex": 1, "key": "directSpeed", "unit": "mps"},
+        {"metricsIndex": 5, "key": "directHeartRate", "unit": "bpm"},
+    ],
+    "activityDetailMetrics": [
+        {"metrics": [1785730731000.0, 0.0, 0.0, 0.0, 0.0, 64.0, 0.0]},
+        {"metrics": [1785730732000.0, 0.0, 0.0, 0.0, 0.0, 66.0, 0.0]},
+        {"metrics": [1785730733000.0, 0.0, 0.0, 0.0, 0.0, 65.0, 0.0]},
+    ],
+    "heartRateDTOs": None,
+}
+
+
+def test_hr_extraction_real_garmin_metrics_index():
+    """真实佳明结构：描述符用 metricsIndex 定位心率列。"""
+    from app.api.workouts import extract_heart_rate_series
+
+    raw = json.dumps(
+        {"summary": {}, "details": REAL_SHAPE_DETAILS, "exercise_sets": None},
+        ensure_ascii=False,
+    )
+    assert extract_heart_rate_series(raw) == [
+        {"t": 0, "hr": 64}, {"t": 1, "hr": 66}, {"t": 2, "hr": 65}
+    ]
+
+
+def test_hr_extraction_heart_rate_dtos_fallback():
+    """部分活动无 activityDetailMetrics 但 heartRateDTOs 非空时，从 DTO 列表提取。"""
+    from app.api.workouts import extract_heart_rate_series
+
+    details = {
+        "heartRateDTOs": [
+            {"timestamp": 1785730731000, "heartRate": 100.0},
+            {"timestamp": 1785730732000, "heartRate": 102.0},
+        ]
+    }
+    raw = json.dumps({"summary": {}, "details": details})
+    assert extract_heart_rate_series(raw) == [
+        {"t": 0, "hr": 100}, {"t": 1, "hr": 102}
+    ]
