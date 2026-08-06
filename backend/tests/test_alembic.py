@@ -19,6 +19,7 @@ EXPECTED_TABLES = {
     "ai_report",
     "llm_call",
     "job_run",
+    "backfill_progress",
 }
 
 

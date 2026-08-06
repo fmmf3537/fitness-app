@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.api.auth import router as auth_router
+from app.api.backfill import router as backfill_router
 from app.api.match_candidates import router as match_candidates_router
 from app.api.settings import router as settings_router
 from app.api.sync import router as sync_router
@@ -29,6 +30,7 @@ app.include_router(sync_router)
 app.include_router(workouts_router)
 app.include_router(match_candidates_router)
 app.include_router(settings_router)
+app.include_router(backfill_router)
 
 
 @app.get("/health")

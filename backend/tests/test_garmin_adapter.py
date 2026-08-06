@@ -494,3 +494,70 @@ def test_integration_fetch_2026_08_03_strength(session):
 
     daily = client.sync_daily(DATESTR)
     assert daily.date == date(2026, 8, 3)
+
+
+
+# ---------- V1-2 全量活动分页拉取（历史导入用） ----------
+
+
+def _make_activities(n: int) -> list[dict]:
+    return [
+        {
+            "activityId": 7000 + i,
+            "activityName": f"活动{i}",
+            "activityType": {"typeKey": "running"},
+            "startTimeLocal": "2020-01-01 08:00:00",
+            "duration": 1800.0,
+            "calories": 200.0,
+            "averageHR": 130.0,
+            "maxHR": 160.0,
+        }
+        for i in range(n)
+    ]
+
+
+def test_sync_all_activities_pages_and_upserts(client, fake_garth, session):
+    """全量分页：每页 page_size 条，逐页落库并回调 on_page(start, page_len)。"""
+    from app.models import GarminActivity
+
+    fake_garth.activities = _make_activities(5)
+    pages: list[tuple[int, int]] = []
+    total = client.sync_all_activities(page_size=2, on_page=lambda s, n: pages.append((s, n)))
+
+    assert total == 5
+    assert pages == [(0, 2), (2, 2), (4, 1)]
+    assert session.query(GarminActivity).count() == 5
+    list_calls = [p for p in fake_garth.api_calls if p[0] == ACTIVITIES_PATH]
+    assert [c[1]["start"] for c in list_calls] == [0, 2, 4]
+    assert all(c[1]["limit"] == 2 for c in list_calls)
+
+
+def test_sync_all_activities_respects_start_offset_and_skip_ids(client, fake_garth, session):
+    """断点续传：start_offset 之后的页才请求；skip_ids 内活动跳过详情拉取。"""
+    from app.models import GarminActivity
+
+    fake_garth.activities = _make_activities(4)
+    # 模拟 7000 已入库（跳过详情），从 offset 2 继续
+    session.add(GarminActivity(activity_id="7000"))
+    session.commit()
+    pages: list[tuple[int, int]] = []
+    total = client.sync_all_activities(
+        page_size=2, start_offset=2, skip_ids={"7002"},
+        on_page=lambda s, n: pages.append((s, n)),
+    )
+
+    list_calls = [p for p in fake_garth.api_calls if p[0] == ACTIVITIES_PATH]
+    assert [c[1]["start"] for c in list_calls] == [2, 4]  # 从 offset=2 续拉，空页收尾
+    detail_calls = [p for p in fake_garth.api_calls if str(p[0]).endswith("/details")]
+    assert len(detail_calls) == 1  # 7002 被跳过，只有 7003 拉详情
+    assert total == 1
+    assert pages == [(2, 2), (4, 0)]
+
+
+def test_sync_all_activities_interval_throttled(client, fake_garth, clock):
+    """页间调用间隔由全局限速保证（每次 connectapi 前至少间隔 0.5s）。"""
+    fake_garth.activities = _make_activities(3)
+    client.sync_all_activities(page_size=1)
+    # 每个活动 3 次调用（list/details/exerciseSets），除首次外每次间隔 0.5s
+    assert clock.sleeps
+    assert all(s == pytest.approx(0.5) for s in clock.sleeps)

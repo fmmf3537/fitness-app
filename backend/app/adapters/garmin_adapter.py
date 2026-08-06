@@ -252,6 +252,50 @@ class GarminClient:
         row.fetched_at = datetime.now()
         return row
 
+    def sync_all_activities(
+        self,
+        *,
+        page_size: int = 100,
+        start_offset: int = 0,
+        skip_ids: set[str] | None = None,
+        on_page: Callable[[int, int], None] | None = None,
+    ) -> int:
+        """全量活动列表分页拉取（V1-2 历史导入，PRD US-5 AC2）。
+
+        - 每页 page_size 条（默认 100），页间间隔由全局限速保证 ≥0.5s；
+        - start_offset：断点续传起始偏移（已完成页不再请求）；
+        - skip_ids：已入库活动的 activity_id，跳过详情拉取（幂等）；
+        - on_page(start, page_len)：每页处理完成后回调（用于进度落库）；
+        - 返回本次新落库（含详情）的活动数。
+        """
+        skip_ids = skip_ids or set()
+        start = start_offset
+        total = 0
+        while True:
+            page = self._api(ACTIVITIES_PATH, params={"start": start, "limit": page_size}) or []
+            for act in page:
+                activity_id = str(act.get("activityId"))
+                if activity_id in skip_ids:
+                    continue
+                details = self._api(
+                    f"{ACTIVITY_PATH}/{activity_id}/details",
+                    params={"maxChartSize": 2000, "maxPolylineSize": 4000},
+                )
+                try:
+                    exercise_sets = self._api(f"{ACTIVITY_PATH}/{activity_id}/exerciseSets")
+                except GarminAdapterError:
+                    # 非力量训练活动可能无组次数据，忽略失败
+                    exercise_sets = None
+                self._upsert_activity(act, details, exercise_sets)
+                total += 1
+            self._session.commit()
+            if on_page:
+                on_page(start, len(page))
+            if len(page) < page_size:
+                break
+            start += page_size
+        return total
+
     # ---------- 每日健康同步 ----------
 
     def sync_daily(self, datestr: str) -> GarminDaily:

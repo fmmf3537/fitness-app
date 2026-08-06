@@ -53,6 +53,10 @@ class Settings:
         self.database_url = self._resolve_database_url(os.getenv("DATABASE_URL"))
         self.fernet_key = os.getenv("FERNET_KEY", "")
         self.app_password = os.getenv("APP_PASSWORD", "")
+        # 历史回溯起点（V1-2）：训记 2023-02 启用；佳明每日健康与之对齐
+        self.backfill_start_date = os.getenv("BACKFILL_START_DATE", "2023-02-01")
+        # 佳明活动列表回溯起点（PRD US-5：2017 年起全量）
+        self.garmin_backfill_start_date = os.getenv("GARMIN_BACKFILL_START_DATE", "2017-01-01")
 
     @staticmethod
     def _resolve_database_url(url: str | None) -> str:

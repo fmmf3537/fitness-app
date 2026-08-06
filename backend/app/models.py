@@ -189,6 +189,25 @@ class LLMCall(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
+class BackfillProgress(Base):
+    """历史导入进度（V1-2）：断点续传依据。
+
+    source: xunji / garmin_activity / garmin_daily / fusion；
+    date: ISO 日期或标记串（page:<offset> / all）；
+    status: done / empty / failed（failed 会在下次运行重试）。
+    """
+
+    __tablename__ = "backfill_progress"
+    __table_args__ = (UniqueConstraint("source", "date", name="uq_backfill_progress_source_date"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source: Mapped[str] = mapped_column(String(30))
+    date: Mapped[str] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(20))
+    detail: Mapped[str | None] = mapped_column(Text)
+    finished_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class JobRun(Base):
     """任务运行日志。"""
 
