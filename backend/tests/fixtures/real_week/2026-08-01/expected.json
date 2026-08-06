@@ -1,0 +1,10 @@
+{
+  "workouts": [
+    {
+      "xunji_localid": null,
+      "garmin_activity_id": "anon-g-1",
+      "match_status": "garmin_only"
+    }
+  ],
+  "candidates": []
+}

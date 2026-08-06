@@ -1,0 +1,15 @@
+{
+  "workouts": [
+    {
+      "xunji_localid": "1785819043860",
+      "garmin_activity_id": "anon-g-1",
+      "match_status": "auto_matched"
+    },
+    {
+      "xunji_localid": null,
+      "garmin_activity_id": "anon-g-2",
+      "match_status": "garmin_only"
+    }
+  ],
+  "candidates": []
+}
