@@ -46,6 +46,9 @@ export default function Layout() {
                   </span>
                 )}
               </NavLink>
+              <NavLink to="/ai-reports" className={linkClass}>
+                AI 报告
+              </NavLink>
             </nav>
           </div>
           <button

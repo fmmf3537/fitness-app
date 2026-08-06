@@ -16,8 +16,10 @@ from typing import Any, Callable
 
 from sqlalchemy.orm import Session
 
+from app.adapters.llm import LLMError
 from app.db import SessionLocal
 from app.models import JobRun
+from app.services.ai import run_daily_reviews
 from app.services.matcher import match_day
 
 # 指数退避（秒）：失败后最多重试 3 次（共 4 次尝试）
@@ -98,6 +100,39 @@ def daily_sync(day, *, session: Session | None = None, xunji=None, garmin=None,
         detail["attempts"] = attempts
         if failed_step is not None:
             detail["failed_step"] = failed_step
+
+        # AI 单次点评：同步成功后为当日 workout 异步生成；失败不影响同步主流程
+        if failed_step is None:
+            try:
+                ai_summary = run_daily_reviews(session, day_date)
+                detail["ai_reviews"] = ai_summary["generated"]
+            except LLMError as exc:
+                detail["ai_reviews_failed"] = True
+                _write_job_run(
+                    session,
+                    "ai_review",
+                    datetime.now(),
+                    {
+                        "date": datestr,
+                        "status": "failed",
+                        "error": str(exc),
+                        "detail": {"date": datestr, "reason": "llm_error"},
+                    },
+                )
+            except Exception as exc:
+                detail["ai_reviews_failed"] = True
+                _write_job_run(
+                    session,
+                    "ai_review",
+                    datetime.now(),
+                    {
+                        "date": datestr,
+                        "status": "failed",
+                        "error": str(exc),
+                        "detail": {"date": datestr, "reason": "unexpected"},
+                    },
+                )
+
         result = {
             "date": datestr,
             "status": "failed" if failed_step else "success",

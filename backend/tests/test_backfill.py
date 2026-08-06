@@ -392,7 +392,8 @@ def _fresh_factory():
 def test_manager_start_runs_thread_and_completes(session, monkeypatch):
     from app.services.backfill import BackfillManager
 
-    _manager_env(monkeypatch, TODAY)
+    # 使用当前真实日期，避免硬编码 TODAY 随系统日期漂移后失败
+    _manager_env(monkeypatch, date.today())
     manager = BackfillManager(
         session_factory=_fresh_factory(),
         xunji_factory=lambda s: FakeXunji(s),
