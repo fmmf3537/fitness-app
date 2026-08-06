@@ -256,9 +256,9 @@ POST https://api.xunjiapp.cn/open/body/upsert_gzip
 
 | Provider | Base URL | 默认模型 | 备注 |
 |---|---|---|---|
-| Kimi | `https://api.moonshot.cn/v1` | `kimi-k2-0905-preview`（以平台最新为准） | OpenAI 兼容；视觉模型用于截图识别 |
-| DeepSeek | `https://api.deepseek.com/v1` | `deepseek-chat` | OpenAI 兼容 |
-| MiniMax | 官方 OpenAI 兼容端点 | 以平台为准 | 预留 |
+| DeepSeek | `https://api.deepseek.com/v1` | `deepseek-chat` | OpenAI 兼容；**2026-08-06 实测可用，V1-1 首发接入** |
+| MiniMax | `https://api.minimaxi.com/v1` | `MiniMax-M2` | OpenAI 兼容；**已实测可用**；M2 为推理模型，输出含 `<think>` 块，适配层须剥离后再落库 |
+| Kimi | `https://api.moonshot.cn/v1` | `kimi-k2-0905-preview`（以平台最新为准） | OpenAI 兼容；用户暂无 Key，V2-1 前补申请；视觉模型用于截图识别（V2-3） |
 
 Key 存 settings 表（加密），设置页可切换默认模型；每次调用写 llm_call 记账。
 
