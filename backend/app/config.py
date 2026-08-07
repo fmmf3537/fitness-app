@@ -13,8 +13,10 @@ from dotenv import load_dotenv
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 ROOT_DIR = BACKEND_DIR.parent
 
-load_dotenv(ROOT_DIR / ".env")
-load_dotenv(BACKEND_DIR / ".env", override=False)
+# 项目 .env 是密钥的唯一权威来源，必须优先于 OS 环境变量（override=True）：
+# 2026-08-07 实测发现 OS 级残留旧 KIMI_API_KEY 会遮蔽 .env 中的新 Key 导致 401
+load_dotenv(ROOT_DIR / ".env", override=True)
+load_dotenv(BACKEND_DIR / ".env", override=True)
 
 DEFAULT_DATABASE_URL = f"sqlite:///{BACKEND_DIR}/data/app.db"
 
