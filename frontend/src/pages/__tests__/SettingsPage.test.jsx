@@ -9,6 +9,7 @@ function mockResponse(data, status = 200) {
 
 const LLM_SETTINGS = {
   default_llm: 'deepseek',
+  suggested_fallback: null,
   providers: [
     {
       name: 'deepseek',
@@ -16,6 +17,7 @@ const LLM_SETTINGS = {
       default_model: 'deepseek-chat',
       implemented: true,
       has_key: true,
+      consecutive_failures: 0,
     },
     {
       name: 'qwen',
@@ -23,6 +25,30 @@ const LLM_SETTINGS = {
       default_model: 'qwen-plus',
       implemented: true,
       has_key: false,
+      consecutive_failures: 0,
+    },
+  ],
+}
+
+const FAILING_SETTINGS = {
+  default_llm: 'deepseek',
+  suggested_fallback: 'minimax',
+  providers: [
+    {
+      name: 'deepseek',
+      base_url: 'https://api.deepseek.com',
+      default_model: 'deepseek-chat',
+      implemented: true,
+      has_key: true,
+      consecutive_failures: 2,
+    },
+    {
+      name: 'minimax',
+      base_url: 'https://api.minimaxi.com',
+      default_model: 'MiniMax-M2',
+      implemented: true,
+      has_key: true,
+      consecutive_failures: 0,
     },
   ],
 }
@@ -43,7 +69,7 @@ const USAGE = {
   ],
 }
 
-function installFetch({ putStatus = 200 } = {}) {
+function installFetch({ putStatus = 200, settings = LLM_SETTINGS } = {}) {
   globalThis.fetch = vi.fn((url, options = {}) => {
     if (url === '/api/settings/llm' && options.method === 'PUT') {
       if (putStatus >= 400) {
@@ -54,7 +80,7 @@ function installFetch({ putStatus = 200 } = {}) {
       )
     }
     if (url === '/api/settings/llm') {
-      return Promise.resolve(mockResponse(LLM_SETTINGS))
+      return Promise.resolve(mockResponse(settings))
     }
     if (url.startsWith('/api/settings/llm/usage')) {
       return Promise.resolve(mockResponse(USAGE))
@@ -137,5 +163,66 @@ describe('SettingsPage', () => {
     globalThis.fetch = vi.fn(() => Promise.resolve(mockResponse({ detail: 'boom' }, 500)))
     render(<SettingsPage />)
     expect(await screen.findByRole('alert')).toBeInTheDocument()
+  })
+
+  // ---------- V2-1：三模型切换与失败降级 ----------
+
+  it('已配置 Key 的非默认 provider 显示「设为默认」快捷按钮，点击仅切默认不传 Key', async () => {
+    const withKey = {
+      ...LLM_SETTINGS,
+      providers: LLM_SETTINGS.providers.map((p) =>
+        p.name === 'qwen' ? { ...p, has_key: true } : p,
+      ),
+    }
+    installFetch({ settings: withKey })
+    const user = userEvent.setup()
+    render(<SettingsPage />)
+    await screen.findByTestId('llm-provider-deepseek')
+
+    const btn = screen.getByTestId('quick-default-qwen')
+    await user.click(btn)
+
+    await vi.waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/settings/llm',
+        expect.objectContaining({
+          method: 'PUT',
+          body: JSON.stringify({ provider: 'qwen', api_key: '', set_default: true }),
+        }),
+      )
+    })
+  })
+
+  it('默认 provider 不提供快捷切换按钮', async () => {
+    render(<SettingsPage />)
+    await screen.findByTestId('llm-provider-deepseek')
+    expect(screen.queryByTestId('quick-default-deepseek')).not.toBeInTheDocument()
+  })
+
+  it('默认模型连续失败 ≥2 次时显示降级横幅，一键切备用模型', async () => {
+    installFetch({ settings: FAILING_SETTINGS })
+    const user = userEvent.setup()
+    render(<SettingsPage />)
+
+    const banner = await screen.findByTestId('llm-fallback-banner')
+    expect(banner.textContent).toContain('deepseek')
+    expect(banner.textContent).toContain('minimax')
+
+    await user.click(screen.getByTestId('fallback-switch-btn'))
+    await vi.waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/settings/llm',
+        expect.objectContaining({
+          method: 'PUT',
+          body: JSON.stringify({ provider: 'minimax', api_key: '', set_default: true }),
+        }),
+      )
+    })
+  })
+
+  it('无连续失败时不显示降级横幅', async () => {
+    render(<SettingsPage />)
+    await screen.findByTestId('llm-provider-deepseek')
+    expect(screen.queryByTestId('llm-fallback-banner')).not.toBeInTheDocument()
   })
 })

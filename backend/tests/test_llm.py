@@ -1,7 +1,7 @@
 """V1-1 多模型统一适配层测试（PRD §6.3，2026-08-06 版）。
 
 覆盖：统一接口返回结构、<think> 剥离（含无闭合标签异常输入）、
-记账字段取自 usage、重试逻辑、成本计算、Kimi 留桩。
+记账字段取自 usage、重试逻辑、成本计算。Kimi 行为见 test_llm_kimi.py（V2-1）。
 """
 import json
 import os
@@ -111,10 +111,6 @@ class TestChat:
         chat([{"role": "user", "content": "hi"}], model_override="deepseek-reasoner", session=session)
         req = json.loads(route.calls.last.request.content)
         assert req["model"] == "deepseek-reasoner"
-
-    def test_kimi_stub_not_implemented(self, session, deepseek_key):
-        with pytest.raises(NotImplementedError):
-            chat([{"role": "user", "content": "hi"}], provider="kimi", session=session)
 
     def test_unknown_provider_raises(self, session, deepseek_key):
         with pytest.raises(LLMError):

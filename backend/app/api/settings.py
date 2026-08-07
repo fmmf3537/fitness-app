@@ -1,6 +1,8 @@
-"""V1-1 LLM 设置 API：GET/PUT /api/settings/llm。
+"""V1-1/V2-1 LLM 设置 API：GET/PUT /api/settings/llm。
 
 PUT 时先调该厂商轻量接口验证 Key 有效再加密保存；无效 Key 拒绝入库。
+V2-1：GET 返回各 provider 连续失败计数与建议备用模型（前端降级提示用）；
+PUT 支持不带 api_key 仅切换默认模型（要求该 provider 已配置 Key）。
 """
 import re
 from datetime import date, datetime
@@ -19,7 +21,7 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 class LLMSettingsPut(BaseModel):
     provider: str
-    api_key: str
+    api_key: str = ""  # V2-1：可为空，仅切换默认模型
     set_default: bool = False
 
 
@@ -33,10 +35,23 @@ def get_llm_settings(session: Session = Depends(get_session)) -> dict:
             "default_model": cfg["default_model"],
             "implemented": cfg["implemented"],
             "has_key": bool(stored.get(name) or llm.resolve_api_key(None, name)),
+            "consecutive_failures": llm.get_consecutive_failures(session, name),
         }
         for name, cfg in llm.PROVIDERS.items()
     ]
-    return {"default_llm": llm.get_default_provider(session), "providers": providers}
+    default = llm.get_default_provider(session)
+    suggested_fallback = None
+    if any(p["name"] == default and p["consecutive_failures"] >= 2 for p in providers):
+        # 默认模型连续失败 ≥2 次：建议切到第一个其他已配置 Key 的 provider
+        suggested_fallback = next(
+            (p["name"] for p in providers if p["name"] != default and p["implemented"] and p["has_key"]),
+            None,
+        )
+    return {
+        "default_llm": default,
+        "suggested_fallback": suggested_fallback,
+        "providers": providers,
+    }
 
 
 @router.get("/llm/usage", dependencies=[Depends(require_auth)])
@@ -95,7 +110,13 @@ def put_llm_settings(req: LLMSettingsPut, session: Session = Depends(get_session
     if not llm.PROVIDERS[req.provider]["implemented"]:
         raise HTTPException(status_code=400, detail=f"provider {req.provider} 尚未接入")
     if not req.api_key.strip():
-        raise HTTPException(status_code=400, detail="api_key 不能为空")
+        # V2-1：仅切换默认模型（要求该 provider 已配置 Key）
+        if not req.set_default:
+            raise HTTPException(status_code=400, detail="api_key 不能为空")
+        if not llm.resolve_api_key(session, req.provider):
+            raise HTTPException(status_code=400, detail=f"provider {req.provider} 未配置 Key，无法设为默认")
+        llm.set_default_provider(session, req.provider)
+        return {"ok": True, "provider": req.provider, "default_llm": llm.get_default_provider(session)}
     if not llm.verify_api_key(req.provider, req.api_key):
         raise HTTPException(status_code=400, detail="Key 验证失败（厂商接口返回非 200），未保存")
     llm.save_api_key(session, req.provider, req.api_key)

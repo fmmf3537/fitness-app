@@ -24,6 +24,21 @@ export default function SettingsPage() {
       .catch((err) => setError(err.status === 401 ? '未登录' : err.message))
   }, [loadSettings])
 
+  // V2-1：仅切换默认模型（不重传 Key）
+  const handleSwitchDefault = (name) => {
+    setError('')
+    setMessage('')
+    api('/api/settings/llm', {
+      method: 'PUT',
+      body: JSON.stringify({ provider: name, api_key: '', set_default: true }),
+    })
+      .then(() => {
+        setMessage(`已切换默认模型为 ${name}`)
+        loadSettings()
+      })
+      .catch((err) => setError(err.status === 401 ? '未登录' : err.message))
+  }
+
   const handleSave = (name) => {
     const apiKey = (keyInputs[name] || '').trim()
     if (!apiKey) return
@@ -54,6 +69,25 @@ export default function SettingsPage() {
       {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
       {message && <p className="text-sm text-green-600">{message}</p>}
 
+      {settings?.suggested_fallback && (
+        <div
+          data-testid="llm-fallback-banner"
+          className="flex flex-wrap items-center gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+        >
+          <span>
+            默认模型 {settings.default_llm} 已连续失败 2 次，可一键切换备用模型（
+            {settings.suggested_fallback}）重试。
+          </span>
+          <button
+            onClick={() => handleSwitchDefault(settings.suggested_fallback)}
+            data-testid="fallback-switch-btn"
+            className="rounded-md bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700"
+          >
+            切换到 {settings.suggested_fallback} 并重试
+          </button>
+        </div>
+      )}
+
       <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
         <h2 className="mb-3 text-sm font-medium text-gray-900">LLM Key 配置</h2>
         {!settings && !error && <p className="text-sm text-gray-500">加载中…</p>}
@@ -80,6 +114,15 @@ export default function SettingsPage() {
                   <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs text-indigo-700">
                     默认
                   </span>
+                )}
+                {p.has_key && settings.default_llm !== p.name && (
+                  <button
+                    onClick={() => handleSwitchDefault(p.name)}
+                    data-testid={`quick-default-${p.name}`}
+                    className="rounded-md border border-indigo-300 px-2 py-0.5 text-xs text-indigo-700 hover:bg-indigo-50"
+                  >
+                    设为默认
+                  </button>
                 )}
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-2">

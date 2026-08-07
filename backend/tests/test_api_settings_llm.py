@@ -1,6 +1,8 @@
-"""V1-1 LLM 设置 API 测试：GET/PUT /api/settings/llm。
+"""V1-1/V2-1 LLM 设置 API 测试：GET/PUT /api/settings/llm。
 
 PUT 时先调厂商轻量接口验证 Key 有效再保存；无效 Key 拒绝入库。
+V2-1：Kimi 已接入；GET 返回各 provider 连续失败计数与建议备用模型；
+PUT 支持不带 api_key 仅切换默认模型。
 """
 import httpx
 import pytest
@@ -64,7 +66,8 @@ class TestGetSettings:
         by_name = {p["name"]: p for p in data["providers"]}
         assert by_name["deepseek"]["default_model"] == "deepseek-chat"
         assert by_name["minimax"]["default_model"] == "MiniMax-M2"
-        assert by_name["kimi"]["implemented"] is False
+        assert by_name["kimi"]["implemented"] is True  # V2-1 已接入
+        assert by_name["kimi"]["default_model"] == "kimi-k2.6"
 
 
 class TestPutSettings:
@@ -113,13 +116,15 @@ class TestPutSettings:
         assert resp.status_code == 200
         assert client.get("/api/settings/llm", headers=auth).json()["default_llm"] == "deepseek"
 
-    def test_kimi_stub_rejected(self, client, auth):
+    @respx.mock
+    def test_kimi_key_accepted_after_v2_1(self, client, auth, session):
+        respx.post("https://api.moonshot.cn/v1/chat/completions").mock(return_value=_ok_resp())
         resp = client.put(
             "/api/settings/llm",
-            json={"provider": "kimi", "api_key": "sk-x"},
+            json={"provider": "kimi", "api_key": "sk-kimi-x"},
             headers=auth,
         )
-        assert resp.status_code == 400
+        assert resp.status_code == 200
 
     def test_unknown_provider_rejected(self, client, auth):
         resp = client.put(
@@ -128,3 +133,89 @@ class TestPutSettings:
             headers=auth,
         )
         assert resp.status_code == 400
+
+
+# ---------- V2-1：仅切换默认模型（不重传 Key） ----------
+
+class TestSwitchDefaultOnly:
+    @respx.mock
+    def test_switch_default_without_key(self, client, auth, session, monkeypatch):
+        """已配置 Key 的 provider 可不带 api_key 直接设为默认。"""
+        monkeypatch.setenv("MINIMAX_API_KEY", "sk-env-minimax")
+        get_settings.cache_clear()
+        try:
+            resp = client.put(
+                "/api/settings/llm",
+                json={"provider": "minimax", "api_key": "", "set_default": True},
+                headers=auth,
+            )
+            assert resp.status_code == 200
+            assert resp.json()["default_llm"] == "minimax"
+        finally:
+            get_settings.cache_clear()
+
+    def test_switch_default_without_configured_key_rejected(self, client, auth, session, monkeypatch):
+        """未配置 Key 的 provider 不允许设为默认。"""
+        monkeypatch.delenv("KIMI_API_KEY", raising=False)  # 排除根目录 .env 真实 Key 干扰
+        get_settings.cache_clear()
+        try:
+            resp = client.put(
+                "/api/settings/llm",
+                json={"provider": "kimi", "api_key": "", "set_default": True},
+                headers=auth,
+            )
+            assert resp.status_code == 400
+        finally:
+            get_settings.cache_clear()
+
+    def test_empty_key_without_set_default_rejected(self, client, auth):
+        resp = client.put(
+            "/api/settings/llm",
+            json={"provider": "deepseek", "api_key": ""},
+            headers=auth,
+        )
+        assert resp.status_code == 400
+
+
+# ---------- V2-1：连续失败计数与备用模型建议 ----------
+
+class TestFailureHealth:
+    def test_get_includes_consecutive_failures_and_fallback(self, client, auth, session, monkeypatch):
+        from app.models import LLMCall
+
+        monkeypatch.setenv("MINIMAX_API_KEY", "sk-env-minimax")
+        get_settings.cache_clear()
+        try:
+            session.add_all([
+                LLMCall(provider="deepseek", model="deepseek-chat", status="ok"),
+                LLMCall(provider="deepseek", model="deepseek-chat", status="error"),
+                LLMCall(provider="deepseek", model="deepseek-chat", status="error"),
+            ])
+            session.commit()
+            resp = client.get("/api/settings/llm", headers=auth)
+            assert resp.status_code == 200
+            data = resp.json()
+            by_name = {p["name"]: p for p in data["providers"]}
+            assert by_name["deepseek"]["consecutive_failures"] == 2
+            assert by_name["minimax"]["consecutive_failures"] == 0
+            # 默认 deepseek 连续失败 ≥2 时给出备用建议（其他已配置 Key 的 provider）
+            assert data["suggested_fallback"] == "minimax"
+        finally:
+            get_settings.cache_clear()
+
+    def test_no_fallback_when_nothing_else_configured(self, client, auth, session, monkeypatch):
+        from app.models import LLMCall
+
+        for k in ("MINIMAX_API_KEY", "KIMI_API_KEY", "DEEPSEEK_API_KEY"):
+            monkeypatch.delenv(k, raising=False)
+        get_settings.cache_clear()
+        try:
+            session.add_all([
+                LLMCall(provider="deepseek", model="m", status="error"),
+                LLMCall(provider="deepseek", model="m", status="error"),
+            ])
+            session.commit()
+            data = client.get("/api/settings/llm", headers=auth).json()
+            assert data["suggested_fallback"] is None
+        finally:
+            get_settings.cache_clear()

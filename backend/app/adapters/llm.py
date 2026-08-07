@@ -1,10 +1,15 @@
-"""多模型统一适配层（PRD §6.3，2026-08-06 版）。
+"""多模型统一适配层（PRD §6.3，2026-08-07 V2-1 版）。
 
 纪律：
 - 统一接口 chat(messages, model_override=None, **opts) ->
   {content, prompt_tokens, completion_tokens}，OpenAI 兼容协议；
 - Provider 注册表按 PRD 三行：DeepSeek（首发默认）、MiniMax（MiniMax-M2，
-  输出含 <think> 块，content 落库前必须剥离）、Kimi（暂留桩 NotImplementedError）；
+  输出含 <think> 块，content 落库前必须剥离）、Kimi（V2-1 接入，默认 kimi-k2.6）；
+- kimi-k2.6 默认开思考模式：reasoning_tokens 计入 completion_tokens，调用时
+  max_tokens 默认留足 2048；响应可能带 reasoning_content 字段，落库只取 content
+  （与 MiniMax <think> 剥离并列处理）；
+- 截图识别走 vision_extract(image_bytes, prompt)：固定 Kimi 多模态，
+  OpenAI 兼容 image_url + base64 消息格式；
 - Key 只从 settings 表（Fernet 加密）或环境变量读取，禁止硬编码；
 - 每次调用写 llm_call 记账：token 数必须取自 API 响应 usage 字段，禁止本地估算；
 - 成本按可配置单价表（环境变量 LLM_PRICES_JSON 覆盖默认表）计算；
@@ -12,6 +17,7 @@
 """
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -40,18 +46,29 @@ PROVIDERS: dict[str, dict[str, Any]] = {
     },
     "kimi": {
         "base_url": "https://api.moonshot.cn/v1",
-        "default_model": "kimi-k2-0905-preview",
-        "implemented": False,  # 用户暂无 Key，V2-1 前补申请（留桩）
+        # 2026-08-07 GET /v1/models 实测在列；k2/k2.5/moonshot-v1 全系列已下线或 8/31 下线，禁用
+        "default_model": "kimi-k2.6",
+        "fallback_model": "kimi-k3",
+        "implemented": True,  # V2-1 接入
     },
 }
+
+# kimi-k2.6 默认开思考模式：reasoning_tokens 计入 completion_tokens，
+# 实测 max_tokens=100 时 99 个全被推理吃光、正文为空 → 默认留足 2048
+KIMI_DEFAULT_MAX_TOKENS = 2048
+# 视觉抽取输出为结构化 JSON，余量加大
+VISION_DEFAULT_MAX_TOKENS = 4096
 DEFAULT_PROVIDER = "deepseek"
 
-# 默认单价表（元 / 1M tokens，刊例占位价，请以各平台最新为准）；
-# 可用环境变量 LLM_PRICES_JSON 覆盖，如 {"deepseek": {"prompt": 2.0, "completion": 8.0}}
+# 默认单价表（元 / 1M tokens，2026-08-07 按各平台定价页校准）；
+# 可用环境变量 LLM_PRICES_JSON 覆盖，如 {"deepseek": {"prompt": 1.0, "completion": 2.0}}
 _DEFAULT_PRICES: dict[str, dict[str, float]] = {
-    "deepseek": {"prompt": 2.0, "completion": 8.0},
+    # deepseek-chat → v4 系列：输入（缓存未命中）1 元 / 输出 2 元（api-docs.deepseek.com）
+    "deepseek": {"prompt": 1.0, "completion": 2.0},
+    # MiniMax-M2：输入 2.1 元 / 输出 8.4 元（platform.minimaxi.com/docs/guides/pricing-paygo）
     "minimax": {"prompt": 2.1, "completion": 8.4},
-    "kimi": {"prompt": 4.0, "completion": 16.0},
+    # kimi-k2.6：输入 6.5 元 / 输出 27 元（platform.kimi.com/docs/pricing）
+    "kimi": {"prompt": 6.5, "completion": 27.0},
 }
 
 MAX_RETRIES = 2  # 失败后重试 2 次，共 3 次尝试
@@ -216,7 +233,7 @@ class LLMClient:
         if self.provider not in PROVIDERS:
             raise LLMError(f"未知 provider：{self.provider}")
         if not PROVIDERS[self.provider]["implemented"]:
-            raise NotImplementedError(f"provider {self.provider} 尚未接入（Kimi 待 V2-1 前补 Key）")
+            raise NotImplementedError(f"provider {self.provider} 尚未接入")
         self._api_key = resolve_api_key(session, self.provider)
         if not self._api_key:
             raise LLMError(f"provider {self.provider} 的 API Key 未配置（settings 表或环境变量）")
@@ -232,12 +249,47 @@ class LLMClient:
     ) -> dict:
         """统一接口：返回 {content, prompt_tokens, completion_tokens}。"""
         model = model_override or PROVIDERS[self.provider]["default_model"]
+        if self.provider == "kimi" and "max_tokens" not in opts:
+            # kimi-k2.6 思考模式会吞 completion_tokens，必须留足推理余量
+            opts["max_tokens"] = KIMI_DEFAULT_MAX_TOKENS
         body = {"model": model, "messages": messages, **opts}
         url = f"{PROVIDERS[self.provider]['base_url']}/chat/completions"
         headers = {"Authorization": f"Bearer {self._api_key}"}
 
         data = self._post_with_retry(url, body, headers, purpose, model)
         return self._parse_and_record(data, purpose, model)
+
+    def vision_extract(
+        self,
+        image_bytes: bytes,
+        prompt: str,
+        *,
+        model_override: str | None = None,
+        max_tokens: int = VISION_DEFAULT_MAX_TOKENS,
+        mime: str = "image/png",
+    ) -> dict:
+        """截图识别（V2-1）：Kimi 多模态，OpenAI 兼容 image_url + base64 消息格式。
+
+        仅 kimi provider 支持（kimi-k2.6/k3 原生视觉）；推理内容不入库，只取 content。
+        """
+        if self.provider != "kimi":
+            raise LLMError("vision_extract 仅支持 kimi provider（多模态）")
+        b64 = base64.b64encode(image_bytes).decode("ascii")
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
+                ],
+            }
+        ]
+        return self.chat(
+            messages,
+            model_override=model_override,
+            purpose="vision_extract",
+            max_tokens=max_tokens,
+        )
 
     def _post_with_retry(
         self, url: str, body: dict, headers: dict, purpose: str | None, model: str
@@ -328,3 +380,42 @@ def chat(
         )
     finally:
         own_session.close()
+
+
+def vision_extract(
+    image_bytes: bytes,
+    prompt: str,
+    *,
+    session: Session | None = None,
+    model_override: str | None = None,
+    max_tokens: int = VISION_DEFAULT_MAX_TOKENS,
+    mime: str = "image/png",
+) -> dict:
+    """模块级截图识别接口：固定走 Kimi 多模态（与默认文本模型无关）。"""
+    if session is not None:
+        return LLMClient(session, "kimi").vision_extract(
+            image_bytes, prompt, model_override=model_override, max_tokens=max_tokens, mime=mime
+        )
+    from app.db import SessionLocal
+
+    own_session = SessionLocal()
+    try:
+        return LLMClient(own_session, "kimi").vision_extract(
+            image_bytes, prompt, model_override=model_override, max_tokens=max_tokens, mime=mime
+        )
+    finally:
+        own_session.close()
+
+
+def get_consecutive_failures(session: Session, provider: str) -> int:
+    """该 provider 最近连续失败次数（llm_call 表尾部 status=error 的条数）。"""
+    rows = session.scalars(
+        select(LLMCall).where(LLMCall.provider == provider).order_by(LLMCall.id.desc())
+    ).all()
+    n = 0
+    for row in rows:
+        if row.status == "error":
+            n += 1
+        else:
+            break
+    return n
