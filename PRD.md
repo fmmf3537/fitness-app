@@ -258,7 +258,7 @@ POST https://api.xunjiapp.cn/open/body/upsert_gzip
 |---|---|---|---|
 | DeepSeek | `https://api.deepseek.com/v1` | `deepseek-chat` | OpenAI 兼容；**2026-08-06 实测可用，V1-1 首发接入** |
 | MiniMax | `https://api.minimaxi.com/v1` | `MiniMax-M2` | OpenAI 兼容；**已实测可用**；M2 为推理模型，输出含 `<think>` 块，适配层须剥离后再落库 |
-| Kimi | `https://api.moonshot.cn/v1` | `kimi-k2-0905-preview`（以平台最新为准） | OpenAI 兼容；用户暂无 Key，V2-1 前补申请；视觉模型用于截图识别（V2-3） |
+| Kimi | `https://api.moonshot.cn/v1` | `kimi-k2.6`（视觉+文本，256k）；备选旗舰 `kimi-k3`（原生视觉，1M） | OpenAI 兼容；用户暂无 Key，V2-1 前补申请；**2026-08-07 核查：k2 系列已下线、k2.5/moonshot-v1 系列 8/31 下线，一律不可用**；截图识别（V2-3）直接用 kimi-k2.6/k3 的多模态能力，无需单独视觉模型 |
 
 Key 存 settings 表（加密），设置页可切换默认模型；每次调用写 llm_call 记账。
 
