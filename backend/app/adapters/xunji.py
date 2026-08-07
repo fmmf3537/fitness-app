@@ -211,17 +211,24 @@ class XunjiClient:
     # ---------- 官方计划（只读） ----------
 
     def fetch_plan_list(self) -> list[XunjiPlan]:
-        """列出官方计划并落库 xunji_plan（按 plan_ref 覆盖，幂等）。"""
+        """列出官方计划并落库 xunji_plan（按 plan_ref 覆盖，幂等）。
+
+        同步解析 list 响应中的 start_date/end_date 写入 date_from/date_to，
+        并清理历史遗留的日期为 NULL 的脏行（V1-4-FIX）。
+        """
         body = {"schema_version": "plan_open_api_v1", "action": "list"}
         data = self._post(PLAN_URL, body, kind="read", rl_key="plan:list")
         plans = (data.get("res") or {}).get("plans") or []
+        self._purge_dirty_plan_rows()
         rows = []
         for plan in plans:
             plan_ref = str(plan.get("plan_ref", ""))
             self._delete_plan_rows(plan_ref)
             row = XunjiPlan(
                 plan_ref=plan_ref,
-                plan_json=json.dumps(plan, ensure_ascii=False),
+                plan_json=json.dumps(plan, ensure_ascii=False, default=str),
+                date_from=self._parse_date(plan.get("start_date")),
+                date_to=self._parse_date(plan.get("end_date")),
                 fetched_at=datetime.now(),
             )
             self._session.add(row)
@@ -229,14 +236,17 @@ class XunjiClient:
         self._session.commit()
         return rows
 
-    def fetch_plan(self, plan_ref: str, start_date: str, end_date: str) -> XunjiPlan:
-        """读取计划详情并落库 xunji_plan（按 plan_ref 覆盖，幂等）。"""
+    def fetch_plan(self, plan_ref: str, start_date: str | date, end_date: str | date) -> XunjiPlan:
+        """读取计划详情并落库 xunji_plan（按 plan_ref 覆盖，幂等）。
+
+        start_date/end_date 接受 str 或 date/datetime，请求体一律序列化为 ISO 字符串。
+        """
         body = {
             "schema_version": "plan_open_api_v1",
             "action": "get",
             "plan_ref": plan_ref,
-            "start_date": start_date,
-            "end_date": end_date,
+            "start_date": self._iso_date(start_date),
+            "end_date": self._iso_date(end_date),
             "include_movements": True,
         }
         data = self._post(PLAN_URL, body, kind="read", rl_key=f"plan:get:{plan_ref}")
@@ -245,7 +255,7 @@ class XunjiClient:
         date_range = res.get("date_range") or {}
         row = XunjiPlan(
             plan_ref=plan_ref,
-            plan_json=json.dumps(res, ensure_ascii=False),
+            plan_json=json.dumps(res, ensure_ascii=False, default=str),
             date_from=self._parse_date(date_range.get("start_date") or start_date),
             date_to=self._parse_date(date_range.get("end_date") or end_date),
             fetched_at=datetime.now(),
@@ -260,8 +270,31 @@ class XunjiClient:
             self._session.delete(old)
         self._session.flush()
 
+    def _purge_dirty_plan_rows(self) -> None:
+        """清理 date_from/date_to 为 NULL 的历史脏行（V1-4-FIX 前的 list 写入遗留）。"""
+        stmt = select(XunjiPlan).where(
+            (XunjiPlan.date_from.is_(None)) | (XunjiPlan.date_to.is_(None))
+        )
+        for old in self._session.scalars(stmt):
+            self._session.delete(old)
+        self._session.flush()
+
     @staticmethod
-    def _parse_date(value: str | None) -> date | None:
+    def _iso_date(value: str | date | datetime) -> str:
+        """date/datetime 统一转 ISO 日期字符串，str 原样透传。"""
+        if isinstance(value, datetime):
+            return value.date().isoformat()
+        if isinstance(value, date):
+            return value.isoformat()
+        return str(value)
+
+    @staticmethod
+    def _parse_date(value: str | date | datetime | None) -> date | None:
+        """解析 ISO 日期；兼容 date/datetime 入参（真实链路防御）。"""
         if not value:
             return None
-        return datetime.strptime(value, "%Y-%m-%d").date()
+        if isinstance(value, datetime):
+            return value.date()
+        if isinstance(value, date):
+            return value
+        return datetime.strptime(str(value), "%Y-%m-%d").date()

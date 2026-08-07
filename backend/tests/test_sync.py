@@ -1,9 +1,14 @@
 """M5 同步编排服务测试：daily_sync / health_check / sync_plan_cache。"""
 import json
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from unittest.mock import Mock
 
-from app.models import GarminActivity, JobRun, Workout, XunjiTrain
+import httpx
+import pytest
+import respx
+
+from app.models import GarminActivity, JobRun, Workout, XunjiPlan, XunjiTrain
 from app.services import sync as sync_mod
 from app.services.sync import RETRY_DELAYS, daily_sync, health_check, sync_plan_cache
 
@@ -283,3 +288,39 @@ def test_sync_plan_cache_failure(session):
     assert "plan list down" in result["error"]
     run = session.query(JobRun).filter(JobRun.job_name == "plan_cache").one()
     assert run.status == "failed"
+
+
+# ---------- V1-4-FIX 真实链路回归 ----------
+
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
+PLAN_URL = "https://api.xunjiapp.cn/open/plan/query_gzip"
+
+
+@respx.mock
+def test_sync_plan_cache_real_chain_with_date_objects(session):
+    """回归：sync_plan_cache 经真实 XunjiClient（respx 拦 HTTP）全链路落库。
+
+    修复前 sync_plan_cache 把 date 对象直接交给 fetch_plan 拼请求体，
+    httpx 序列化报 Object of type date is not JSON serializable。
+    list/get 响应均使用真实 API 抓取的结构（非纯字符串 mock）。
+    """
+    from app.adapters.xunji import XunjiClient
+
+    list_gzip = (FIXTURES / "plan_list_real_gzip.bin").read_bytes()
+    real_get = json.loads((FIXTURES / "plan_get_real.json").read_text(encoding="utf-8"))
+    responses = iter([
+        httpx.Response(200, content=list_gzip),
+        httpx.Response(200, json={"schema_version": "plan_open_api_v1", "res": real_get}),
+    ])
+    respx.post(PLAN_URL).mock(side_effect=lambda request: next(responses))
+    client = XunjiClient(session, api_key="test-key", sleep=_no_sleep)
+
+    result = sync_plan_cache(session=session, xunji=client)
+
+    assert result["status"] == "success", result["error"]
+    rows = session.query(XunjiPlan).all()
+    assert len(rows) == 1
+    assert rows[0].plan_ref == "universal:1"
+    assert rows[0].date_from is not None
+    assert rows[0].date_to is not None
+    assert json.loads(rows[0].plan_json)["days"]

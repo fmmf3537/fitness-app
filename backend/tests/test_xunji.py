@@ -6,7 +6,8 @@
 import gzip
 import json
 import os
-from datetime import datetime
+from datetime import date, datetime
+from pathlib import Path
 
 import httpx
 import pytest
@@ -347,6 +348,71 @@ def test_plan_rate_limit_15s(client, clock):
     waits = [s for s in clock.sleeps if s > 1]
     assert len(waits) == 1
     assert 14.0 <= waits[0] <= 15.0
+
+
+# ---------- V1-4-FIX 真实结构回归 ----------
+
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
+
+# 真实 API get 响应结构（2026-08-07 抓取整理）：date_range + days，日期为 ISO 字符串
+REAL_PLAN_GET = {
+    "plan": {"plan_ref": "universal:1", "title": "分化增肌训练计划", "status": "ended"},
+    "date_range": {"start_date": "2026-07-30", "end_date": "2026-08-05"},
+    "days": [
+        {"date": "2026-07-30",
+         "movements": [{"name": "杠铃划船", "sets": [{"weight": 60, "reps": 10}]}]},
+        {"date": "2026-08-05", "movements": []},
+    ],
+}
+
+
+@respx.mock
+def test_fetch_plan_list_real_fixture_fills_date_range(client, session):
+    """真实 list 响应（gzip 字节流夹具，含 status=ended）：落库须解析出 date_from/date_to。"""
+    content = (FIXTURES / "plan_list_real_gzip.bin").read_bytes()
+    respx.post(PLAN_URL).mock(return_value=httpx.Response(200, content=content))
+
+    rows = client.fetch_plan_list()
+
+    assert len(rows) == 1
+    row = session.query(XunjiPlan).filter_by(plan_ref="universal:1").one()
+    assert row.date_from == date(2026, 7, 30)
+    assert row.date_to == date(2026, 8, 5)
+    assert json.loads(row.plan_json)["status"] == "ended"
+
+
+@respx.mock
+def test_fetch_plan_list_cleans_dirty_null_rows(client, session):
+    """历史脏行（date_from/date_to 为 NULL）在刷新列表时被清理。"""
+    session.add(XunjiPlan(plan_ref="legacy:dirty", plan_json="{}", fetched_at=datetime.now()))
+    session.commit()
+    content = (FIXTURES / "plan_list_real_gzip.bin").read_bytes()
+    respx.post(PLAN_URL).mock(return_value=httpx.Response(200, content=content))
+
+    client.fetch_plan_list()
+
+    dirty = session.query(XunjiPlan).filter(
+        (XunjiPlan.date_from.is_(None)) | (XunjiPlan.date_to.is_(None))
+    ).count()
+    assert dirty == 0
+
+
+@respx.mock
+def test_fetch_plan_accepts_date_objects(client, session):
+    """回归：sync_plan_cache 传 date 对象时请求体必须序列化为 ISO 字符串。"""
+    captured = {}
+
+    def capture(request):
+        captured["body"] = json.loads(request.content.decode("utf-8"))
+        return httpx.Response(200, json={"schema_version": "plan_open_api_v1", "res": REAL_PLAN_GET})
+
+    respx.post(PLAN_URL).mock(side_effect=capture)
+    row = client.fetch_plan("universal:1", date(2026, 8, 7), date(2026, 9, 6))
+
+    assert captured["body"]["start_date"] == "2026-08-07"
+    assert captured["body"]["end_date"] == "2026-09-06"
+    assert row.date_from == date(2026, 7, 30)
+    assert row.date_to == date(2026, 8, 5)
 
 
 # ---------- 密钥来源 ----------

@@ -578,15 +578,16 @@ def query_next_plan_day(
         data = _parse_json(row.plan_json)
         if not isinstance(data, dict):
             continue
-        plan_name = (data.get("plan") or {}).get("name")
+        plan_name = (data.get("plan") or {}).get("name") or (data.get("plan") or {}).get("title")
         for day in data.get("days") or []:
-            day_str = day.get("date")
-            movements = day.get("movements") or []
+            # 真实 get 响应用 datestr + workout.movements；旧结构用 date + movements
+            day_str = day.get("date") or day.get("datestr")
+            movements = day.get("movements") or (day.get("workout") or {}).get("movements") or []
             if not day_str or not movements:
                 continue
             try:
                 day_date = date.fromisoformat(day_str)
-            except ValueError:
+            except (ValueError, TypeError):
                 continue
             if day_date <= current_date or day_date > horizon:
                 continue
@@ -595,9 +596,18 @@ def query_next_plan_day(
                     "plan_ref": row.plan_ref,
                     "plan_name": plan_name,
                     "date": day_str,
-                    "movements": movements,
+                    "movements": [_normalize_plan_movement(mv) for mv in movements],
                 }
     return best
+
+
+def _normalize_plan_movement(mv: dict) -> dict:
+    """计划动作归一化：真实响应的 target_sets 映射为 sets（供 prompt 组装统一读取）。"""
+    if not isinstance(mv, dict):
+        return {"name": str(mv), "sets": []}
+    if mv.get("sets") is None and mv.get("target_sets") is not None:
+        return {**mv, "sets": mv.get("target_sets") or []}
+    return mv
 
 
 def build_next_advice_prompt(
@@ -749,6 +759,25 @@ def generate_next_advice(
     return report
 
 
+def _plan_cache_note(session: Session) -> str:
+    """无下一次训练日时给出可读原因（供 run_daily_next_advices 摘要说明）。"""
+    rows = session.query(XunjiPlan).all()
+    if not rows:
+        return "训记计划缓存为空，无法生成下次训练建议"
+    statuses: set[str] = set()
+    for row in rows:
+        data = _parse_json(row.plan_json)
+        if not isinstance(data, dict):
+            continue
+        # 兼容两种缓存结构：list 行顶层 status / get 行 plan.status
+        status = data.get("status") or (data.get("plan") or {}).get("status")
+        if status:
+            statuses.add(str(status))
+    if statuses and statuses <= {"ended"}:
+        return "训记计划已全部结束（status=ended），无下一次训练日，跳过生成"
+    return "计划缓存覆盖范围内无未来训练日，跳过生成"
+
+
 def run_daily_next_advices(
     session: Session,
     day: date | str,
@@ -758,7 +787,8 @@ def run_daily_next_advices(
     """为某日全部 workout 连锁生成下次训练建议（在单次点评之后触发）。
 
     幂等：同日同 workout 已存在 next_advice 则跳过。
-    返回 summary：{"date", "generated", "skipped", "no_plan", "reports"}。
+    返回 summary：{"date", "generated", "skipped", "no_plan", "note", "reports"}。
+    no_plan > 0 时 note 给出可读原因（如计划 status=ended 优雅跳过）。
     """
     day_date = date.fromisoformat(day) if isinstance(day, str) else day
     workouts = (
@@ -793,5 +823,6 @@ def run_daily_next_advices(
         "generated": len(reports),
         "skipped": skipped,
         "no_plan": no_plan,
+        "note": _plan_cache_note(session) if no_plan else None,
         "reports": reports,
     }

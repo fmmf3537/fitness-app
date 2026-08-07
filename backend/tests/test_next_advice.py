@@ -4,14 +4,17 @@
 - 标准动作名表加载与校验；
 - 结构化 JSON 建议的解析与校验（非法动作名/非法分类被拒）；
 - 两类建议（auto_writable / manual）分类逻辑；
-- 训记计划缓存查询下一次训练日；
+- 训记计划缓存查询下一次训练日（含真实 get 响应结构回归，V1-4-FIX）；
 - prompt 组装注入动作名表；
 - 生成落库 + 幂等 + 单次点评后连锁触发；
 - API 按 type 查询。
 """
 import json
 from datetime import date, timedelta
+from pathlib import Path
 from unittest.mock import Mock
+
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 import pytest
 from tests.conftest import make_garmin_activity, make_xunji_train
@@ -234,6 +237,27 @@ class TestQueryNextPlanDay:
         ])
         assert query_next_plan_day(session, DAY) is None
 
+    def test_real_get_structure_datestr_and_workout_movements(self, session):
+        """V1-4-FIX 回归：真实 get 响应用 datestr + workout.movements + target_sets。"""
+        from app.services.ai import query_next_plan_day
+
+        real = json.loads((FIXTURES / "plan_get_real.json").read_text(encoding="utf-8"))
+        session.add(XunjiPlan(
+            plan_ref="universal:1",
+            plan_json=json.dumps(real, ensure_ascii=False),
+            date_from=date(2026, 8, 7),
+            date_to=date(2026, 9, 6),
+        ))
+        session.commit()
+
+        plan_day = query_next_plan_day(session, date(2026, 8, 6))
+
+        assert plan_day is not None
+        assert plan_day["date"] == "2026-08-07"
+        assert plan_day["movements"][0]["name"] == "杠铃卧推"
+        # target_sets 已归一化为 sets，供 prompt 组装使用
+        assert plan_day["movements"][0]["sets"][0]["weight"] == 32.5
+
 
 # ---------- prompt 组装 ----------
 
@@ -358,6 +382,28 @@ class TestRunDailyNextAdvices:
         summary = run_daily_next_advices(session, DAY, chat_fn=_fake_chat())
         assert summary["generated"] == 0
         assert summary["no_plan"] == 1
+
+    def test_no_plan_note_when_plan_ended(self, session):
+        """V1-4-FIX：缓存计划 status=ended 且无未来训练日时优雅跳过并在摘要中说明。"""
+        from app.services.ai import run_daily_next_advices
+
+        _make_workout(session)
+        row = _make_plan(session, days=[
+            {"date": (DAY - timedelta(days=1)).isoformat(),
+             "movements": [{"name": "杠铃划船"}]},  # 只有过去的训练日
+        ])
+        data = json.loads(row.plan_json)
+        data["plan"]["status"] = "ended"  # 真实缓存结构：计划已结束
+        row.plan_json = json.dumps(data, ensure_ascii=False)
+        session.commit()
+
+        summary = run_daily_next_advices(session, DAY, chat_fn=_fake_chat())
+
+        assert summary["generated"] == 0
+        assert summary["no_plan"] == 1
+        assert "ended" in summary["note"]
+        # 不调用模型、不落库、不报错
+        assert session.query(AIReport).filter_by(type="next_advice").count() == 0
 
 
 class TestSyncChain:
