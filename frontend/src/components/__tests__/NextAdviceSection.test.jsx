@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import NextAdviceSection from '../NextAdviceSection'
 import { parseNextAdvice } from '../../utils/nextAdvice'
 
@@ -8,7 +8,41 @@ function mockResponse(data, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: async () => data }
 }
 
-const WORKOUT = { id: 10, date: '2026-08-03', title: '背部训练' }
+const WORKOUT = {
+  id: 10,
+  date: '2026-08-03',
+  title: '背部训练',
+  xunji_raw: { localid: 111 },
+  movements: [
+    {
+      name: '宽距高位下拉',
+      sets: [{ weight: '50', unit: 'kg', reps: '10', done: true }],
+    },
+  ],
+}
+
+const PREVIEW_RESP = {
+  datestr: '2026-08-03',
+  localid: '111',
+  diff: [
+    { field: 'title', old: '背部训练', new: '背部训练', changed: false },
+    { field: '动作1 宽距高位下拉 第1组 rpe', old: null, new: '8', changed: true },
+  ],
+  train: { datestr: '2026-08-03', localid: 111 },
+}
+
+/** 按 URL 分发 mock：报告 / 预览 / 确认。 */
+function mockFetchFlow({ confirmResp = { status: 'written' } } = {}) {
+  globalThis.fetch = vi.fn((url) => {
+    if (url.startsWith('/api/writeback/preview')) {
+      return Promise.resolve(mockResponse(PREVIEW_RESP))
+    }
+    if (url.startsWith('/api/writeback/confirm')) {
+      return Promise.resolve(mockResponse(confirmResp))
+    }
+    return Promise.resolve(mockResponse({ reports: [REPORT] }))
+  })
+}
 
 const ADVICE_JSON = {
   schema: 'next_advice_v1',
@@ -80,6 +114,10 @@ describe('NextAdviceSection', () => {
     globalThis.fetch = vi.fn(() => Promise.resolve(mockResponse({ reports: [REPORT] })))
   })
 
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   it('按 workout 拉取 next_advice 报告', async () => {
     render(<NextAdviceSection workout={WORKOUT} />)
     expect(await screen.findByText('下次训练建议')).toBeInTheDocument()
@@ -106,13 +144,60 @@ describe('NextAdviceSection', () => {
     expect(manualBlock.textContent).toContain('训记 App')
   })
 
-  it('可自动写回条目带「生成写回预览」按钮，点击展示变更预览', async () => {
+  it('点击「生成写回预览」调用 preview 接口并渲染 diff 表格（变更高亮）', async () => {
     const user = userEvent.setup()
+    mockFetchFlow()
     render(<NextAdviceSection workout={WORKOUT} />)
     const btn = await screen.findByRole('button', { name: '生成写回预览' })
     await user.click(btn)
+
+    // preview 请求体：localid + 应用建议后的 changes
+    const previewCall = globalThis.fetch.mock.calls.find(([url]) =>
+      url.startsWith('/api/writeback/preview'),
+    )
+    expect(previewCall).toBeTruthy()
+    const body = JSON.parse(previewCall[1].body)
+    expect(body.datestr).toBe('2026-08-03')
+    expect(body.localid).toBe(111)
+    expect(body.changes.movements[0].sets[0].rpe).toBe('8')
+
+    // diff 表格：字段/原值/新值三列
     const preview = await screen.findByTestId('writeback-preview-0')
-    expect(preview.textContent).toContain('rpe')
+    expect(preview.textContent).toContain('字段')
+    expect(preview.textContent).toContain('原值')
+    expect(preview.textContent).toContain('新值')
+    const changedCell = await screen.findByText('动作1 宽距高位下拉 第1组 rpe')
+    expect(changedCell.closest('tr').className).toContain('bg-amber')
+  })
+
+  it('「确认写回」弹窗确认后调用 confirm 接口并显示成功', async () => {
+    const user = userEvent.setup()
+    mockFetchFlow()
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    render(<NextAdviceSection workout={WORKOUT} />)
+    await user.click(await screen.findByRole('button', { name: '生成写回预览' }))
+    await user.click(await screen.findByRole('button', { name: '确认写回' }))
+
+    expect(window.confirm).toHaveBeenCalled()
+    const confirmCall = globalThis.fetch.mock.calls.find(([url]) =>
+      url.startsWith('/api/writeback/confirm'),
+    )
+    expect(confirmCall).toBeTruthy()
+    expect(await screen.findByText(/写回成功/)).toBeInTheDocument()
+  })
+
+  it('弹窗取消时不发起真实写回', async () => {
+    const user = userEvent.setup()
+    mockFetchFlow()
+    vi.spyOn(window, 'confirm').mockReturnValue(false)
+    render(<NextAdviceSection workout={WORKOUT} />)
+    await user.click(await screen.findByRole('button', { name: '生成写回预览' }))
+    await user.click(await screen.findByRole('button', { name: '确认写回' }))
+
+    const confirmCall = globalThis.fetch.mock.calls.find(([url]) =>
+      url.startsWith('/api/writeback/confirm'),
+    )
+    expect(confirmCall).toBeUndefined()
   })
 
   it('无报告时显示空状态', async () => {

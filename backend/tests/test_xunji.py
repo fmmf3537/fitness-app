@@ -260,8 +260,8 @@ def test_too_frequent_gives_up_after_3_retries(client):
 
 
 @respx.mock
-def test_upsert_forces_dry_run_true(client):
-    """V1-5 之前所有写回强制 dry_run=True，即使调用方传 False。"""
+def test_upsert_defaults_dry_run_true(client):
+    """V1-5 起解除强制 dry_run，但默认参数仍为 dry_run=True。"""
     captured = []
 
     def capture(request):
@@ -269,7 +269,7 @@ def test_upsert_forces_dry_run_true(client):
         return httpx.Response(200, json={"res": {"summary": "dry run ok"}})
 
     respx.post(UPSERT_URL).mock(side_effect=capture)
-    result = client.upsert_trains([{"datestr": DATESTR, "localid": 111}], dry_run=False)
+    result = client.upsert_trains([{"datestr": DATESTR, "localid": 111}])
 
     body = captured[0]
     assert body["dry_run"] is True
@@ -277,6 +277,21 @@ def test_upsert_forces_dry_run_true(client):
     assert body["client_request_id"]
     assert body["res"] == [{"datestr": DATESTR, "localid": 111}]
     assert result["res"]["summary"] == "dry run ok"
+
+
+@respx.mock
+def test_upsert_explicit_dry_run_false_passes_through(client):
+    """显式 dry_run=False 透传（仅确认接口内部使用）。"""
+    captured = []
+
+    def capture(request):
+        captured.append(json.loads(request.content))
+        return httpx.Response(200, json={"res": {"trains": []}})
+
+    respx.post(UPSERT_URL).mock(side_effect=capture)
+    client.upsert_trains([{"datestr": DATESTR, "localid": 111}], dry_run=False)
+
+    assert captured[0]["dry_run"] is False
 
 
 # ---------- 官方计划 ----------

@@ -3,7 +3,7 @@
 纪律：
 - 所有训记调用必须经过统一的限频装饰器（读 15s / 完整读 30s / 写回 45s，
   按"同一 datestr"维度计时；官方计划按 key+action+plan_ref 15s）；
-- V1-5 之前 upsert_trains 所有代码路径强制 dry_run=True；
+- upsert_trains 默认 dry_run=True，只有写回确认流（services/writeback）才传 dry_run=False；
 - Key 只从环境变量 XUNJI_API_KEY 读取，禁止硬编码；
 - 按 datestr 缓存：同日已拉取过且未强制刷新时直接读库不发请求；
 - 原始响应完整存入 raw_json 字段。
@@ -193,20 +193,26 @@ class XunjiClient:
         row.fetched_at = datetime.now()
         return row
 
-    # ---------- 写回训练（V1-5 之前强制 dry_run） ----------
+    # ---------- 写回训练（V1-5：默认 dry_run，确认流才传 False） ----------
 
     def upsert_trains(self, payload: list[dict], dry_run: bool = True) -> dict:
-        """写回训练。本阶段所有代码路径强制 dry_run=True（忽略入参）。"""
+        """写回训练。默认 dry_run=True；dry_run=False 仅限写回确认流内部调用。"""
         datestrs = sorted({str(r.get("datestr", "")) for r in payload if isinstance(r, dict)})
         rl_key = ",".join(datestrs) or "unknown"
         body = {
             "schema_version": "train_open_api_v2",
             "client_request_id": str(uuid.uuid4()),
-            "dry_run": True,  # 铁律：V1-5 之前强制 dry_run
+            "dry_run": dry_run,
             "include_full_data": False,
             "res": payload,
         }
         return self._post(TRAINS_UPSERT_URL, body, kind="write", rl_key=rl_key)
+
+    def cache_trains(self, datestr: str, trains: list[dict]) -> None:
+        """用服务端返回的标准化训练数据覆盖本地 xunji_train 缓存（PRD §5.4）。"""
+        for train in trains:
+            self._upsert_train(datestr, train)
+        self._session.commit()
 
     # ---------- 官方计划（只读） ----------
 

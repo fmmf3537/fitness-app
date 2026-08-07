@@ -11,6 +11,7 @@ from app.api.match_candidates import router as match_candidates_router
 from app.api.settings import router as settings_router
 from app.api.sync import router as sync_router
 from app.api.workouts import router as workouts_router
+from app.api.writeback import router as writeback_router
 
 _scheduler = None  # 模块级持引用，防止 GC
 
@@ -33,6 +34,7 @@ app.include_router(match_candidates_router)
 app.include_router(settings_router)
 app.include_router(ai_reports_router)
 app.include_router(backfill_router)
+app.include_router(writeback_router)
 
 
 @app.get("/health")
