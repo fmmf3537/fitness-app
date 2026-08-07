@@ -99,3 +99,63 @@ class TestGetAIReport:
     def test_not_found(self, client, auth):
         resp = client.get("/api/ai-reports/999", headers=auth)
         assert resp.status_code == 404
+
+
+class TestRecentAIReports:
+    """省略 date 时返回最近报告列表（V1 前端报告列表页）。"""
+
+    def _make_report(self, session, idx, report_type="session_review", created_at=None):
+        from datetime import datetime as dt
+        report = AIReport(
+            type=report_type,
+            period_start=date(2026, 8, 1 + idx),
+            period_end=date(2026, 8, 1 + idx),
+            model="deepseek-chat",
+            content_md=f"报告{idx}",
+            created_at=created_at or dt(2026, 8, 1 + idx, 10, 0, 0),
+        )
+        session.add(report)
+        session.commit()
+        return report
+
+    def test_requires_auth(self, client):
+        assert client.get("/api/ai-reports").status_code == 401
+
+    def test_returns_recent_reports_desc(self, client, auth, session):
+        for i in range(3):
+            self._make_report(session, i)
+        resp = client.get("/api/ai-reports", headers=auth)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["reports"]) == 3
+        # created_at 倒序
+        created = [r["created_at"] for r in data["reports"]]
+        assert created == sorted(created, reverse=True)
+        item = data["reports"][0]
+        for field in ("id", "type", "date", "model", "created_at", "content_md"):
+            assert field in item
+        assert item["content_md"] == "报告2"
+
+    def test_limit(self, client, auth, session):
+        for i in range(3):
+            self._make_report(session, i)
+        resp = client.get("/api/ai-reports?limit=2", headers=auth)
+        assert resp.status_code == 200
+        assert len(resp.json()["reports"]) == 2
+
+    def test_limit_over_100_returns_422(self, client, auth):
+        assert client.get("/api/ai-reports?limit=101", headers=auth).status_code == 422
+
+    def test_type_filter(self, client, auth, session):
+        self._make_report(session, 0, report_type="session_review")
+        self._make_report(session, 1, report_type="weekly")
+        resp = client.get("/api/ai-reports?type=weekly", headers=auth)
+        assert resp.status_code == 200
+        reports = resp.json()["reports"]
+        assert len(reports) == 1
+        assert reports[0]["type"] == "weekly"
+
+    def test_empty(self, client, auth):
+        resp = client.get("/api/ai-reports", headers=auth)
+        assert resp.status_code == 200
+        assert resp.json()["reports"] == []

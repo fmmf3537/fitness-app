@@ -34,20 +34,32 @@ def _serialize_report(session: Session, report: AIReport) -> dict:
 
 @router.get("")
 def list_ai_reports(
-    date: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    date: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     type: str | None = Query(default=None, pattern=r"^(session_review|next_advice|weekly|monthly)$"),
+    limit: int = Query(default=20, ge=1, le=100),
     session: Session = Depends(get_session),
 ) -> dict:
-    """获取某日 AI 报告；type 缺省为 session_review（保持 V1-3 行为）。"""
-    day = datetime.date.fromisoformat(date)
-    report_type = type or "session_review"
+    """提供 date 时获取某日报告（V1-3 行为不变，type 缺省 session_review）；
+    省略 date 时返回最近报告列表（created_at 倒序，limit 上限 100）。"""
+    if date is not None:
+        day = datetime.date.fromisoformat(date)
+        report_type = type or "session_review"
+        rows = (
+            session.query(AIReport)
+            .filter(AIReport.period_start == day, AIReport.type == report_type)
+            .order_by(AIReport.created_at.desc())
+            .all()
+        )
+        return {"date": date, "reports": [_serialize_report(session, r) for r in rows]}
+    query = session.query(AIReport)
+    if type:
+        query = query.filter(AIReport.type == type)
     rows = (
-        session.query(AIReport)
-        .filter(AIReport.period_start == day, AIReport.type == report_type)
-        .order_by(AIReport.created_at.desc())
+        query.order_by(AIReport.created_at.desc(), AIReport.id.desc())
+        .limit(limit)
         .all()
     )
-    return {"date": date, "reports": [_serialize_report(session, r) for r in rows]}
+    return {"reports": [_serialize_report(session, r) for r in rows]}
 
 
 @router.get("/{report_id}")

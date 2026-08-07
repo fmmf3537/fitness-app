@@ -53,22 +53,46 @@ describe('AIReportsPage', () => {
     vi.useRealTimers()
   })
 
-  it('默认加载当天报告列表', async () => {
+  it('默认进入最近报告模式，加载最近 50 条', async () => {
     render(<AIReportsPage />)
     expect(await screen.findByText('胸部训练')).toBeInTheDocument()
     expect(screen.getByText('背部训练')).toBeInTheDocument()
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      '/api/ai-reports?date=2026-08-03',
+      '/api/ai-reports?limit=50',
       expect.objectContaining({
         headers: expect.objectContaining({ Authorization: 'Bearer test-token' }),
       }),
     )
   })
 
-  it('切换日期会重新拉取数据', async () => {
+  it('切换到按日查询模式后加载当天报告列表', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<AIReportsPage />)
     await screen.findByText('胸部训练')
+
+    await user.click(screen.getByTestId('mode-bydate'))
+
+    await vi.waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenLastCalledWith(
+        '/api/ai-reports?date=2026-08-03',
+        expect.any(Object),
+      )
+    })
+    expect(await screen.findByText('胸部训练')).toBeInTheDocument()
+    expect(screen.getByText('背部训练')).toBeInTheDocument()
+  })
+
+  it('按日模式下切换日期会重新拉取数据', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<AIReportsPage />)
+    await screen.findByText('胸部训练')
+    await user.click(screen.getByTestId('mode-bydate'))
+    await vi.waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenLastCalledWith(
+        '/api/ai-reports?date=2026-08-03',
+        expect.any(Object),
+      )
+    })
 
     const input = screen.getByTestId('date-input')
     await user.clear(input)
@@ -77,6 +101,52 @@ describe('AIReportsPage', () => {
     await vi.waitFor(() => {
       expect(globalThis.fetch).toHaveBeenLastCalledWith(
         '/api/ai-reports?date=2026-08-01',
+        expect.any(Object),
+      )
+    })
+  })
+
+  it('类型筛选切换改变请求参数（最近模式）', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<AIReportsPage />)
+    await screen.findByText('胸部训练')
+
+    await user.click(screen.getByTestId('type-filter-advice'))
+    await vi.waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenLastCalledWith(
+        '/api/ai-reports?limit=50&type=next_advice',
+        expect.any(Object),
+      )
+    })
+
+    await user.click(screen.getByTestId('type-filter-session'))
+    await vi.waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenLastCalledWith(
+        '/api/ai-reports?limit=50&type=session_review',
+        expect.any(Object),
+      )
+    })
+
+    await user.click(screen.getByTestId('type-filter-all'))
+    await vi.waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenLastCalledWith(
+        '/api/ai-reports?limit=50',
+        expect.any(Object),
+      )
+    })
+  })
+
+  it('类型筛选在按日模式下同样生效', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<AIReportsPage />)
+    await screen.findByText('胸部训练')
+
+    await user.click(screen.getByTestId('mode-bydate'))
+    await user.click(screen.getByTestId('type-filter-advice'))
+
+    await vi.waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenLastCalledWith(
+        '/api/ai-reports?date=2026-08-03&type=next_advice',
         expect.any(Object),
       )
     })
@@ -97,9 +167,13 @@ describe('AIReportsPage', () => {
     expect(detail.textContent).toContain('30')
   })
 
-  it('无报告时显示空状态', async () => {
+  it('按日模式无报告时显示空状态', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     globalThis.fetch = vi.fn(() => Promise.resolve(mockResponse(EMPTY_REPORTS)))
     render(<AIReportsPage />)
+    expect(await screen.findByText('暂无 AI 报告')).toBeInTheDocument()
+
+    await user.click(screen.getByTestId('mode-bydate'))
     expect(await screen.findByText('当日暂无 AI 点评')).toBeInTheDocument()
   })
 

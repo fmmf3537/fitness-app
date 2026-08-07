@@ -5,6 +5,17 @@ function formatDateInput(date) {
   return date.toISOString().slice(0, 10)
 }
 
+const TYPE_LABELS = {
+  session_review: '单次点评',
+  next_advice: '下次建议',
+  weekly: '周报',
+  monthly: '月报',
+}
+
+function typeLabel(type) {
+  return TYPE_LABELS[type] || type || '-'
+}
+
 function SimpleMarkdown({ text }) {
   return (
     <div className="space-y-2">
@@ -25,6 +36,8 @@ function SimpleMarkdown({ text }) {
 }
 
 export default function AIReportsPage() {
+  const [mode, setMode] = useState('recent') // recent / bydate
+  const [typeFilter, setTypeFilter] = useState('all') // all / session_review / next_advice
   const [date, setDate] = useState(formatDateInput(new Date()))
   const [reports, setReports] = useState([])
   const [selected, setSelected] = useState(null)
@@ -35,32 +48,87 @@ export default function AIReportsPage() {
     setLoading(true)
     setSelected(null)
     setError('')
-    api(`/api/ai-reports?date=${date}`)
+    const typeParam = typeFilter === 'all' ? '' : `&type=${typeFilter}`
+    const url =
+      mode === 'recent'
+        ? `/api/ai-reports?limit=50${typeParam}`
+        : `/api/ai-reports?date=${date}${typeParam}`
+    api(url)
       .then((data) => {
         setReports(data.reports || [])
       })
       .catch((err) => setError(err.status === 401 ? '未登录' : err.message))
       .finally(() => setLoading(false))
-  }, [date])
+  }, [mode, date, typeFilter])
+
+  const pillClass = (active) =>
+    `rounded-md px-3 py-2 text-sm font-medium ${
+      active ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-200'
+    }`
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-bold text-gray-900">AI 训练点评</h1>
-        <input
-          type="date"
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-          className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
-          data-testid="date-input"
-        />
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex gap-1">
+            <button
+              data-testid="mode-recent"
+              onClick={() => setMode('recent')}
+              className={pillClass(mode === 'recent')}
+            >
+              最近报告
+            </button>
+            <button
+              data-testid="mode-bydate"
+              onClick={() => setMode('bydate')}
+              className={pillClass(mode === 'bydate')}
+            >
+              按日查询
+            </button>
+          </div>
+          <div className="flex gap-1">
+            <button
+              data-testid="type-filter-all"
+              onClick={() => setTypeFilter('all')}
+              className={pillClass(typeFilter === 'all')}
+            >
+              全部
+            </button>
+            <button
+              data-testid="type-filter-session"
+              onClick={() => setTypeFilter('session_review')}
+              className={pillClass(typeFilter === 'session_review')}
+            >
+              单次点评
+            </button>
+            <button
+              data-testid="type-filter-advice"
+              onClick={() => setTypeFilter('next_advice')}
+              className={pillClass(typeFilter === 'next_advice')}
+            >
+              下次建议
+            </button>
+          </div>
+          {mode === 'bydate' && (
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+              data-testid="date-input"
+            />
+          )}
+        </div>
       </div>
 
       {loading && <p className="text-sm text-gray-500">加载中…</p>}
       {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
 
       {!loading && !error && reports.length === 0 && (
-        <p className="text-sm text-gray-500">当日暂无 AI 点评</p>
+        <p className="text-sm text-gray-500">
+          {mode === 'bydate' ? '当日暂无 AI 点评' : '暂无 AI 报告'}
+        </p>
       )}
 
       <div className="grid gap-4 md:grid-cols-3">
@@ -80,6 +148,9 @@ export default function AIReportsPage() {
                 {r.workout_title || '未命名训练'}
               </p>
               <p className="mt-1 text-xs text-gray-500">
+                {typeLabel(r.type)} · {r.date || '-'}
+              </p>
+              <p className="mt-1 text-xs text-gray-500">
                 {r.model} · {r.prompt_tokens}+{r.completion_tokens} tokens
               </p>
             </button>
@@ -94,6 +165,9 @@ export default function AIReportsPage() {
             >
               <div className="mb-4 border-b border-gray-100 pb-4 text-sm text-gray-500">
                 <p>训练：{selected.workout_title || '-'}</p>
+                <p>
+                  类型：{typeLabel(selected.type)} · 日期：{selected.date || '-'}
+                </p>
                 <p>模型：{selected.model || '-'}</p>
                 <p>
                   tokens：{selected.prompt_tokens || 0} / {selected.completion_tokens || 0}

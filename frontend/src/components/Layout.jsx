@@ -49,6 +49,15 @@ export default function Layout() {
               <NavLink to="/ai-reports" className={linkClass}>
                 AI 报告
               </NavLink>
+              <NavLink to="/trends" className={linkClass}>
+                趋势
+              </NavLink>
+              <NavLink to="/backfill" className={linkClass}>
+                导入
+              </NavLink>
+              <NavLink to="/settings" className={linkClass}>
+                设置
+              </NavLink>
             </nav>
           </div>
           <button
