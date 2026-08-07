@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+import copy
 import json
 import threading
 from datetime import date, datetime
@@ -72,11 +73,97 @@ def validate_movement_names(movements: list[dict]) -> None:
             raise WritebackValidationError(f"非标准动作名，禁止写回: {mv.get('name')!r}")
 
 
+def _match_movement_index(pool: list[dict], change: dict, used: set[int]) -> int | None:
+    """动作匹配：按 name（辅以 index 消歧），返回 pool 下标；未匹配返回 None。"""
+    name = (change.get("name") or "").strip()
+    candidates = [
+        i
+        for i, m in enumerate(pool)
+        if i not in used and (m.get("name") or "").strip() == name
+    ]
+    if not candidates:
+        return None
+    ci = change.get("index")
+    if isinstance(ci, int):
+        for i in candidates:
+            if pool[i].get("index") == ci:
+                return i
+    return candidates[0]
+
+
+def _merge_sets(orig_sets: list[dict], change_sets: list[dict]) -> list[dict]:
+    """组级合并：按 index（缺省按顺序）匹配；`_delete: true` 显式删除；
+    未指定的组原样保留；匹配到的组仅覆盖 changes 显式给出的字段。"""
+    sets = list(orig_sets)
+    for pos, cs in enumerate(change_sets):
+        if not isinstance(cs, dict):
+            raise WritebackValidationError("sets 元素必须为对象")
+        target: dict | None = None
+        ci = cs.get("index")
+        if isinstance(ci, int):
+            for s in sets:
+                if s.get("index") == ci:
+                    target = s
+                    break
+            if target is None and 1 <= ci <= len(sets):
+                target = sets[ci - 1]  # 原组无 index 字段时按序号兜底
+        elif pos < len(sets):
+            target = sets[pos]  # 未显式给 index 时才按顺序匹配
+        if cs.get("_delete") is True:
+            if target is not None:
+                sets.remove(target)
+            continue
+        if target is None:
+            sets.append({k: v for k, v in cs.items() if k != "_delete"})
+        else:
+            for k, v in cs.items():
+                if k not in ("index", "_delete"):
+                    target[k] = v
+    return sets
+
+
+def _merge_movements(orig: list[dict], changes: list[dict]) -> list[dict]:
+    """动作级合并：changes 动作按 name（辅以 index）匹配原动作；
+    未在 changes 中出现的原动作原样保留、顺序不变；
+    name 匹配不到的变更动作视为新增动作追加，不得静默丢弃原动作。"""
+    merged = copy.deepcopy(orig)
+    used: set[int] = set()
+    for change in changes:
+        if not isinstance(change, dict):
+            raise WritebackValidationError("movements 元素必须为对象")
+        i = _match_movement_index(merged, change, used)
+        if i is None:
+            appended = copy.deepcopy(change)
+            appended["sets"] = [
+                {k: v for k, v in s.items() if k != "_delete"}
+                for s in (appended.get("sets") or [])
+                if isinstance(s, dict) and s.get("_delete") is not True
+            ]
+            merged.append(appended)
+            continue
+        used.add(i)
+        target = merged[i]
+        for k, v in change.items():
+            if k not in ("name", "sets", "index"):
+                target[k] = v
+        if "sets" in change:
+            change_sets = change["sets"]
+            if not isinstance(change_sets, list):
+                raise WritebackValidationError("sets 必须为数组")
+            target["sets"] = _merge_sets(target.get("sets") or [], change_sets)
+    return merged
+
+
 def build_merged_train(original: dict, datestr: str, changes: dict) -> dict:
-    """把变更合并到原训练上，保留全部元数据。
+    """把变更合并到原训练上，保留全部元数据（V1-5-FIX 三级深度合并）。
 
     以原训练为底（localid/start/end/note/heartRate 等全量保留），
-    仅覆盖 changes 显式给出的 title / movements；datestr 强制为目标日期。
+    datestr 强制为目标日期；title 整体覆盖；movements 三级深度合并：
+    - 动作级：changes 动作按 name（辅以 index）匹配，未提到的原动作原样保留、
+      顺序不变，匹配不到的变更动作作为新增动作追加；
+    - 组级：匹配动作内 sets 按 index（缺省按顺序）匹配合并，未指定的组保留，
+      `_delete: true` 显式删除；
+    - 字段级：被指定的组只覆盖 changes 显式给出的字段，未给字段保留原值。
     """
     if not isinstance(changes, dict):
         raise WritebackValidationError("changes 必须为对象")
@@ -93,7 +180,7 @@ def build_merged_train(original: dict, datestr: str, changes: dict) -> dict:
         if not isinstance(movements, list):
             raise WritebackValidationError("movements 必须为数组")
         validate_movement_names(movements)
-        merged["movements"] = movements
+        merged["movements"] = _merge_movements(original.get("movements") or [], movements)
     return merged
 
 

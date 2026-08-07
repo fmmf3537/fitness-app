@@ -7,9 +7,14 @@
 - 写回成功后服务端返回覆盖缓存 + 当日融合重跑；
 - 约束拒绝：单日 >4 条 / 单训练 >15 动作 / 单动作 >20 组 / 非标准动作名；
 - 每次写回写 job_run 留痕（成功与失败）。
+
+V1-5-FIX：build_merged_train 三级深度合并（动作/组/字段），
+未指定的动作、组、字段一律保留原值，杜绝整体替换式数据丢失。
 """
+import copy
 import json
 from datetime import date, datetime, time as dtime
+from pathlib import Path
 
 import httpx
 import pytest
@@ -193,6 +198,145 @@ def test_diff_marks_changed_fields():
     assert weight_row["changed"] is False
 
 
+# ---------- 深度合并（V1-5-FIX，三级：动作/组/字段） ----------
+
+REAL_0803_FIXTURE = (
+    Path(__file__).parent / "fixtures" / "real_week" / "2026-08-03" / "xunji_trains.json"
+)
+
+
+def _load_real_0803_train() -> dict:
+    """真实数据（已匿名化）：背·二头·2，6 个动作，首个为宽距高位下拉 40kg×10×5。"""
+    data = json.loads(REAL_0803_FIXTURE.read_text(encoding="utf-8"))
+    return json.loads(data[0]["raw_json"])
+
+
+def test_deep_merge_real_2026_08_03_rpe_regression():
+    """真实回归：给 2026-08-03 宽距高位下拉第 1 组标 RPE 8，其余一切原样保留。"""
+    from app.services.writeback import build_diff, build_merged_train
+
+    original = _load_real_0803_train()
+    snapshot = copy.deepcopy(original)
+    changes = {"movements": [{"name": "宽距高位下拉", "sets": [{"index": 1, "rpe": "8"}]}]}
+
+    merged = build_merged_train(original, DATESTR, changes)
+
+    # 纯函数：原对象不被污染
+    assert original == snapshot
+    # 6 个动作完整保留、顺序不变
+    assert len(merged["movements"]) == 6
+    assert [m["name"] for m in merged["movements"]] == [
+        m["name"] for m in snapshot["movements"]
+    ]
+    # 其余 5 个动作完整保留
+    for i in range(1, 6):
+        assert merged["movements"][i] == snapshot["movements"][i]
+    # 目标动作 2~5 组完整保留
+    target = merged["movements"][0]
+    assert len(target["sets"]) == 5
+    assert target["sets"][1:] == snapshot["movements"][0]["sets"][1:]
+    # 第 1 组 reps/time/done 等原值保留，仅 rpe 变为 "8"
+    s1 = target["sets"][0]
+    for k, v in snapshot["movements"][0]["sets"][0].items():
+        assert s1[k] == v, f"字段 {k} 不应被改动"
+    assert s1["rpe"] == "8"
+
+    # diff：changed=true 的行必须只有 rpe 一行
+    diff = build_diff(snapshot, merged)
+    changed_rows = [r for r in diff if r["changed"]]
+    assert len(changed_rows) == 1
+    assert changed_rows[0]["field"] == "动作1 宽距高位下拉 第1组 rpe"
+    assert changed_rows[0]["old"] is None
+    assert changed_rows[0]["new"] == "8"
+
+
+def test_deep_merge_unspecified_movements_preserved():
+    """动作级：changes 未提到的原动作原样保留、顺序不变。"""
+    from app.services.writeback import build_merged_train
+
+    changes = {"movements": [{"name": "杠铃划船", "sets": [{"reps": "12"}]}]}
+    merged = build_merged_train(ORIGINAL_TRAIN, DATESTR, changes)
+
+    assert [m["name"] for m in merged["movements"]] == ["引体向上", "杠铃划船"]
+    assert merged["movements"][0] == ORIGINAL_TRAIN["movements"][0]
+
+
+def test_deep_merge_field_level_preserves_unspecified():
+    """字段级：被指定的组只覆盖显式给出的字段，未给字段保留原值。"""
+    from app.services.writeback import build_merged_train
+
+    changes = {"movements": [{"name": "杠铃划船", "sets": [{"reps": "12"}]}]}
+    merged = build_merged_train(ORIGINAL_TRAIN, DATESTR, changes)
+
+    s = merged["movements"][1]["sets"][0]
+    assert s["reps"] == "12"
+    assert s["weight"] == "60"
+    assert s["unit"] == "kg"
+    assert s["done"] is True
+
+
+def test_deep_merge_movement_level_fields():
+    """动作级：显式给出的动作字段（difficulty）覆盖，sets 未给则原样保留。"""
+    from app.services.writeback import build_merged_train
+
+    changes = {"movements": [{"name": "引体向上", "difficulty": "hard"}]}
+    merged = build_merged_train(ORIGINAL_TRAIN, DATESTR, changes)
+
+    assert merged["movements"][0]["difficulty"] == "hard"
+    assert merged["movements"][0]["sets"] == ORIGINAL_TRAIN["movements"][0]["sets"]
+
+
+def test_deep_merge_unmatched_movement_appended():
+    """动作级：name 匹配不到原动作 → 视为新增动作追加，不得静默丢弃原动作。"""
+    from app.services.writeback import build_merged_train
+
+    changes = {
+        "movements": [
+            {
+                "name": "杠铃卧推",
+                "sets": [{"weight": "60", "unit": "kg", "reps": "10", "done": True}],
+            }
+        ]
+    }
+    merged = build_merged_train(ORIGINAL_TRAIN, DATESTR, changes)
+
+    assert [m["name"] for m in merged["movements"]] == ["引体向上", "杠铃划船", "杠铃卧推"]
+    assert merged["movements"][0] == ORIGINAL_TRAIN["movements"][0]
+    assert merged["movements"][1] == ORIGINAL_TRAIN["movements"][1]
+
+
+def test_deep_merge_set_beyond_range_appended():
+    """组级：changes 组 index 超出原组数 → 作为新组追加，原有组不动。"""
+    from app.services.writeback import build_merged_train
+
+    changes = {
+        "movements": [
+            {
+                "name": "杠铃划船",
+                "sets": [{"index": 2, "weight": "65", "unit": "kg", "reps": "8", "done": True}],
+            }
+        ]
+    }
+    merged = build_merged_train(ORIGINAL_TRAIN, DATESTR, changes)
+
+    sets = merged["movements"][1]["sets"]
+    assert len(sets) == 2
+    assert sets[0] == ORIGINAL_TRAIN["movements"][1]["sets"][0]
+    assert sets[1]["weight"] == "65"
+
+
+def test_deep_merge_delete_set_marker():
+    """组级：_delete 标记显式删除匹配组（AI 建议减组场景），其余组保留。"""
+    from app.services.writeback import build_merged_train
+
+    changes = {"movements": [{"name": "引体向上", "sets": [{"index": 2, "_delete": True}]}]}
+    merged = build_merged_train(ORIGINAL_TRAIN, DATESTR, changes)
+
+    sets = merged["movements"][0]["sets"]
+    assert len(sets) == 1
+    assert sets[0]["reps"] == "8"
+
+
 # ---------- 预览：只读不写 ----------
 
 
@@ -352,10 +496,18 @@ def test_confirm_rejects_more_than_15_movements(service, session):
 
     seed_train(session)
     upsert_spy = respx.post(UPSERT_URL).mock(return_value=httpx.Response(200, json={"res": {}}))
+    # 深度合并语义下同名词会合并，故用 16 个互不相同的动作名（均为标准名表内）
+    # 使合并结果 >15 个动作，触发上限拒绝
+    names = [
+        "负重颈弯举", "下斜悍马机推胸", "跪姿前伸手", "单手悍马机下拉",
+        "器械划船1", "抓举", "史密斯罗马尼亚硬拉", "坐姿器械卷腹",
+        "对握引体向上", "悍马机侧平举", "滑雪机", "器械臀冲",
+        "弹力带侧躺腿外展", "哑铃上凳", "器械划船2", "杠铃卧推",
+    ]
     changes = {
         "movements": [
-            {"name": "杠铃卧推", "sets": [{"weight": "60", "reps": "10"}]}
-            for _ in range(16)
+            {"name": n, "sets": [{"weight": "60", "reps": "10"}]}
+            for n in names
         ]
     }
     with pytest.raises(WritebackValidationError):
