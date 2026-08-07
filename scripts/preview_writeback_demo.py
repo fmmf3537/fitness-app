@@ -1,6 +1,7 @@
 """V1-5-FIX 验证脚本：真实跑一次写回 preview（只读），证明 diff changed 行精确。
 
-场景：给 2026-08-03「宽距高位下拉」第 1 组标 RPE 8。
+场景：给 2026-08-03「宽距高位下拉」第 1 组标 RPE 9（演示用假设变更，只预览不写回；
+该组服务器真实值已为 RPE 8——2026-08-07 真实写回已落账，故预览 old=8 -> new=9）。
 纪律：preview 路径只做 include_full_data=true 读，绝不调用写回接口；
       本脚本额外把 upsert_trains 替换为直接抛错，双保险禁止任何真实写回外呼。
 
@@ -25,7 +26,7 @@ from app.models import XunjiTrain  # noqa: E402
 from app.services.writeback import WritebackService  # noqa: E402
 
 DATESTR = "2026-08-03"
-CHANGES = {"movements": [{"name": "宽距高位下拉", "sets": [{"index": 1, "rpe": "8"}]}]}
+CHANGES = {"movements": [{"name": "宽距高位下拉", "sets": [{"index": 1, "rpe": "9"}]}]}
 
 
 def main() -> None:
@@ -70,7 +71,8 @@ def main() -> None:
 
         assert len(changed) == 1, f"changed 行应精确只有 1 行，实际 {len(changed)}"
         assert changed[0]["field"].endswith("第1组 rpe"), changed[0]
-        assert changed[0]["new"] == "8"
+        assert changed[0]["old"] == "8"  # 服务器真实值（2026-08-07 真实写回落账）
+        assert changed[0]["new"] == "9"
         print("\n✔ 验证通过：changed 行精确只有 rpe 一行，全程零写回外呼")
     finally:
         session.close()

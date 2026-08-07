@@ -2,6 +2,8 @@
 
 > Sprint 1（M1/M2/M3/M3-FIX）复盘 · 2026-08-04
 > Sprint 2（M4/M5/M6/M7，MVP 里程碑）复盘 · 2026-08-06（见第四节起）
+> Sprint 3（V1-1/V1-2/V1-3）复盘 · 2026-08-07（见第六节）
+> Sprint 4（V1-4/V1-5/V1-6/V1-7，V1 里程碑 v1.0）复盘 · 2026-08-07（见第七节）
 > 每条注明：来源任务 / 影响 / 建议处理时机。
 
 ## 一、实现与 PRD 的偏差
@@ -140,3 +142,63 @@
 | T17 | sync 内 AI 点评为同步串行，docstring 称"异步" | US-6 AC1 核对 | 措辞误导；同步日 LLM 延迟拉长任务 | 改注释，或 V2 移入后台任务 + 完成通知 |
 
 **评审结论**：Sprint 3 目标（LLM 层、历史导入、AI 点评）核心闭环达成，测试与覆盖率达标；US-5 AC4（前端进度页）、US-6 AC2（准备度）、US-9 AC2（月度汇总）三处部分缺口已登记 T12-T14，不阻塞进入 V1-4。训记 127 条导入量待用户确认后归档。
+
+---
+
+## 七、Sprint 4（V1-4 下次建议 / V1-5 写回 / V1-6 趋势与报告 / V1-7 身体数据）评审与复盘 · 2026-08-07（V1 里程碑，tag v1.0）
+
+### 7.1 测试与覆盖率
+
+- 后端：`426 passed / 3 skipped`（3 条均为显式门禁的真实 API 集成测试），总覆盖率 **94.44%**（≥85% 达标）；
+  核心服务 matcher/fuse/stats/models 100%，writeback 88%（未覆盖行均为真实外呼与兜底分支）。
+- 前端：Vitest `97 passed`（15 个测试文件）；`npm run build` 通过；oxlint `0 warnings / 0 errors`。
+- 与 2026-08-07 实地验收基线逐项一致，无回归。
+
+### 7.2 US-7 / US-8 / US-12 验收标准逐条核对
+
+| AC | 判定 | 证据 / 说明 |
+|----|------|-------------|
+| US-7 AC1 训记官方计划只读缓存 | ✅ | `sync_plan_cache` job_run 成功留痕；`query_next_plan_day` 只读本地 `xunji_plan`，生成建议时不发网络请求；当前缓存 universal:1（2026-08-07 起新周期） |
+| US-7 AC2 建议到动作/重量/组/次粒度 | ✅ | `next_advice_v1` JSON schema 强制校验 + 标准动作名白名单；ai_report #4（DeepSeek，8123+2383 tokens）与训记计划 API 逐条对照一致（实地验收） |
+| US-7 AC3 前端两类呈现（可写回带 diff 确认 / 需手动附指引） | ✅ | `classify_suggestions` 分类；NextAdviceSection「生成写回预览」调 preview 渲染 diff 高亮表，11 个前端测试覆盖 |
+| US-8 AC1 写回前展示 diff，确认才执行 | ✅ | preview 只读原训练生成本地 diff，结构上不调用写回接口；confirm 是唯一 `dry_run=False` 路径（进程内串行锁） |
+| US-8 AC2 保留 localid/start/end/note 元数据 | ✅ | `build_merged_train` 三级深合并（V1-5-FIX 修复整体替换丢数据）；真实写回服务器回查 6 动作 22 组分毫不差 |
+| US-8 AC3 服务端返回覆盖本地缓存 | ✅ | `cache_trains` 用服务端标准化 res 覆盖 + 当日融合重跑更新 workout |
+| US-8 AC4 45s 写回限频排队 | ✅ | 适配器 write 档 45s（按 datestr 维度）+ confirm 串行锁排队 |
+| US-12 AC1 四类指标录入，date+type upsert | ✅ | height/weight/bp_systolic/bp_diastolic/blood_glucose，同日同类型覆盖；前后端测试覆盖 |
+| US-12 AC2 趋势曲线 + 体重与容量同屏对照 | ✅ | `/api/stats/trends` 同返 weekly_volume 与 body_metrics；周容量复核 2026-07-20 周 = **22.32 吨**，与手算锚点一致 |
+| US-12 AC3 体重同步训记三段式 | ✅ | 真实链路演示见 7.4：预览取 res.summary、未确认拒绝、confirmed 写入、服务器回查落账 |
+| US-12 AC4 身高/血压/血糖仅本地，界面标注 | ✅ | `SYNCABLE_TYPES={weight, bodyfat}`，其余类型同步请求 400 拒绝；前端标注「仅本地」 |
+| US-12 AC5 首次引导录入身高，按 date 存历史 | ✅ | 前端引导 + date+type upsert 保留历史 |
+| US-12 AC6 AI 点评/复盘上下文纳入近 4 周体重趋势 | ✅ | `query_recovery_summary` 输出 weight_trend 进 prompt，测试锁定 |
+
+### 7.3 高危项复查（grep 全仓 + 代码走查）
+
+1. **硬编码密钥**：全仓 grep（`xjbody_`/`Bearer '...'`/`api_key=`/`password=`/`sk-` 等模式）仅命中文档说明与测试占位符，应用代码零硬编码；所有 Key 经 `config.py` 从环境变量读取，LLM Key 经 Fernet 加密入 settings 表。✅
+2. **写回默认 dry_run**：`upsert_trains(dry_run=True)` / `upsert_body_metrics(dry_run=True)` 默认预览；全仓仅两处 `dry_run=False`——writeback confirm 与身体数据 confirmed=True 路径；后者未确认时抛 ValueError 且不发请求。✅
+3. **限频装饰器覆盖**：所有 `xunjiapp.cn` 请求收敛于 `XunjiClient._post`（`@rate_limited`，读 15s/完整读 30s/写 45s，too frequent 按 retry_after_ms 重试 ≤3 次）；身体数据客户端继承复用，无旁路外呼。✅
+
+### 7.4 真实链路演示记录（2026-08-07 复跑）
+
+**写回确认流 dry_run 预览**（`scripts/preview_writeback_demo.py`，2026-08-03「背·二头·2」，upsert 外呼已被脚本强制禁用双保险）：
+- 假设变更「宽距高位下拉 第1组 RPE 8→9」，diff 共 **145 行，changed=true 精确 1 行**（old='8' 即 08-07 真实写回落账值，反向印证写回持久化）；合并后 6 动作 22 组与服务器一致；全程零写回外呼。
+
+**体重同步训记三段式**（`scripts/sprint4_body_sync_demo.py`，真实链路）：
+1. dry_run=True 预览：返回 res.summary（体重 88kg），不发真实写入；
+2. 门禁校验：dry_run=False 且未 confirmed → ValueError 拒绝且不外呼；
+3. confirmed=True 真实写入（同值 upsert，幂等）；
+4. 服务器回查：2026-08-07 weight=88 落账（记录 id **13063090**，与实地验收锚点一致）；
+5. 附：height 不在 SYNCABLE_TYPES，同步门禁正确。
+
+**数据存量锚点复核**：body_metric 2 条（08-07 weight 88.0 已同步 / height 178 仅本地）✅；ai_report 4 条（#4 next_advice DeepSeek 8123+2383）✅；xunji_train 08-03 六动作 22 组、宽距高位下拉第 1 组 rpe='8' ✅；job_run writeback/health_check 成功留痕 ✅。
+
+### 7.5 Sprint 4 新增技术债（设计内遗留，不阻塞 v1.0）
+
+| # | 事项 | 来源 | 影响 | 建议处理 |
+|---|------|------|------|----------|
+| T18 | 训记身体数据 API 录入侧真实联调仅覆盖 weight | V1-7 | bodyfat/围度写入路径未实测（代码同构，风险低） | V2 期间补 bodyfat 实测 |
+| T19 | 前端 echarts chunk >500kB 构建警告 | V1-6 | 首屏加载体积偏大 | V2-5 部署前做 code splitting / 按需引入 |
+| T20 | Kimi Provider 仍为桩实现 | V1-1 | 截图识别（V2-3）依赖 Kimi 视觉模型 | V2-1 用户补申请 Key 后接入 |
+| T21 | 写回预览依赖 30s 完整读，连续演示/操作有等待感 | V1-5 演示 | UX 层面可接受，无限频风险 | 可选：预览缓存 diff 基准，确认时复用 |
+
+**评审结论**：US-7 / US-8 / US-12 全部 AC 达成；测试基线（后端 426+3 / 94.44%，前端 97，build/oxlint 通过）与实地验收一致；两项真实链路演示复跑通过，服务器回查与锚点分毫不差；高危项复查全绿。**V1 里程碑达成，打 tag `v1.0`。** 遗留 T18-T21 登记跟踪，不阻塞发布。
