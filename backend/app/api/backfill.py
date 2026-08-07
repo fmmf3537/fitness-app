@@ -1,7 +1,12 @@
 """V1-2 历史导入 API：POST /api/backfill/start 启动后台导入，GET /api/backfill/status 查进度。"""
 from fastapi import APIRouter, Depends
 
-router = APIRouter(prefix="/api/backfill", tags=["backfill"])
+from app.api.auth import require_auth
+
+router = APIRouter(
+    prefix="/api/backfill", tags=["backfill"],
+    dependencies=[Depends(require_auth)],
+)
 
 
 def get_backfill_manager():

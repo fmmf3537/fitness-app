@@ -30,7 +30,12 @@ class FakeManager:
 
 
 @pytest.fixture
-def client(env_vars):
+def client(env_vars, monkeypatch):
+    monkeypatch.setenv("APP_PASSWORD", "test-pass")
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+
     from app.api.backfill import get_backfill_manager
 
     manager = FakeManager()
@@ -39,25 +44,45 @@ def client(env_vars):
         c.manager = manager
         yield c
     app.dependency_overrides.clear()
+    get_settings.cache_clear()
 
 
-def test_start_returns_started(client):
+@pytest.fixture
+def auth(client):
+    token = client.post("/api/auth/login", json={"password": "test-pass"}).json()["token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
+def test_start_requires_auth(client):
+    """未登录调用 /api/backfill/start 必须 401，且不触发导入。"""
     resp = client.post("/api/backfill/start")
+    assert resp.status_code == 401
+    assert client.manager.start_calls == 0
+
+
+def test_status_requires_auth(client):
+    """未登录调用 /api/backfill/status 必须 401。"""
+    resp = client.get("/api/backfill/status")
+    assert resp.status_code == 401
+
+
+def test_start_returns_started(client, auth):
+    resp = client.post("/api/backfill/start", headers=auth)
     assert resp.status_code == 200
     assert resp.json()["started"] is True
     assert client.manager.start_calls == 1
 
 
-def test_start_twice_does_not_duplicate(client):
-    client.post("/api/backfill/start")
-    resp = client.post("/api/backfill/start")
+def test_start_twice_does_not_duplicate(client, auth):
+    client.post("/api/backfill/start", headers=auth)
+    resp = client.post("/api/backfill/start", headers=auth)
     assert resp.json()["started"] is False
     assert client.manager.start_calls == 2
 
 
-def test_status_returns_progress_json(client):
-    client.post("/api/backfill/start")
-    resp = client.get("/api/backfill/status")
+def test_status_returns_progress_json(client, auth):
+    client.post("/api/backfill/start", headers=auth)
+    resp = client.get("/api/backfill/status", headers=auth)
     assert resp.status_code == 200
     data = resp.json()
     assert data["running"] is True
