@@ -52,6 +52,9 @@ export default function Layout() {
               <NavLink to="/trends" className={linkClass}>
                 趋势
               </NavLink>
+              <NavLink to="/body-metrics" className={linkClass}>
+                身体数据
+              </NavLink>
               <NavLink to="/backfill" className={linkClass}>
                 导入
               </NavLink>

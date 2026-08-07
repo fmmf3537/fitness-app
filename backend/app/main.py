@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from app.api.ai_reports import router as ai_reports_router
 from app.api.auth import router as auth_router
 from app.api.backfill import router as backfill_router
+from app.api.body_metrics import router as body_metrics_router
 from app.api.match_candidates import router as match_candidates_router
 from app.api.settings import router as settings_router
 from app.api.stats import router as stats_router
@@ -37,6 +38,7 @@ app.include_router(stats_router)
 app.include_router(ai_reports_router)
 app.include_router(backfill_router)
 app.include_router(writeback_router)
+app.include_router(body_metrics_router)
 
 
 @app.get("/health")
