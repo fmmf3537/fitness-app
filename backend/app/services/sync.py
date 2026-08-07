@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from app.adapters.llm import LLMError
 from app.db import SessionLocal
 from app.models import JobRun
-from app.services.ai import run_daily_reviews
+from app.services.ai import run_daily_next_advices, run_daily_reviews
 from app.services.matcher import match_day
 
 # 指数退避（秒）：失败后最多重试 3 次（共 4 次尝试）
@@ -106,6 +106,9 @@ def daily_sync(day, *, session: Session | None = None, xunji=None, garmin=None,
             try:
                 ai_summary = run_daily_reviews(session, day_date)
                 detail["ai_reviews"] = ai_summary["generated"]
+                # V1-4：单次点评生成后连锁触发下次训练建议
+                advice_summary = run_daily_next_advices(session, day_date)
+                detail["next_advices"] = advice_summary["generated"]
             except LLMError as exc:
                 detail["ai_reviews_failed"] = True
                 _write_job_run(

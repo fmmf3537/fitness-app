@@ -35,13 +35,15 @@ def _serialize_report(session: Session, report: AIReport) -> dict:
 @router.get("")
 def list_ai_reports(
     date: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    type: str | None = Query(default=None, pattern=r"^(session_review|next_advice|weekly|monthly)$"),
     session: Session = Depends(get_session),
 ) -> dict:
-    """获取某日全部 AI 报告。"""
+    """获取某日 AI 报告；type 缺省为 session_review（保持 V1-3 行为）。"""
     day = datetime.date.fromisoformat(date)
+    report_type = type or "session_review"
     rows = (
         session.query(AIReport)
-        .filter(AIReport.period_start == day, AIReport.type == "session_review")
+        .filter(AIReport.period_start == day, AIReport.type == report_type)
         .order_by(AIReport.created_at.desc())
         .all()
     )

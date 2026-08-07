@@ -1,14 +1,17 @@
-"""V1-3 AI 单次训练点评服务（type='session_review'）。
+"""AI 报告服务：V1-3 单次训练点评（session_review）+ V1-4 下次训练建议（next_advice）。
 
 纪律：
 - prompt 组装函数纯函数化，方便测试；
 - 历史与恢复数据查询独立封装，便于 mock；
 - 生成失败抛 LLMError，由调用方（daily_sync）捕获并写 job_run，不阻塞主流程；
-- 不直接操作 HTTP，统一调用 adapters/llm.chat。
+- 不直接操作 HTTP，统一调用 adapters/llm.chat；
+- next_advice 只读 xunji_plan 本地缓存，不在生成时发起网络请求（限频纪律）；
+- next_advice 的 AI 输出必须通过结构化 JSON 校验（含标准动作名白名单）才允许落库。
 """
 from __future__ import annotations
 
 import json
+import re
 from datetime import date, datetime, timedelta
 from typing import Any, Callable
 
@@ -16,7 +19,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.adapters import llm
-from app.models import AIReport, BodyMetric, GarminDaily, Workout
+from app.models import AIReport, BodyMetric, GarminDaily, Workout, XunjiPlan
+from app.movements import load_movement_names
 
 PROMPT_SECTIONS = ("完成质量", "与历史对比", "恢复评估", "注意事项")
 
@@ -477,5 +481,317 @@ def run_daily_reviews(
         "date": day_date.isoformat(),
         "generated": len(reports),
         "skipped": skipped,
+        "reports": reports,
+    }
+
+
+# =====================================================================
+# V1-4 下次训练建议（type='next_advice'）
+# =====================================================================
+
+ADVICE_JSON_SCHEMA = "next_advice_v1"
+ADVICE_CATEGORIES = ("auto_writable", "manual")
+_ADVICE_BLOCK_RE = re.compile(r"```json\s*\n(.*?)\n```", re.S)
+
+
+class NextAdviceParseError(ValueError):
+    """下次训练建议的结构化 JSON 解析/校验失败。"""
+
+
+def parse_next_advice(content_md: str) -> dict:
+    """从 AI 输出中提取并校验结构化建议 JSON 块。
+
+    要求 content_md 内含一个 ```json 围栏块，schema 为 next_advice_v1，
+    suggestions 中每条必须含：movement（标准动作名表内）/ category
+    （auto_writable|manual）/ original / suggested / reason。
+    任一校验失败抛 NextAdviceParseError（非法动作名一并拒绝）。
+    """
+    if not content_md:
+        raise NextAdviceParseError("内容为空，缺少 JSON 建议块")
+    match = _ADVICE_BLOCK_RE.search(content_md)
+    if match is None:
+        raise NextAdviceParseError("缺少 ```json 建议块")
+    try:
+        data = json.loads(match.group(1))
+    except json.JSONDecodeError as exc:
+        raise NextAdviceParseError(f"JSON 块解析失败: {exc}") from exc
+    if not isinstance(data, dict) or data.get("schema") != ADVICE_JSON_SCHEMA:
+        raise NextAdviceParseError(f"schema 必须为 {ADVICE_JSON_SCHEMA}")
+    suggestions = data.get("suggestions")
+    if not isinstance(suggestions, list):
+        raise NextAdviceParseError("suggestions 必须为数组")
+
+    valid_names = set(load_movement_names())
+    for i, s in enumerate(suggestions):
+        if not isinstance(s, dict):
+            raise NextAdviceParseError(f"第 {i + 1} 条建议不是对象")
+        movement = s.get("movement")
+        if not isinstance(movement, str) or movement.strip() not in valid_names:
+            raise NextAdviceParseError(f"第 {i + 1} 条建议动作名非法: {movement!r}")
+        if s.get("category") not in ADVICE_CATEGORIES:
+            raise NextAdviceParseError(
+                f"第 {i + 1} 条建议 category 非法: {s.get('category')!r}"
+            )
+        for field in ("original", "suggested"):
+            if not isinstance(s.get(field), dict):
+                raise NextAdviceParseError(f"第 {i + 1} 条建议缺少 {field} 对象")
+        if not isinstance(s.get("reason"), str) or not s["reason"].strip():
+            raise NextAdviceParseError(f"第 {i + 1} 条建议缺少 reason")
+    return data
+
+
+def classify_suggestions(data: dict) -> dict:
+    """把已校验的建议数据分为「可自动写回」与「需手动调整」两类。"""
+    grouped = {category: [] for category in ADVICE_CATEGORIES}
+    for s in data.get("suggestions") or []:
+        category = s.get("category")
+        if category in grouped:
+            grouped[category].append(s)
+    return grouped
+
+
+def query_next_plan_day(
+    session: Session,
+    current_date: date,
+    *,
+    days_ahead: int = 30,
+) -> dict | None:
+    """从训记官方计划缓存中找下一次训练日（未来 days_ahead 天内、movements 非空）。
+
+    只读本地 xunji_plan 缓存，不发起网络请求（缓存由 sync_plan_cache 每日刷新）。
+    返回 {"plan_ref", "plan_name", "date", "movements"} 或 None。
+    """
+    horizon = current_date + timedelta(days=days_ahead)
+    rows = (
+        session.query(XunjiPlan)
+        .filter(
+            XunjiPlan.plan_json.isnot(None),
+            XunjiPlan.date_from.isnot(None),
+            XunjiPlan.date_to.isnot(None),
+            XunjiPlan.date_from <= horizon,
+            XunjiPlan.date_to >= current_date,
+        )
+        .all()
+    )
+    best: dict | None = None
+    for row in rows:
+        data = _parse_json(row.plan_json)
+        if not isinstance(data, dict):
+            continue
+        plan_name = (data.get("plan") or {}).get("name")
+        for day in data.get("days") or []:
+            day_str = day.get("date")
+            movements = day.get("movements") or []
+            if not day_str or not movements:
+                continue
+            try:
+                day_date = date.fromisoformat(day_str)
+            except ValueError:
+                continue
+            if day_date <= current_date or day_date > horizon:
+                continue
+            if best is None or day_str < best["date"]:
+                best = {
+                    "plan_ref": row.plan_ref,
+                    "plan_name": plan_name,
+                    "date": day_str,
+                    "movements": movements,
+                }
+    return best
+
+
+def build_next_advice_prompt(
+    workout: dict,
+    plan_day: dict,
+    recovery: dict,
+    movement_names: list[str] | tuple[str, ...],
+) -> list[dict]:
+    """纯函数：组装下次训练建议 prompt（动作名表注入 system 约束模型）。"""
+    lines: list[str] = []
+    lines.append(f"# 本次训练完成情况（{workout.get('date') or '未知日期'}）")
+    if workout.get("title"):
+        lines.append(f"标题：{workout['title']}")
+    lines.append(
+        f"时长：{_format_duration(workout.get('duration_s'))} | "
+        f"热量：{workout.get('calories') or '-'} 千卡 | "
+        f"平均心率：{workout.get('avg_hr') or '-'} bpm | "
+        f"最大心率：{workout.get('max_hr') or '-'} bpm"
+    )
+    for mv in workout.get("movements") or []:
+        sets = mv.get("sets") or []
+        parts = []
+        for s in sets:
+            part = f"{s.get('weight')}{s.get('unit') or 'kg'}×{s.get('reps')}"
+            if s.get("rpe") is not None:
+                part += f"(RPE{s['rpe']})"
+            if s.get("done") is False:
+                part += "【未完成】"
+            parts.append(part)
+        lines.append(f"- {mv.get('name') or '未命名动作'}：" + "，".join(parts))
+
+    lines.append("")
+    lines.append(
+        f"# 训记官方计划 · 下一次训练日（{plan_day.get('date')}，"
+        f"计划：{plan_day.get('plan_name') or plan_day.get('plan_ref') or '未命名'}）"
+    )
+    for mv in plan_day.get("movements") or []:
+        sets = mv.get("sets") or []
+        if sets:
+            parts = [f"{s.get('weight')}{s.get('unit') or 'kg'}×{s.get('reps')}" for s in sets]
+            lines.append(f"- {mv.get('name') or '未命名动作'}：计划 {len(sets)} 组（" + "，".join(parts) + "）")
+        else:
+            lines.append(f"- {mv.get('name') or '未命名动作'}")
+
+    lines.append("")
+    lines.append("# 近7天恢复指标")
+    if recovery.get("days_count", 0) > 0:
+        if recovery.get("avg_sleep_hours") is not None:
+            lines.append(f"- 平均睡眠时长：{recovery['avg_sleep_hours']} 小时")
+        if recovery.get("hrv_status"):
+            lines.append(f"- HRV 状态：{recovery['hrv_status']}")
+        if recovery.get("body_battery_high") is not None:
+            lines.append(
+                f"- 身体电量：高 {recovery.get('body_battery_high')} / 低 {recovery.get('body_battery_low')}"
+            )
+        if recovery.get("resting_hr") is not None:
+            lines.append(f"- 平均静息心率：{recovery['resting_hr']} bpm")
+        if recovery.get("stress_avg") is not None:
+            lines.append(f"- 平均压力：{recovery['stress_avg']}")
+    else:
+        lines.append("- 近7天无恢复数据")
+
+    system = (
+        "你是一位资深力量训练教练。请对照训记官方计划的下一次训练日，结合本次训练完成情况"
+        "与恢复指标，逐动作给出调整建议，粒度到「动作/重量/组数/次数」。\n"
+        "输出要求：\n"
+        "1. 先输出给人看的 Markdown 正文（计划对照与调整说明）；\n"
+        "2. 再输出一个 ```json 围栏代码块，schema 为 next_advice_v1，结构：\n"
+        '{"schema": "next_advice_v1", "next_plan_date": "YYYY-MM-DD", "suggestions": ['
+        '{"movement": "标准动作中文名", "category": "auto_writable 或 manual", '
+        '"original": {...}, "suggested": {...}, "reason": "理由"}]}\n'
+        "3. category=auto_writable 仅用于对已发生训练的 RPE/难度等修正；"
+        "category=manual 用于对计划本身的修改（需用户去训记 App 手动调整）；\n"
+        "4. movement 只能使用下列训记标准动作中文名表中的名字，禁止自造动作名：\n"
+        + "、".join(movement_names)
+    )
+
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": "\n".join(lines)},
+    ]
+
+
+def generate_next_advice(
+    session: Session,
+    workout_id: int,
+    *,
+    chat_fn: Callable[[list[dict]], dict] | None = None,
+) -> AIReport | None:
+    """为单个 workout 生成下次训练建议并落库（type='next_advice'）。
+
+    无计划缓存（找不到下一次训练日）时返回 None 且不调用模型；
+    AI 输出未通过结构化校验（含非法动作名）时抛 NextAdviceParseError，不落库。
+    """
+    workout = session.get(Workout, workout_id)
+    if workout is None:
+        raise ValueError(f"workout {workout_id} 不存在")
+
+    plan_day = query_next_plan_day(session, workout.date)
+    if plan_day is None:
+        return None
+
+    movements = _parse_movements(workout)
+    recovery = query_recovery_summary(session, workout.date)
+    workout_dict = {
+        "date": workout.date.isoformat(),
+        "title": workout.title,
+        "tags": workout.tags,
+        "duration_s": workout.duration_s,
+        "calories": workout.calories,
+        "avg_hr": workout.avg_hr,
+        "max_hr": workout.max_hr,
+        "movements": movements,
+    }
+    messages = build_next_advice_prompt(
+        workout_dict, plan_day, recovery, load_movement_names()
+    )
+
+    if chat_fn is None:
+        chat_fn = lambda msgs: llm.chat(  # noqa: E731
+            msgs, session=session, purpose="next_advice"
+        )
+
+    result = chat_fn(messages)
+    content = result.get("content", "")
+    # 先校验再落库：非法动作名/非法结构一律拒绝
+    parse_next_advice(content)
+
+    prompt_tokens = result.get("prompt_tokens") or 0
+    completion_tokens = result.get("completion_tokens") or 0
+    provider = _resolve_provider(session)
+    model = result.get("model") or llm.PROVIDERS[provider]["default_model"]
+    cost = llm.compute_cost(provider, prompt_tokens, completion_tokens)
+
+    plan_date = date.fromisoformat(plan_day["date"])
+    report = AIReport(
+        type="next_advice",
+        workout_id=workout.id,
+        period_start=workout.date,
+        period_end=plan_date,
+        model=model,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        cost_estimate=round(cost, 6),
+        content_md=content,
+    )
+    session.add(report)
+    session.commit()
+    return report
+
+
+def run_daily_next_advices(
+    session: Session,
+    day: date | str,
+    *,
+    chat_fn: Callable[[list[dict]], dict] | None = None,
+) -> dict:
+    """为某日全部 workout 连锁生成下次训练建议（在单次点评之后触发）。
+
+    幂等：同日同 workout 已存在 next_advice 则跳过。
+    返回 summary：{"date", "generated", "skipped", "no_plan", "reports"}。
+    """
+    day_date = date.fromisoformat(day) if isinstance(day, str) else day
+    workouts = (
+        session.query(Workout)
+        .filter(Workout.date == day_date)
+        .order_by(Workout.id)
+        .all()
+    )
+
+    reports: list[int] = []
+    skipped = 0
+    no_plan = 0
+    for w in workouts:
+        existing = session.scalars(
+            select(AIReport).where(
+                AIReport.workout_id == w.id,
+                AIReport.type == "next_advice",
+                AIReport.period_start == day_date,
+            )
+        ).first()
+        if existing:
+            skipped += 1
+            continue
+        report = generate_next_advice(session, w.id, chat_fn=chat_fn)
+        if report is None:
+            no_plan += 1
+        else:
+            reports.append(report.id)
+
+    return {
+        "date": day_date.isoformat(),
+        "generated": len(reports),
+        "skipped": skipped,
+        "no_plan": no_plan,
         "reports": reports,
     }

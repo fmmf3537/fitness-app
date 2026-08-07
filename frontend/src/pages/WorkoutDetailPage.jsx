@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api/client'
 import HeartRateChart from '../components/HeartRateChart'
+import NextAdviceSection from '../components/NextAdviceSection'
 import { formatDuration, statusLabel } from '../utils/status'
 
 const TABS = [
@@ -145,6 +146,7 @@ export default function WorkoutDetailPage() {
             ) : (
               <p className="text-sm text-gray-500">无心率数据</p>
             )}
+            <NextAdviceSection workout={workout} />
           </div>
         )}
         {tab === 'xunji' && <RawJson data={workout.xunji_raw} testId="xunji-raw" />}
