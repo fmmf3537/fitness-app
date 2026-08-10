@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
+import SyncButton from '../components/SyncButton'
 import { statusColor } from '../utils/status'
 
 function currentMonth() {
@@ -69,13 +70,16 @@ export default function CalendarPage({ initialMonth }) {
         <h2 data-testid="current-month" className="text-lg font-bold text-gray-900">
           {month}
         </h2>
-        <button
-          aria-label="下个月"
-          onClick={() => setMonth((m) => shiftMonth(m, 1))}
-          className="rounded-md bg-white px-3 py-1.5 shadow hover:bg-gray-100"
-        >
-          下个月 →
-        </button>
+        <div className="flex items-center gap-2">
+          <SyncButton onSynced={load} />
+          <button
+            aria-label="下个月"
+            onClick={() => setMonth((m) => shiftMonth(m, 1))}
+            className="rounded-md bg-white px-3 py-1.5 shadow hover:bg-gray-100"
+          >
+            下个月 →
+          </button>
+        </div>
       </div>
 
       {error && <p role="alert" className="mb-4 text-sm text-red-600">加载失败：{error}</p>}
