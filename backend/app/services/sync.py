@@ -149,8 +149,13 @@ def daily_sync(day, *, session: Session | None = None, xunji=None, garmin=None,
             session.close()
 
 
-def health_check(*, session: Session | None = None, xunji=None, garmin=None) -> dict:
-    """数据源健康探针（训记 + 佳明；V2-4 再接推送）。不做重试。"""
+def health_check(*, session: Session | None = None, xunji=None, garmin=None,
+                 alert_evaluator=None, alert_notifier=None) -> dict:
+    """数据源健康探针（训记 + 佳明）。不做重试。
+
+    V2-4：探针写完 job_run 后评估连续失败阈值，达标则推送告警
+    （alert_evaluator / alert_notifier 可注入；告警失败不影响探针本身）。
+    """
     today = date.today()
     datestr = today.isoformat()
     own_session = session is None
@@ -181,6 +186,19 @@ def health_check(*, session: Session | None = None, xunji=None, garmin=None) -> 
             "detail": {"date": datestr, "failed_sources": [f.split(":", 1)[0] for f in failures]},
         }
         _write_job_run(session, "health_check", started_at, result)
+
+        # V2-4：连续失败 ≥3 次推送告警（30 分钟冷却去重）；告警故障不阻断探针
+        try:
+            from app.services.alerts import evaluate_health_alerts
+
+            evaluator = alert_evaluator or evaluate_health_alerts
+            if alert_evaluator is not None:
+                alert_result = evaluator(session)
+            else:
+                alert_result = evaluator(session, notifier=alert_notifier)
+            result["detail"]["alerts"] = alert_result.get("alerts", [])
+        except Exception as exc:  # 告警通道故障不阻断健康检查
+            result["detail"]["alert_error"] = str(exc)
         return result
     finally:
         if own_session:

@@ -455,15 +455,6 @@ def test_default_token_store_is_home_dir(session, fake_garth):
     assert c._token_store == Path.home() / ".garminconnect"
 
 
-# ---------- FIT 导入占位 ----------
-
-
-def test_import_fit_file_not_implemented(client):
-    """import_fit_file 仅预留签名（V2-4 实现）。"""
-    with pytest.raises(NotImplementedError):
-        client.import_fit_file("some.fit")
-
-
 # ---------- 集成测试（真实外呼，默认跳过） ----------
 
 

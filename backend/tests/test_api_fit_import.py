@@ -1,0 +1,80 @@
+"""V2-4 FIT/TCX 手动导入 API 测试（降级通道 /api/import/fit）。"""
+from datetime import date, time
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app.db import get_session
+from app.main import app
+from tests.conftest import make_xunji_train
+from tests.test_fit_import import build_fit_bytes
+
+DAY = date(2026, 8, 5)
+
+
+@pytest.fixture
+def client(session, monkeypatch):
+    monkeypatch.setenv("APP_PASSWORD", "test-pass")
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+
+    def override_session():
+        yield session
+
+    app.dependency_overrides[get_session] = override_session
+    try:
+        yield TestClient(app)
+    finally:
+        app.dependency_overrides.clear()
+        get_settings.cache_clear()
+
+
+@pytest.fixture
+def auth(client):
+    token = client.post("/api/auth/login", json={"password": "test-pass"}).json()["token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
+def test_upload_fit_file(client, auth, session):
+    """上传 FIT：落库 + 触发当日重匹配，响应含活动与匹配结果。"""
+    make_xunji_train(session, DAY, localid="x1", start=time(18, 0), end=time(19, 0))
+
+    resp = client.post(
+        "/api/import/fit",
+        files={"file": ("morning.fit", build_fit_bytes(), "application/octet-stream")},
+        headers=auth,
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True
+    assert body["activity_id"].startswith("file_")
+    assert body["date"] == "2026-08-05"
+    assert body["match_status"] == "auto_matched"
+    assert body["workout_id"] is not None
+
+
+def test_upload_rejects_bad_extension(client, auth):
+    resp = client.post(
+        "/api/import/fit",
+        files={"file": ("notes.txt", b"hello", "text/plain")},
+        headers=auth,
+    )
+    assert resp.status_code == 422
+
+
+def test_upload_corrupt_file(client, auth):
+    resp = client.post(
+        "/api/import/fit",
+        files={"file": ("broken.fit", b"not-a-fit", "application/octet-stream")},
+        headers=auth,
+    )
+    assert resp.status_code == 422
+
+
+def test_upload_requires_auth(client):
+    resp = client.post(
+        "/api/import/fit",
+        files={"file": ("a.fit", build_fit_bytes(), "application/octet-stream")},
+    )
+    assert resp.status_code == 401

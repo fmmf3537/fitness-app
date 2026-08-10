@@ -1,4 +1,4 @@
-"""APScheduler 任务注册（M5；V2-2 增加周/月复盘）。
+"""APScheduler 任务注册（M5；V2-2 增加周/月复盘；V2-4 增加每日数据库备份）。
 
 - 返回未 start 的 BackgroundScheduler，由调用方（main.py startup）启动；
 - jobstores 固定内存存储（单用户自托管，无需持久化）；
@@ -26,7 +26,7 @@ def _job_monthly_review(monthly_fn) -> None:
 
 
 def create_scheduler(*, sync_fn=None, health_fn=None, plan_fn=None,
-                     weekly_fn=None, monthly_fn=None) -> BackgroundScheduler:
+                     weekly_fn=None, monthly_fn=None, backup_fn=None) -> BackgroundScheduler:
     if sync_fn is None or health_fn is None or plan_fn is None:
         from app.services import sync as sync_mod  # 延迟 import，避免循环依赖
         sync_fn = sync_fn if sync_fn is not None else sync_mod.daily_sync
@@ -36,6 +36,9 @@ def create_scheduler(*, sync_fn=None, health_fn=None, plan_fn=None,
         from app.services import ai as ai_mod
         weekly_fn = weekly_fn if weekly_fn is not None else ai_mod.run_weekly_review
         monthly_fn = monthly_fn if monthly_fn is not None else ai_mod.run_monthly_review
+    if backup_fn is None:
+        from app.services import backup as backup_mod
+        backup_fn = backup_mod.backup_database
 
     scheduler = BackgroundScheduler(jobstores={"default": MemoryJobStore()})
     scheduler.add_job(partial(_job_sync_today, sync_fn),
@@ -50,4 +53,6 @@ def create_scheduler(*, sync_fn=None, health_fn=None, plan_fn=None,
                       id="weekly_review")
     scheduler.add_job(partial(_job_monthly_review, monthly_fn),
                       CronTrigger(day=1, hour=9, minute=23), id="monthly_review")
+    # V2-4：每日 03:17 数据库备份（低峰时段，保留 30 天滚动清理）
+    scheduler.add_job(backup_fn, CronTrigger(hour=3, minute=17), id="db_backup_daily")
     return scheduler

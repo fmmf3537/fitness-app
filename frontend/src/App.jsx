@@ -12,6 +12,7 @@ import TrendsPage from './pages/TrendsPage'
 import BodyMetricsPage from './pages/BodyMetricsPage'
 import BackfillPage from './pages/BackfillPage'
 import ScreenshotImportPage from './pages/ScreenshotImportPage'
+import FitImportPage from './pages/FitImportPage'
 import SettingsPage from './pages/SettingsPage'
 
 export default function App() {
@@ -31,6 +32,7 @@ export default function App() {
             <Route path="/body-metrics" element={<BodyMetricsPage />} />
             <Route path="/backfill" element={<BackfillPage />} />
             <Route path="/screenshot-import" element={<ScreenshotImportPage />} />
+            <Route path="/fit-import" element={<FitImportPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>
         </Route>

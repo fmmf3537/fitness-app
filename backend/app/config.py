@@ -59,6 +59,13 @@ class Settings:
         self.backfill_start_date = os.getenv("BACKFILL_START_DATE", "2023-02-01")
         # 佳明活动列表回溯起点（PRD US-5：2017 年起全量）
         self.garmin_backfill_start_date = os.getenv("GARMIN_BACKFILL_START_DATE", "2017-01-01")
+        # 告警推送（V2-4）：Server酱 SendKey 或 SMTP 邮件，两者都配置则双通道发送
+        self.serverchan_sendkey = os.getenv("SERVERCHAN_SENDKEY", "")
+        self.smtp_host = os.getenv("SMTP_HOST", "")
+        self.smtp_port = int(os.getenv("SMTP_PORT", "465"))
+        self.smtp_user = os.getenv("SMTP_USER", "")
+        self.smtp_pass = os.getenv("SMTP_PASS", "")
+        self.alert_email = os.getenv("ALERT_EMAIL", "")
 
     @staticmethod
     def _resolve_database_url(url: str | None) -> str:

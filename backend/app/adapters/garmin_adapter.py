@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -362,11 +362,11 @@ class GarminClient:
         self._session.commit()
         return row
 
-    # ---------- FIT/TCX 手动导入（降级通道） ----------
+    # ---------- FIT/TCX 手动导入（降级通道，V2-4） ----------
 
-    def import_fit_file(self, path: str) -> None:
-        # TODO(V2-4): 解析 FIT/TCX 文件并落库 garmin_activity，作为接口失效时的降级通道
-        raise NotImplementedError("FIT/TCX 手动导入将在 V2-4 实现")
+    def import_fit_file(self, path: str) -> dict:
+        """解析 FIT/TCX 文件落库 garmin_activity 并触发该日重匹配（无需登录）。"""
+        return import_fit_file(self._session, path)
 
     # ---------- 工具 ----------
 
@@ -380,3 +380,198 @@ class GarminClient:
     @staticmethod
     def _int_or_none(value: Any) -> int | None:
         return int(value) if isinstance(value, (int, float)) else None
+
+
+# ---------- FIT/TCX 文件导入（V2-4 降级通道，模块级函数，无需登录） ----------
+
+# 佳明接口失效时的手动降级：用户从 Garmin Connect 导出 FIT/TCX 上传，
+# 解析后按 garmin_activity 落库并触发当日重匹配，与在线拉取走同一融合管线。
+
+BJ_TZ = timezone(timedelta(hours=8))
+
+# TCX Sport 属性 → garmin_activity.activity_type（与佳明 API typeKey 对齐）
+TCX_SPORT_MAP = {
+    "strength": "strength_training",
+    "running": "running",
+    "biking": "cycling",
+    "swimming": "swimming",
+    "walking": "walking",
+    "hiking": "hiking",
+    "other": "other",
+}
+
+
+class FitImportError(Exception):
+    """FIT/TCX 文件导入失败（格式不支持/文件损坏/内容为空）。"""
+
+
+def _to_beijing_naive(dt: datetime) -> datetime:
+    """UTC 时间转北京墙钟（naive），与佳明 startTimeLocal 的存储口径一致。"""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(BJ_TZ).replace(tzinfo=None)
+
+
+def _parse_fit(path: Path) -> dict:
+    """用 fitparse 解析 FIT：优先 session 消息，缺失时回退聚合 record 消息。"""
+    try:
+        import io
+
+        from fitparse import FitFile
+
+        # 读入内存再解析：损坏文件会在 FitFile 构造期抛错并泄漏文件句柄，
+        # Windows 下会导致调用方无法删除临时文件
+        blob = io.BytesIO(path.read_bytes())
+        sessions = [m.get_values() for m in FitFile(blob, check_crc=False).get_messages("session")]
+        if not sessions:
+            records = [
+                m.get_values()
+                for m in FitFile(io.BytesIO(blob.getvalue()), check_crc=False).get_messages("record")
+            ]
+        else:
+            records = []
+    except FitImportError:
+        raise
+    except Exception as exc:
+        raise FitImportError(f"FIT 文件解析失败：{exc}") from exc
+
+    def _int(v):
+        return int(v) if isinstance(v, (int, float)) else None
+
+    if sessions:
+        s = sessions[0]
+        start = s.get("start_time")
+        if start is None:
+            raise FitImportError("FIT 文件缺少 start_time")
+        duration = s.get("total_elapsed_time")
+        sport = s.get("sub_sport") or s.get("sport")
+        return {
+            "activity_type": str(sport) if sport else None,
+            "start_ts": _to_beijing_naive(start),
+            "duration_s": _int(duration),
+            "calories": _int(s.get("total_calories")),
+            "avg_hr": _int(s.get("avg_heart_rate")),
+            "max_hr": _int(s.get("max_heart_rate")),
+        }
+    if not records:
+        raise FitImportError("FIT 文件不含 session/record 数据")
+    times = [r["timestamp"] for r in records if r.get("timestamp")]
+    hrs = [r["heart_rate"] for r in records if isinstance(r.get("heart_rate"), (int, float))]
+    if not times:
+        raise FitImportError("FIT 文件缺少时间戳")
+    start, end = min(times), max(times)
+    return {
+        "activity_type": None,
+        "start_ts": _to_beijing_naive(start),
+        "duration_s": _int((end - start).total_seconds()),
+        "calories": None,
+        "avg_hr": _int(sum(hrs) / len(hrs)) if hrs else None,
+        "max_hr": _int(max(hrs)) if hrs else None,
+    }
+
+
+def _parse_tcx(path: Path) -> dict:
+    """用标准库 XML 解析 TCX（TrainingCenterDatabase v2），聚合所有 Lap。"""
+    import xml.etree.ElementTree as ET
+
+    try:
+        root = ET.parse(path).getroot()
+    except Exception as exc:
+        raise FitImportError(f"TCX 文件解析失败：{exc}") from exc
+    ns = {"t": "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2"}
+    activity = root.find(".//t:Activities/t:Activity", ns)
+    if activity is None:
+        raise FitImportError("TCX 文件不含 Activity")
+    laps = activity.findall("t:Lap", ns)
+    if not laps:
+        raise FitImportError("TCX 文件不含 Lap")
+
+    def _int(v):
+        try:
+            return int(float(v))
+        except (TypeError, ValueError):
+            return None
+
+    def _lap_time(lap, tag):
+        node = lap.find(f"t:{tag}/t:Value", ns)
+        return _int(node.text) if node is not None else None
+
+    def _parse_iso(raw: str) -> datetime:
+        return _to_beijing_naive(datetime.fromisoformat(raw.strip().replace("Z", "+00:00")))
+
+    start = _parse_iso(laps[0].get("StartTime"))
+    duration = sum(_int(lap.findtext("t:TotalTimeSeconds", default="0", namespaces=ns)) or 0 for lap in laps)
+    calories = sum(_int(lap.findtext("t:Calories", default="0", namespaces=ns)) or 0 for lap in laps)
+    avg_hrs = [v for v in (_lap_time(lap, "AverageHeartRateBpm") for lap in laps) if v]
+    max_hrs = [v for v in (_lap_time(lap, "MaximumHeartRateBpm") for lap in laps) if v]
+    sport_raw = (activity.get("Sport") or "").strip().lower()
+    return {
+        "activity_type": TCX_SPORT_MAP.get(sport_raw, sport_raw or None),
+        "start_ts": start,
+        "duration_s": duration or None,
+        "calories": calories or None,
+        "avg_hr": round(sum(avg_hrs) / len(avg_hrs)) if avg_hrs else None,
+        "max_hr": max(max_hrs) if max_hrs else None,
+    }
+
+
+def parse_activity_file(path: str | Path) -> dict:
+    """解析 FIT/TCX 文件为统一 dict（activity_type/start_ts/duration_s/calories/avg_hr/max_hr）。"""
+    path = Path(path)
+    if not path.is_file():
+        raise FitImportError(f"文件不存在：{path}")
+    suffix = path.suffix.lower()
+    if suffix == ".fit":
+        parsed = _parse_fit(path)
+        parsed["format"] = "fit"
+    elif suffix == ".tcx":
+        parsed = _parse_tcx(path)
+        parsed["format"] = "tcx"
+    else:
+        raise FitImportError(f"不支持的文件类型：{suffix or '(无后缀)'}（仅支持 .fit / .tcx）")
+    if parsed.get("start_ts") is None:
+        raise FitImportError("文件缺少开始时间，无法入库")
+    return parsed
+
+
+def import_fit_file(session: Session, path: str | Path, *, match_fn=None) -> dict:
+    """FIT/TCX 手动导入降级通道：解析 → 按内容哈希 upsert garmin_activity → 触发该日重匹配。
+
+    - activity_id 取文件内容哈希（file_<sha256[:16]>），同一文件重复导入幂等；
+    - match_fn 可注入（默认 services.matcher.match_day），仅当解析出日期时触发；
+    - 返回 {"activity": GarminActivity, "match": match_fn 结果或 None}。
+    """
+    import hashlib
+
+    path = Path(path)
+    parsed = parse_activity_file(path)
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+    activity_id = f"file_{digest}"
+
+    stmt = select(GarminActivity).where(GarminActivity.activity_id == activity_id)
+    row = session.scalars(stmt).first()
+    if row is None:
+        row = GarminActivity(activity_id=activity_id)
+        session.add(row)
+    row.activity_type = parsed.get("activity_type")
+    row.name = row.name or f"{path.stem}（文件导入）"
+    row.start_ts = parsed["start_ts"]
+    duration_s = parsed.get("duration_s")
+    row.duration_s = duration_s
+    row.end_ts = row.start_ts + timedelta(seconds=duration_s) if duration_s else None
+    row.calories = parsed.get("calories")
+    row.avg_hr = parsed.get("avg_hr")
+    row.max_hr = parsed.get("max_hr")
+    row.raw_json = json.dumps(
+        {"source": "file_import", "format": parsed["format"],
+         "filename": path.name, "parsed": parsed},
+        ensure_ascii=False, default=str,
+    )
+    row.fetched_at = datetime.now()
+    session.commit()
+
+    if match_fn is None:
+        from app.services.matcher import match_day
+        match_fn = match_day
+    match_result = match_fn(session, row.start_ts.date())
+    return {"activity": row, "match": match_result}

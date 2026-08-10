@@ -64,6 +64,9 @@ export default function Layout() {
               <NavLink to="/screenshot-import" className={linkClass}>
                 截图补录
               </NavLink>
+              <NavLink to="/fit-import" className={linkClass}>
+                文件导入
+              </NavLink>
               <NavLink to="/settings" className={linkClass}>
                 设置
               </NavLink>

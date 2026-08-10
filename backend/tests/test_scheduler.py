@@ -1,4 +1,4 @@
-"""M5 调度器注册测试（不 start，只校验任务与触发器）；V2-2 增加周/月复盘任务。"""
+"""M5 调度器注册测试（不 start，只校验任务与触发器）；V2-2 增加周/月复盘任务；V2-4 增加每日备份。"""
 from datetime import date, timedelta
 from unittest.mock import Mock
 
@@ -10,16 +10,17 @@ from app.scheduler import create_scheduler
 def _make():
     sync_fn, health_fn, plan_fn = Mock(name="sync"), Mock(name="health"), Mock(name="plan")
     weekly_fn, monthly_fn = Mock(name="weekly"), Mock(name="monthly")
+    backup_fn = Mock(name="backup")
     sched = create_scheduler(sync_fn=sync_fn, health_fn=health_fn, plan_fn=plan_fn,
-                             weekly_fn=weekly_fn, monthly_fn=monthly_fn)
-    return sched, sync_fn, health_fn, plan_fn, weekly_fn, monthly_fn
+                             weekly_fn=weekly_fn, monthly_fn=monthly_fn, backup_fn=backup_fn)
+    return sched, sync_fn, health_fn, plan_fn, weekly_fn, monthly_fn, backup_fn
 
 
 def _field(job, name):
     return str(next(f for f in job.trigger.fields if f.name == name))
 
 
-def test_registers_six_jobs_with_cron_triggers():
+def test_registers_seven_jobs_with_cron_triggers():
     sched, *_ = _make()
     assert not sched.running  # 返回未 start 的 scheduler
     assert isinstance(sched._jobstores["default"], MemoryJobStore)
@@ -27,7 +28,7 @@ def test_registers_six_jobs_with_cron_triggers():
     jobs = {j.id: j for j in sched.get_jobs()}
     assert set(jobs) == {"daily_sync_today", "daily_sync_prev_day",
                          "health_check_hourly", "plan_cache_daily",
-                         "weekly_review", "monthly_review"}
+                         "weekly_review", "monthly_review", "db_backup_daily"}
 
     assert _field(jobs["daily_sync_today"], "hour") == "22"
     assert _field(jobs["daily_sync_today"], "minute") == "47"
@@ -49,9 +50,13 @@ def test_registers_six_jobs_with_cron_triggers():
     assert _field(jobs["monthly_review"], "hour") == "9"
     assert _field(jobs["monthly_review"], "minute") == "23"
 
+    # V2-4：每日 03:17 数据库备份（低峰时段）
+    assert _field(jobs["db_backup_daily"], "hour") == "3"
+    assert _field(jobs["db_backup_daily"], "minute") == "17"
+
 
 def test_jobs_invoke_injected_functions():
-    sched, sync_fn, health_fn, plan_fn, weekly_fn, monthly_fn = _make()
+    sched, sync_fn, health_fn, plan_fn, weekly_fn, monthly_fn, backup_fn = _make()
     jobs = {j.id: j for j in sched.get_jobs()}
 
     jobs["daily_sync_today"].func()
@@ -74,9 +79,13 @@ def test_jobs_invoke_injected_functions():
     jobs["monthly_review"].func()
     monthly_fn.assert_called_once_with(date.today() - timedelta(days=1))
 
+    jobs["db_backup_daily"].func()
+    backup_fn.assert_called_once_with()
+
 
 def test_default_functions_are_sync_service():
     from app.services import ai as ai_mod
+    from app.services import backup as backup_mod
     from app.services import sync as sync_mod
 
     sched = create_scheduler()
@@ -84,3 +93,4 @@ def test_default_functions_are_sync_service():
     assert jobs["health_check_hourly"].func is sync_mod.health_check
     assert jobs["plan_cache_daily"].func is sync_mod.sync_plan_cache
     assert jobs["weekly_review"].func is ai_mod.run_weekly_review
+    assert jobs["db_backup_daily"].func is backup_mod.backup_database
