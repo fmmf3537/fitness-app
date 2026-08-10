@@ -11,6 +11,7 @@ import ReviewsPage from './pages/ReviewsPage'
 import TrendsPage from './pages/TrendsPage'
 import BodyMetricsPage from './pages/BodyMetricsPage'
 import BackfillPage from './pages/BackfillPage'
+import ScreenshotImportPage from './pages/ScreenshotImportPage'
 import SettingsPage from './pages/SettingsPage'
 
 export default function App() {
@@ -29,6 +30,7 @@ export default function App() {
             <Route path="/trends" element={<TrendsPage />} />
             <Route path="/body-metrics" element={<BodyMetricsPage />} />
             <Route path="/backfill" element={<BackfillPage />} />
+            <Route path="/screenshot-import" element={<ScreenshotImportPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>
         </Route>

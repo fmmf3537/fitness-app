@@ -45,6 +45,21 @@ export async function api(path, options = {}) {
   return res.json()
 }
 
+export async function apiForm(path, formData) {
+  // multipart 上传：不手动设置 Content-Type，交由浏览器生成 boundary
+  const token = getToken()
+  const headers = token ? { Authorization: `Bearer ${token}` } : {}
+  const res = await fetch(path, { method: 'POST', body: formData, headers })
+  if (res.status === 401) {
+    clearToken()
+    throw new ApiError(401, 'unauthorized')
+  }
+  if (!res.ok) {
+    throw new ApiError(res.status, `request failed: ${res.status}`)
+  }
+  return res.json()
+}
+
 export async function download(path, filename) {
   const token = getToken()
   const headers = token ? { Authorization: `Bearer ${token}` } : {}

@@ -61,6 +61,9 @@ export default function Layout() {
               <NavLink to="/backfill" className={linkClass}>
                 导入
               </NavLink>
+              <NavLink to="/screenshot-import" className={linkClass}>
+                截图补录
+              </NavLink>
               <NavLink to="/settings" className={linkClass}>
                 设置
               </NavLink>

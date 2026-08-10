@@ -10,6 +10,7 @@ from app.api.backfill import router as backfill_router
 from app.api.llm import router as llm_router
 from app.api.body_metrics import router as body_metrics_router
 from app.api.match_candidates import router as match_candidates_router
+from app.api.screenshot import router as screenshot_router
 from app.api.settings import router as settings_router
 from app.api.stats import router as stats_router
 from app.api.sync import router as sync_router
@@ -41,6 +42,7 @@ app.include_router(ai_reports_router)
 app.include_router(backfill_router)
 app.include_router(writeback_router)
 app.include_router(body_metrics_router)
+app.include_router(screenshot_router)
 
 
 @app.get("/health")
