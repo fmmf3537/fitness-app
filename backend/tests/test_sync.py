@@ -1,6 +1,6 @@
 """M5 同步编排服务测试：daily_sync / health_check / sync_plan_cache。"""
 import json
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -182,8 +182,9 @@ class _FakeXunji:
         if row is None:
             row = XunjiTrain(
                 datestr=datestr, localid="t1", title="晨训",
-                start_ms=int(datetime(2026, 8, 3, 10, 0).timestamp() * 1000),
-                end_ms=int(datetime(2026, 8, 3, 11, 0).timestamp() * 1000),
+                # 与 matcher.XUNJI_TZ 对齐：按固定 +08:00 编码 epoch 毫秒，与本地时区无关
+                start_ms=int(datetime(2026, 8, 3, 10, 0, tzinfo=timezone(timedelta(hours=8))).timestamp() * 1000),
+                end_ms=int(datetime(2026, 8, 3, 11, 0, tzinfo=timezone(timedelta(hours=8))).timestamp() * 1000),
             )
             self._s.add(row)
             self._s.commit()

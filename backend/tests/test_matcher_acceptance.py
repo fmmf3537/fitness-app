@@ -1,5 +1,8 @@
 """M4 验收方独立边界测试（由需求方编写，非开发方测试）。"""
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
+
+# 与 matcher.XUNJI_TZ 对齐：epoch 毫秒按固定 +08:00 编码/渲染，与本地时区无关
+BJ = timezone(timedelta(hours=8))
 
 import pytest
 from sqlalchemy import create_engine
@@ -25,8 +28,8 @@ def add_xunji(s, start: datetime, minutes: int, title="力量训练"):
     t = XunjiTrain(
         datestr=DAY.isoformat(), localid=abs(hash((start, minutes))) % 10**12,
         title=title,
-        start_ms=int(start.timestamp() * 1000),
-        end_ms=int((start + timedelta(minutes=minutes)).timestamp() * 1000),
+        start_ms=int(start.replace(tzinfo=BJ).timestamp() * 1000),
+        end_ms=int((start + timedelta(minutes=minutes)).replace(tzinfo=BJ).timestamp() * 1000),
         note_json="{}", raw_json="{}",
     )
     s.add(t)

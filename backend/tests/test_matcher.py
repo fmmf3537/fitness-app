@@ -8,9 +8,22 @@ from datetime import date, datetime, time, timedelta
 from tests.conftest import make_garmin_activity, make_xunji_train
 
 from app.models import GarminActivity, MatchCandidate, Workout, XunjiTrain
-from app.services.matcher import match_day, overlap_ratio
+from app.services.matcher import _xunji_interval, match_day, overlap_ratio
 
 DAY = date(2026, 8, 3)
+
+
+def test_xunji_interval_timezone_independent():
+    """训记 start_ms 是 epoch 毫秒，佳明侧存 startTimeLocal（北京墙钟）；
+    匹配引擎必须按固定 +08:00 渲染训记时间，与服务器本地时区无关
+    （CI 2026-08-10 踩坑：UTC  runner 上 fromtimestamp 渲染偏移 8h 导致匹配全乱）。"""
+    ms = 1785730647855  # 真实数据：2026-08-03 12:17:27 北京时间
+    train = XunjiTrain(datestr="2026-08-03", localid="t0", title="t",
+                       start_ms=ms, end_ms=ms + 3600_000)
+    start, end = _xunji_interval(train)
+    expected = datetime(2026, 8, 3, 12, 17, 27, 855000)  # utcfromtimestamp + 8h
+    assert start == expected
+    assert end - start == timedelta(hours=1)
 
 
 def dt(h, m=0, s=0):

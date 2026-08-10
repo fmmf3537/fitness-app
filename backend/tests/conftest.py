@@ -27,7 +27,11 @@ def env_vars(monkeypatch, tmp_path):
 # ---------- M4 匹配/融合测试共享夹具构造函数 ----------
 
 import json as _json
-from datetime import date as _date, datetime as _datetime, time as _time
+from datetime import date as _date, datetime as _datetime, time as _time, timedelta as _timedelta, timezone as _timezone
+
+# 训记 start_ms 是 epoch 毫秒，匹配引擎按固定 +08:00 渲染（matcher.XUNJI_TZ）；
+# 夹具编码也必须用同一时区，保证在任何本地时区的机器上往返一致。
+_BJ = _timezone(_timedelta(hours=8))
 
 
 def make_xunji_train(session, day: _date, localid="1", title="训练",
@@ -38,8 +42,8 @@ def make_xunji_train(session, day: _date, localid="1", title="训练",
 
     start = start or _time(10, 0)
     end = end or _time(11, 0)
-    start_ms = int(_datetime.combine(day, start).timestamp() * 1000)
-    end_ms = int(_datetime.combine(day, end).timestamp() * 1000)
+    start_ms = int(_datetime.combine(day, start, tzinfo=_BJ).timestamp() * 1000)
+    end_ms = int(_datetime.combine(day, end, tzinfo=_BJ).timestamp() * 1000)
     raw = {"localid": localid, "title": title, "start": start_ms, "end": end_ms}
     if movements is not None:
         raw["movements"] = movements

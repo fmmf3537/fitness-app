@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 
 import pytest
 
@@ -49,8 +49,10 @@ class FakeXunji:
             raise RuntimeError("network boom")
         if datestr in self.train_days:
             day = date.fromisoformat(datestr)
-            start_ms = int(datetime.combine(day, time(10, 0)).timestamp() * 1000)
-            end_ms = int(datetime.combine(day, time(11, 0)).timestamp() * 1000)
+            # 与 matcher.XUNJI_TZ 对齐：按固定 +08:00 编码 epoch 毫秒，与本地时区无关
+            bj = timezone(timedelta(hours=8))
+            start_ms = int(datetime.combine(day, time(10, 0), tzinfo=bj).timestamp() * 1000)
+            end_ms = int(datetime.combine(day, time(11, 0), tzinfo=bj).timestamp() * 1000)
             row = XunjiTrain(
                 datestr=datestr, localid="1", title="力量训练",
                 start_ms=start_ms, end_ms=end_ms,

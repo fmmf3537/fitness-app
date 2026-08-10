@@ -206,7 +206,11 @@ def _to_ms(day: date, hhmm: str | None) -> int | None:
     if not hhmm:
         return None
     hh, mm = int(hhmm[:2]), int(hhmm[3:])
-    return int(datetime.combine(day, time(hh, mm)).timestamp() * 1000)
+    # 与 matcher.XUNJI_TZ 对齐：墙钟时间按固定 +08:00 编码为 epoch 毫秒，
+    # 保证匹配引擎在任何本地时区的机器上渲染结果一致
+    from app.services.matcher import XUNJI_TZ
+
+    return int(datetime.combine(day, time(hh, mm), tzinfo=XUNJI_TZ).timestamp() * 1000)
 
 
 def confirm_import(session: Session, data: dict) -> dict:

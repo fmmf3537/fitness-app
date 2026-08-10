@@ -9,7 +9,7 @@
 """
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
@@ -35,12 +35,18 @@ def overlap_ratio(a_start: datetime, a_end: datetime, b_start: datetime, b_end: 
     return max(overlap, 0.0) / shorter
 
 
+# 训记 start_ms/end_ms 是 epoch 毫秒（绝对时刻），佳明侧存 startTimeLocal（北京墙钟）。
+# 两侧比较前必须统一渲染到 +08:00：用固定时区而非服务器本地时区，
+# 保证在非 +08:00 机器（如 UTC 的 CI runner、海外服务器）上匹配结果一致。
+XUNJI_TZ = timezone(timedelta(hours=8))
+
+
 def _xunji_interval(train: XunjiTrain) -> tuple[datetime, datetime] | None:
     if train.start_ms is None or train.end_ms is None:
         return None
     return (
-        datetime.fromtimestamp(train.start_ms / 1000),
-        datetime.fromtimestamp(train.end_ms / 1000),
+        datetime.fromtimestamp(train.start_ms / 1000, tz=XUNJI_TZ).replace(tzinfo=None),
+        datetime.fromtimestamp(train.end_ms / 1000, tz=XUNJI_TZ).replace(tzinfo=None),
     )
 
 
