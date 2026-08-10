@@ -23,9 +23,12 @@ git clone <repo-url> fitness-app && cd fitness-app
 
 ```bash
 cp .env.production.example .env
-# 生成两个强随机值：
-openssl rand -base64 24          # → POSTGRES_PASSWORD
+# 生成两个强随机值（hex 而不是 base64——base64 可能含 / 字符，会把数据库连接串截断，
+# 2026-08-10 腾讯云实测踩坑：POSTGRES_PASSWORD 含 / 导致迁移脚本认证失败）：
+openssl rand -hex 24           # → POSTGRES_PASSWORD
 python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"  # → FERNET_KEY
+# 若从旧 SQLite 库迁移数据（§8），FERNET_KEY 必须沿用旧 .env 中的值，
+# 否则 settings 表中加密的 LLM Key 将无法解密
 ```
 
 编辑 `.env`，必填：`SITE_ADDRESS`（域名）、`POSTGRES_PASSWORD`、`APP_PASSWORD`（登录口令，**强制**）、
@@ -43,9 +46,26 @@ bash scripts/preflight.sh
 
 ## 4. 构建并启动
 
+国内服务器构建极慢时（pip 下载几 kB/s）：把 `backend/Dockerfile` 的 pip 命令加
+`-i https://mirrors.cloud.tencent.com/pypi/simple`（腾讯云内网镜像），并给 docker 配
+`{"registry-mirrors":["https://mirror.ccs.tencentyun.com"]}`（snap 版 docker 配置文件在
+`/var/snap/docker/current/config/daemon.json`，重启用 `sudo snap restart docker`）。
+
 ```bash
 docker compose up -d --build
 docker compose ps        # 5 个容器应全部 running
+```
+
+**与已有站点共存（80/443 被宿主机 nginx 占用时）**：跳过 caddy，用 override 暴露前端端口
+并禁用 caddy 默认启动（2026-08-10 实测：宿主机已有招聘系统时的方案）：
+
+```yaml
+# docker-compose.override.yml
+services:
+  frontend:
+    ports: ["8080:80"]      # 浏览器经 http://IP:8080 访问（防火墙需放行）
+  caddy:
+    profiles: ["caddy_optional"]   # 默认不再启动 caddy
 ```
 
 backend 容器入口会自动执行 `alembic upgrade head`（PostgreSQL 迁移重放），无需手动建表。
@@ -62,13 +82,13 @@ bash scripts/preflight.sh --post   # 容器健康 + alembic current==head + HTTP
 佳明 token 缓存在 `garmin_tokens` 卷（容器内 `/root/.garminconnect`），**只需首次登录一次**，
 之后自动 resume 复用会话（同一进程重复登录会触发佳明 IP 级 429，切勿反复重启试探）。
 
-首次启动后执行一次手动登录验证：
+首次启动后执行一次手动登录验证（GarminClient 需要数据库会话参数）：
 
 ```bash
 docker compose exec backend python -c "
+from app.db import SessionLocal
 from app.adapters.garmin_adapter import GarminClient
-c = GarminClient()
-c.login()
+GarminClient(SessionLocal()).login()
 print('garmin login ok')
 "
 ```
@@ -94,20 +114,24 @@ print('garmin login ok')
 
 ```bash
 # 1) 把本机 backend/data/app.db 上传到服务器项目目录（scp app.db user@server:~/fitness-app/）
-# 2) 在服务器上临时把 PG 端口映射到宿主机：
-docker compose -f docker-compose.yml -f - up -d postgres <<'EOF'
-services:
+#    建议先用 SQLite 备份 API 做一致性快照再传：sqlite3 的 Connection.backup() 或 .backup 命令
+# 2) 在服务器上把 PG 端口映射到宿主机——写入 docker-compose.override.yml（compose 每条命令
+#    自动加载；勿用 -f - stdin 方式，后续不带该文件的 compose 命令会把映射收掉，实测踩坑）：
+cat >> docker-compose.override.yml <<'EOF'
   postgres:
-    ports: ["127.0.0.1:5432:5432"]
+    ports: ["127.0.0.1:15432:5432"]
 EOF
+docker compose up -d postgres
+sudo ss -tlnp | grep 15432   # 确认监听后再继续
+#    注意用 15432 而非 5432：宿主机可能已有其他 PostgreSQL 占用 5432（实测踩坑）
 # 3) 在服务器本地执行迁移脚本（幂等，可重复跑）：
-python3 -m pip install --quiet sqlalchemy psycopg2-binary   # 脚本仅需这两个包
+python3 -m pip install --quiet --break-system-packages sqlalchemy psycopg2-binary   # Ubuntu 24 PEP 668
 cd ~/fitness-app
+export PGPW=$(grep '^POSTGRES_PASSWORD=' .env | cut -d= -f2-)
 python3 scripts/migrate_sqlite_to_pg.py \
   --sqlite sqlite:///./backend/data/app.db \
-  --pg "postgresql+psycopg2://fitness:<POSTGRES_PASSWORD>@127.0.0.1:5432/fitness"
-# 4) 完成后重建 postgres 服务撤掉端口映射：
-docker compose up -d --force-recreate postgres
+  --pg "postgresql+psycopg2://fitness:${PGPW}@127.0.0.1:15432/fitness"
+# 4) 完成后从 override 中删除 postgres 端口段并 docker compose up -d 恢复常态
 ```
 
 脚本按主键幂等跳过，可重复运行；结束后自动重置自增序列。
