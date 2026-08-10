@@ -1,5 +1,7 @@
 # 健身数据整合分析与指导 APP（fitness-hub）
 
+[![CI](https://github.com/fmmf3537/fitness-app/actions/workflows/ci.yml/badge.svg)](https://github.com/fmmf3537/fitness-app/actions/workflows/ci.yml)
+
 个人自用：融合「训记」+「佳明 Garmin」训练数据，AI 点评/建议/复盘，可安全写回训记。
 
 ## 文档导航（开发前必读，按此顺序）
