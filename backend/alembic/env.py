@@ -20,8 +20,11 @@ target_metadata = Base.metadata
 
 
 def get_url() -> str:
-    # 与 make_engine 同源锚定：-x/配置覆盖给出的相对 URL 也锚定到项目根目录
-    override = config.get_main_option("sqlalchemy.url")
+    # 与 make_engine 同源锚定：-x/配置覆盖给出的相对 URL 也锚定到项目根目录。
+    # -x url=... 优先级最高：可穿透根目录 .env 的 override=True（config.py 会让
+    # .env 盖掉 OS 环境变量 DATABASE_URL，测试/运维需要显式指定目标库时使用）
+    x_args = context.get_x_argument(as_dictionary=True)
+    override = x_args.get("url") or config.get_main_option("sqlalchemy.url")
     if override:
         return resolve_database_url(override)
     return get_settings().database_url

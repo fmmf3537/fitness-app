@@ -1,0 +1,106 @@
+# 生产部署（V2-5）：backend + frontend + postgres + backup + caddy(HTTPS)
+# 使用步骤见 docs/DEPLOY.md：
+#   cp .env.production.example .env → 填值 → bash scripts/preflight.sh → docker compose up -d --build
+# 变量一律由根目录 .env（compose 自动读取）注入，密钥不进镜像、不进 Git。
+name: fitness-hub
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-fitness}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 未在 .env 中配置}
+      POSTGRES_DB: ${POSTGRES_DB:-fitness}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks: [internal]
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    # 内存 token + MemoryJobStore ⇒ 必须单副本，禁止 scale
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      APP_ENV: production
+      SCHEDULER_ENABLED: "1"
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-fitness}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-fitness}
+      APP_PASSWORD: ${APP_PASSWORD:?APP_PASSWORD 未在 .env 中配置（登录口令强制）}
+      FERNET_KEY: ${FERNET_KEY:?FERNET_KEY 未在 .env 中配置}
+      XUNJI_API_KEY: ${XUNJI_API_KEY:-}
+      XUNJI_BODY_API_KEY: ${XUNJI_BODY_API_KEY:-}
+      XUNJI_FOOD_API_KEY: ${XUNJI_FOOD_API_KEY:-}
+      XUNJI_FOOD_SEARCH_KEY: ${XUNJI_FOOD_SEARCH_KEY:-}
+      GARMIN_EMAIL: ${GARMIN_EMAIL:-}
+      GARMIN_PASSWORD: ${GARMIN_PASSWORD:-}
+      GARMIN_DOMAIN: ${GARMIN_DOMAIN:-garmin.cn}
+      KIMI_API_KEY: ${KIMI_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      MINIMAX_API_KEY: ${MINIMAX_API_KEY:-}
+      BACKFILL_START_DATE: ${BACKFILL_START_DATE:-2023-02-01}
+      GARMIN_BACKFILL_START_DATE: ${GARMIN_BACKFILL_START_DATE:-2017-01-01}
+      SERVERCHAN_SENDKEY: ${SERVERCHAN_SENDKEY:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      ALERT_EMAIL: ${ALERT_EMAIL:-}
+    volumes:
+      # 佳明 token 缓存（~/.garminconnect），避免容器重建后重新登录触发 IP 级 429
+      - garmin_tokens:/root/.garminconnect
+    networks: [internal]
+    # 不对外暴露端口，仅经 frontend(nginx) → caddy 访问
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on: [backend]
+    networks: [internal]
+
+  backup:
+    build: ./deploy/backup
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-fitness}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB:-fitness}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+    volumes:
+      - backups:/backups
+    networks: [internal]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?SITE_ADDRESS 未在 .env 中配置（如 fitness.example.com）}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [frontend]
+    networks: [internal]
+
+volumes:
+  pgdata:
+  backups:
+  caddy_data:
+  caddy_config:
+  garmin_tokens:
+
+networks:
+  internal:

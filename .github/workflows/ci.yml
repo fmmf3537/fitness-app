@@ -31,6 +31,45 @@ jobs:
         working-directory: backend
         run: python -m pytest tests/ -q
 
+  # V2-5：Alembic 迁移在真实 PostgreSQL 上重放验证（服务容器注入 TEST_DATABASE_URL_PG）
+  backend-postgres:
+    name: backend (alembic on PostgreSQL)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: fitness
+          POSTGRES_PASSWORD: fitness
+          POSTGRES_DB: fitness
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U fitness -d fitness"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      TEST_DATABASE_URL_PG: postgresql+psycopg2://fitness:fitness@localhost:5432/fitness
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+
+      - name: Alembic upgrade head on PostgreSQL + pytest
+        working-directory: backend
+        run: python -m pytest tests/test_alembic_postgres.py -q --no-cov
+
   frontend:
     name: frontend (vitest + build + oxlint)
     runs-on: ubuntu-latest

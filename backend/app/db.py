@@ -11,12 +11,13 @@ from app.models import Base
 
 @event.listens_for(Engine, "connect")
 def _set_sqlite_pragma(dbapi_connection, connection_record):  # SQLite 开启外键约束
-    try:
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.close()
-    except Exception:  # 非 SQLite 驱动直接跳过
-        pass
+    # 仅对 SQLite 驱动执行：psycopg2 等驱动执行 PRAGMA 会报错并把连接事务
+    # 置入 aborted 状态（V2-5 PG 迁移实测踩坑），即使 catch 掉异常连接也已不可用
+    if type(dbapi_connection).__module__ != "sqlite3":
+        return
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
 
 
 def make_engine(url: str | None = None) -> Engine:

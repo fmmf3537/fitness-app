@@ -24,6 +24,9 @@ _scheduler = None  # 模块级持引用，防止 GC
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _scheduler
+    # 生产模式强制校验关键配置（APP_PASSWORD/FERNET_KEY/PostgreSQL），缺失即拒绝启动
+    from app.config import validate_production_settings
+    validate_production_settings()
     if os.getenv("SCHEDULER_ENABLED", "1") == "1":
         from app.scheduler import create_scheduler
         _scheduler = create_scheduler()

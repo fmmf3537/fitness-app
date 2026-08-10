@@ -10,6 +10,7 @@
 2. 《PRD.md》—— 产品需求文档：用户故事、数据模型、接口规格、业务规则（编码的单一事实来源）
 3. 《开发计划.md》—— 三阶段任务拆解与目录骨架约定
 4. 《开发提示词手册.md》—— 逐任务即贴即用的 Kimi Code 提示词（含 TDD 与敏捷纪律）
+5. 《docs/DEPLOY.md》—— 生产部署手册（V2-5：Docker Compose + PostgreSQL + Caddy HTTPS）
 
 ## 快速开始
 
@@ -25,8 +26,10 @@ cp .env.example .env
 ```
 ├── backend/          # FastAPI 后端（M1 任务创建）
 ├── frontend/         # React 前端（M6 任务创建）
-├── docs/             # 技术债清单、部署文档等（Sprint 复盘中生成）
+├── deploy/           # Caddy HTTPS 反代与 pg_dump 备份容器（V2-5）
+├── docs/             # 技术债清单、部署文档 DEPLOY.md 等
 ├── 素材/             # 训记报表示例图等基准测试素材
+├── docker-compose.yml  # 生产部署（V2-5）：backend/frontend/postgres/backup/caddy
 ├── PRD.md / 开发计划.md / 开发提示词手册.md / 需求文档
-└── .env.example
+└── .env.example（开发）/ .env.production.example（生产）
 ```

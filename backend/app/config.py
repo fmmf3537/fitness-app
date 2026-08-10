@@ -55,6 +55,8 @@ class Settings:
         self.database_url = self._resolve_database_url(os.getenv("DATABASE_URL"))
         self.fernet_key = os.getenv("FERNET_KEY", "")
         self.app_password = os.getenv("APP_PASSWORD", "")
+        # 运行环境：production 时启动前强制校验关键配置（V2-5，登录口令强制）
+        self.app_env = os.getenv("APP_ENV", "development")
         # 历史回溯起点（V1-2）：训记 2023-02 启用；佳明每日健康与之对齐
         self.backfill_start_date = os.getenv("BACKFILL_START_DATE", "2023-02-01")
         # 佳明活动列表回溯起点（PRD US-5：2017 年起全量）
@@ -76,6 +78,31 @@ class Settings:
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+PRODUCTION_REQUIRED_VARS = ("APP_PASSWORD", "FERNET_KEY")
+
+
+def validate_production_settings(settings: Settings | None = None) -> None:
+    """生产模式（APP_ENV=production）启动前强制校验：登录口令/加密密钥必须配置，
+    数据库必须是 PostgreSQL。缺失即抛 RuntimeError，拒绝带病启动。
+    """
+    settings = settings or get_settings()
+    if settings.app_env != "production":
+        return
+    missing = [
+        name for name in PRODUCTION_REQUIRED_VARS
+        if not getattr(settings, name.lower())
+    ]
+    if missing:
+        raise RuntimeError(
+            "生产环境缺少必需环境变量：" + ", ".join(missing) +
+            "（登录口令强制，见 docs/DEPLOY.md）"
+        )
+    if settings.database_url.startswith("sqlite"):
+        raise RuntimeError(
+            "生产环境必须使用 PostgreSQL：请将 DATABASE_URL 指向 postgres 服务"
+        )
 
 
 def _fernet() -> Fernet:

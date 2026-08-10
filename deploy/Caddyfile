@@ -1,0 +1,15 @@
+# 全站 HTTPS 反代（V2-5）：SITE_ADDRESS 由 docker-compose 环境注入。
+# 填域名（如 fitness.example.com）时 Caddy 自动申请并续期 Let's Encrypt 证书，
+# 需 DNS A 记录指向服务器且 80/443 对公网开放。
+# 仅内网/无域名时可把 .env 中 SITE_ADDRESS 设为 :80（明文 HTTP，仅限可信网络）。
+{$SITE_ADDRESS} {
+	reverse_proxy frontend:80
+
+	# 安全响应头
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy same-origin
+		-Server
+	}
+}
