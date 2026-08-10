@@ -29,3 +29,7 @@ backups/
 logs/
 素材/plan_*.bin
 周复盘_*.pdf
+
+# 本机运维脚本（含绝对路径，机器专用）
+scripts/server_daemon.py
+scripts/start_server_hidden.vbs
