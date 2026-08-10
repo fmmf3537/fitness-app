@@ -4,6 +4,7 @@
 > Sprint 2（M4/M5/M6/M7，MVP 里程碑）复盘 · 2026-08-06（见第四节起）
 > Sprint 3（V1-1/V1-2/V1-3）复盘 · 2026-08-07（见第六节）
 > Sprint 4（V1-4/V1-5/V1-6/V1-7，V1 里程碑 v1.0）复盘 · 2026-08-07（见第七节）
+> Sprint 5（V2-1 Kimi 与多模型 / V2-2 周期复盘 / V2-3 截图识别）复盘 · 2026-08-10（见第八节）
 > 每条注明：来源任务 / 影响 / 建议处理时机。
 
 ## 一、实现与 PRD 的偏差
@@ -202,3 +203,52 @@
 | T21 | 写回预览依赖 30s 完整读，连续演示/操作有等待感 | V1-5 演示 | UX 层面可接受，无限频风险 | 可选：预览缓存 diff 基准，确认时复用 |
 
 **评审结论**：US-7 / US-8 / US-12 全部 AC 达成；测试基线（后端 426+3 / 94.44%，前端 97，build/oxlint 通过）与实地验收一致；两项真实链路演示复跑通过，服务器回查与锚点分毫不差；高危项复查全绿。**V1 里程碑达成，打 tag `v1.0`。** 遗留 T18-T21 登记跟踪，不阻塞发布。
+
+---
+
+## 八、Sprint 5（V2-1 Kimi 接入与多模型切换 / V2-2 周月复盘 / V2-3 截图识别）评审与复盘 · 2026-08-10
+
+### 8.1 测试与覆盖率
+
+- 后端：`538 passed / 4 skipped`（4 条均为显式门禁的真实 API 集成测试），总覆盖率 **94.69%**（≥85% 达标），与 2026-08-10 实地验收基线逐项一致；
+- 前端：Vitest `113 passed`（**17** 个测试文件；验收锚点记为 16 文件，复核实为 17，测试总数一致，系锚点笔误，无回归）；
+- 集成测试单跑注意：`-m integration` 只跑 1 条时会触发 85% 覆盖率门禁导致退出码 1（测试本身 passed），需加 `--no-cov`（见 T26）。
+
+### 8.2 US-9 / US-10 / US-11 验收标准逐条核对
+
+| AC | 判定 | 证据 / 说明 |
+|----|------|-------------|
+| US-9 AC1 设置页配置三家 Key 并切换默认模型 | ✅ | `adapters/llm.py` 注册表 DeepSeek/MiniMax/Kimi 均 implemented；Key Fernet 加密入 settings；PUT 前 `verify_api_key` 真实 ping 拒绝无效 Key；前端 SettingsPage 配置/切换/徽标 |
+| US-9 AC2 每次调用记 token/成本 + 月度汇总可见 | ✅ | `llm_call` 记账（token 强制取 API usage，禁止本地估算，失败也记账）；`/api/settings/llm/usage` 与 `/api/llm/monthly-usage` 两个汇总粒度 + 设置页「本月用量」卡片；Kimi 真实调用记账 17+286 tokens、¥0.0078325 与单价表 6.5/27 手算一致（llm_call #5） |
+| US-9 AC3 失败一键切换备用模型重试 | ✅（交互差异见注） | 默认模型连续失败 ≥2 次时设置页出现 banner「切换到 Y 并重试」（`consecutive_failures`/`suggested_fallback`）；注：入口在设置页而非报告页内联，无单条失败「原地重跑」，语义达成 |
+| US-10 AC1 每周日 21:13 周复盘（六要素） | ✅ | `weekly_review` cron sun 21:13；WEEKLY_SECTIONS 六节齐全；ai_report #5（2026-08-03~09，DeepSeek 571+1287，¥0.003145）数据逐项核验 100%：3 次训练、总容量 10,710kg、五部位容量自洽、杠铃深蹲 PR 40kg vs 历史 35kg（精确动作名匹配，未与哈克机反向深蹲 70kg 混淆） |
+| US-10 AC2 每月 1 日 09:23 月复盘（计划完成率+趋势图） | ✅ | `monthly_review` cron day=1 09:23 复盘上月；MONTHLY_SECTIONS 含计划完成率（精确 0.1%）/体成分/趋势（echarts 围栏块前端渲染） |
+| US-10 AC3 导出 Markdown / PDF | ✅ | `/api/ai-reports/{id}/export?format=md\|pdf`；reportlab + STSong-Light CJK，实测 2 页中文正常；样例 `周复盘_2026-08-03_08-09.pdf` 已存仓库根目录（未入库） |
+| US-11 AC1 上传截图→多模态→结构化 JSON | ✅ | `POST /api/screenshot/extract`：多图 ≤9、单张 ≤10MB、MIME 白名单；Kimi 视觉强制走 kimi 与默认文本模型无关；schema 校验失败附反馈自动重试 1 次 |
+| US-11 AC2 预览确认后入库 | ✅ | extract 不落库，`confirm_import` 唯一入库入口（xunji_train `shot-` 前缀 localid + raw_json source=screenshot 可追溯 + match_day 重跑匹配）；前端预览页全字段可编辑 |
+| US-11 AC3 字段识别准确率 ≥95% | ✅ | 评审现场复跑基准图（素材/训记分享报表示例.png）：**53/54 = 98.1%**，唯一未命中「集中弯举第 2 组 weight=15」，与 8-10 实地锚点一致；输出归档 `logs/sprint5_benchmark_rerun.log` |
+
+### 8.3 真实链路锚点复核（2026-08-10 评审复跑）
+
+| 锚点 | 复核结果 |
+|------|----------|
+| llm_call #5 kimi-k2.6 17+286 / ¥0.0078325 | ✅ 库中一致 |
+| llm_call #6 weekly DeepSeek 571+1287 / ¥0.003145 ↔ ai_report #5 | ✅ 库中一致 |
+| llm_call #7 vision_extract 4525+1414 / ¥0.0675905（生产路径） | ✅ 库中一致，purpose=vision_extract |
+| 周复盘幂等重触发 skipped 且 llm_call 不增 | ✅ 两次 weekly_review job_run（10:39/10:50）均 report_id=5，llm_call 仅 #6 一条 |
+| 环境坑：OS 残留 KIMI_API_KEY 遮蔽 .env（abf5229 override=True） | ✅ 修复后 kimi 调用成功且记账精确 |
+| 生产服务 11:25 重启、新路由 401 非 404 | ⚠️ 评审时（11:44）发现该实例已退出（进程不在，最后留痕 health_check 11:11）；11:46 重新拉起：`/health` ok、`/api/screenshot/extract` 401（认证生效、新代码在位）；**12:11 health_check 已留痕成功（job_run #27），调度器存活证实**；22:47 daily_sync 待当晚自然产生 |
+
+### 8.4 技术债销项与新增
+
+**销项**（早已实现、本节统一核销）：T9（garmin_only 一键草稿随 V1-5 写回流闭环）、T12（V1-6 已补 BackfillPage）、T13（V2-1 月度汇总 API+页面已上线）、T20（V2-1 Kimi 已真实接入 kimi-k2.6）。
+
+| # | 事项 | 来源 | 影响 | 建议处理 |
+|---|------|------|------|----------|
+| T22 | 截图识别预览态刷新丢失（前端 state 未持久化） | V2-3 评审 | 识别结果未确认前刷新页面需重新识别（重复计费） | 预览数据 localStorage 暂存或后端暂存草稿态 |
+| T23 | 确认入库未做服务端幂等，仅靠前端按钮置灰兜底 | V2-3 评审 | 双击/重试可能重复写 xunji_train | confirm 加 client_request_id / 内容指纹去重 |
+| T24 | PDF 导出中 echarts 围栏块以代码文本呈现、不渲染图表 | V2-2 评审 | PDF 保真度逊于页面 | 导出前服务端渲染图片或 PDF 中省略图表块（附说明） |
+| T25 | DeepSeek 近期涨价并引入峰谷定价 | V2-1 外部变化 | 默认单价表失真，成本低估 | 新价生效后用 `LLM_PRICES_JSON` 校准（含峰谷口径决策），历史成本不重算 |
+| T26 | `-m integration` 单跑触发 85% 覆盖率门禁、退出码 1 | 8.1 复核 | 易误判为测试失败 | pytest.ini 注释说明或集成标记自动 `--no-cov` |
+
+**评审结论**：US-9 / US-10 / US-11 全部 AC 达成；测试基线与实地验收锚点逐项一致（538+4 / 94.69% / 前端 113）；基准识别复跑 98.1% 与锚点分毫不差；记账/幂等/调度锚点全部复核通过。**Sprint 5 目标达成，打 tag `sprint-5`。** 遗留 T22-T26 登记跟踪，不阻塞。
