@@ -1,4 +1,4 @@
-"""APScheduler 任务注册（M5）。
+"""APScheduler 任务注册（M5；V2-2 增加周/月复盘）。
 
 - 返回未 start 的 BackgroundScheduler，由调用方（main.py startup）启动；
 - jobstores 固定内存存储（单用户自托管，无需持久化）；
@@ -20,12 +20,22 @@ def _job_sync_prev_day(sync_fn) -> None:
     sync_fn(date.today() - timedelta(days=1))
 
 
-def create_scheduler(*, sync_fn=None, health_fn=None, plan_fn=None) -> BackgroundScheduler:
+def _job_monthly_review(monthly_fn) -> None:
+    # 每月 1 日 09:23 触发时复盘上个月（传入前一天日期）
+    monthly_fn(date.today() - timedelta(days=1))
+
+
+def create_scheduler(*, sync_fn=None, health_fn=None, plan_fn=None,
+                     weekly_fn=None, monthly_fn=None) -> BackgroundScheduler:
     if sync_fn is None or health_fn is None or plan_fn is None:
         from app.services import sync as sync_mod  # 延迟 import，避免循环依赖
         sync_fn = sync_fn if sync_fn is not None else sync_mod.daily_sync
         health_fn = health_fn if health_fn is not None else sync_mod.health_check
         plan_fn = plan_fn if plan_fn is not None else sync_mod.sync_plan_cache
+    if weekly_fn is None or monthly_fn is None:
+        from app.services import ai as ai_mod
+        weekly_fn = weekly_fn if weekly_fn is not None else ai_mod.run_weekly_review
+        monthly_fn = monthly_fn if monthly_fn is not None else ai_mod.run_monthly_review
 
     scheduler = BackgroundScheduler(jobstores={"default": MemoryJobStore()})
     scheduler.add_job(partial(_job_sync_today, sync_fn),
@@ -34,4 +44,10 @@ def create_scheduler(*, sync_fn=None, health_fn=None, plan_fn=None) -> Backgroun
                       CronTrigger(hour=22, minute=52), id="daily_sync_prev_day")
     scheduler.add_job(health_fn, CronTrigger(minute=11), id="health_check_hourly")
     scheduler.add_job(plan_fn, CronTrigger(hour=23, minute=3), id="plan_cache_daily")
+    # V2-2：每周日 21:13 周复盘；每月 1 日 09:23 月复盘（复盘上个月）
+    scheduler.add_job(weekly_fn,
+                      CronTrigger(day_of_week="sun", hour=21, minute=13),
+                      id="weekly_review")
+    scheduler.add_job(partial(_job_monthly_review, monthly_fn),
+                      CronTrigger(day=1, hour=9, minute=23), id="monthly_review")
     return scheduler

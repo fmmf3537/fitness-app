@@ -49,6 +49,9 @@ export default function Layout() {
               <NavLink to="/ai-reports" className={linkClass}>
                 AI 报告
               </NavLink>
+              <NavLink to="/reviews" className={linkClass}>
+                复盘中心
+              </NavLink>
               <NavLink to="/trends" className={linkClass}>
                 趋势
               </NavLink>

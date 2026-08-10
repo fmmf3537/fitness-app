@@ -7,6 +7,7 @@ import WorkoutListPage from './pages/WorkoutListPage'
 import WorkoutDetailPage from './pages/WorkoutDetailPage'
 import CandidatesPage from './pages/CandidatesPage'
 import AIReportsPage from './pages/AIReportsPage'
+import ReviewsPage from './pages/ReviewsPage'
 import TrendsPage from './pages/TrendsPage'
 import BodyMetricsPage from './pages/BodyMetricsPage'
 import BackfillPage from './pages/BackfillPage'
@@ -24,6 +25,7 @@ export default function App() {
             <Route path="/workouts/:id" element={<WorkoutDetailPage />} />
             <Route path="/candidates" element={<CandidatesPage />} />
             <Route path="/ai-reports" element={<AIReportsPage />} />
+            <Route path="/reviews" element={<ReviewsPage />} />
             <Route path="/trends" element={<TrendsPage />} />
             <Route path="/body-metrics" element={<BodyMetricsPage />} />
             <Route path="/backfill" element={<BackfillPage />} />
