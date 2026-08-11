@@ -5,6 +5,7 @@
 > Sprint 3（V1-1/V1-2/V1-3）复盘 · 2026-08-07（见第六节）
 > Sprint 4（V1-4/V1-5/V1-6/V1-7，V1 里程碑 v1.0）复盘 · 2026-08-07（见第七节）
 > Sprint 5（V2-1 Kimi 与多模型 / V2-2 周期复盘 / V2-3 截图识别）复盘 · 2026-08-10（见第八节）
+> Sprint 7（V2-7 手动同步与首日缺陷修复 / V2-8 训练计划页 / V2-9+V2-9b 移动端抽屉）复盘 · 2026-08-11（见第九节）
 > 每条注明：来源任务 / 影响 / 建议处理时机。
 
 ## 一、实现与 PRD 的偏差
@@ -252,3 +253,46 @@
 | T26 | `-m integration` 单跑触发 85% 覆盖率门禁、退出码 1 | 8.1 复核 | 易误判为测试失败 | pytest.ini 注释说明或集成标记自动 `--no-cov` |
 
 **评审结论**：US-9 / US-10 / US-11 全部 AC 达成；测试基线与实地验收锚点逐项一致（538+4 / 94.69% / 前端 113）；基准识别复跑 98.1% 与锚点分毫不差；记账/幂等/调度锚点全部复核通过。**Sprint 5 目标达成，打 tag `sprint-5`。** 遗留 T22-T26 登记跟踪，不阻塞。
+
+---
+
+## 九、Sprint 7（V2-7 手动同步与首日缺陷修复 / V2-8 训练计划页与 plan_review / V2-9+V2-9b 移动端抽屉）评审与复盘 · 2026-08-11
+
+### 9.1 测试与覆盖率
+
+- 后端：`634 passed / 6 skipped`（2 条 PG testcontainers 环境跳过 + 4 条显式门禁真实 API 集成测试），总覆盖率 **93.67%**（≥85% 达标），与 2026-08-11 实地验收基线逐项一致；
+- 前端：Vitest `158 passed`（25 个测试文件）；oxlint **0 error**（1 个 V2-4 既有 warning，见 T28）；`npm run build` 通过。
+- 全量回归无失败；与基线不一致项：无。
+
+### 9.2 Sprint 7 背景锚点回归复核（2026-08-11 评审留痕，均已通过实地/真机验收）
+
+| 锚点 | 复核结果 |
+|------|----------|
+| 缺陷 1：`POST /api/sync/{date}` 裸奔 | ✅ `api/sync.py` 路由级 `dependencies=[Depends(require_auth)]`，未登录 401；有鉴权测试 |
+| 缺陷 2：同步阻塞 504 | ✅ 同步后台线程化：POST 立即 202、同日期在跑 409、`GET /api/sync/status` 轮询；`sync_manager.py` 覆盖 100%；nginx `proxy_read_timeout 300s` 兜底已随部署到位 |
+| 缺陷 3a：当日缓存拉不到补录组数 | ✅ `sync.py` is_today 分支 `force_refresh=True` 绕过同日缓存；历史日期保持缓存命中不变 |
+| 缺陷 3b：重融合不刷新、AI 不重生成 | ✅ `matcher._refresh_stale_workouts`：fetched_at > updated_at 时就地更新 movements_json（复用 fuse._extract_movements，不新建行），删除当日旧 session_review/next_advice 后重生成 |
+| 缺陷 4：详情页缺 session_review | ✅ WorkoutDetailPage 挂 SessionReviewSection（有/无报告两态均有测试） |
+| 计划页 + plan_review 全链路 | ✅ `api/plans.py` upcoming/refresh(202/409)/review 全端点鉴权；plan_review 覆盖式幂等 + 标准动作名白名单校验；云端真实计划缓存 universal:1 实地联调通过 |
+| 移动端抽屉五项真机验收 | ✅ BottomSheet + dvh 兜底链 + min-w-0 + footer shrink-0（V2-9b）、导航汉堡菜单、4 处表格 overflow-x-auto，真机全过 |
+
+### 9.3 技术债销项
+
+- 缺陷 1（sync 裸奔接口）、缺陷 2（504 超时）、缺陷 3（当日缓存 + 重融合不刷新）、缺陷 4（详情页点评缺失）：随 V2-7 全部闭环；
+- 移动端报告阅读体验（长滚动问题）：随 V2-9 底部抽屉闭环，V2-9b 修复真机实测三处残留缺陷后验收通过。
+
+### 9.4 Sprint 7 新增技术债
+
+| # | 事项 | 来源 | 影响 | 建议处理 |
+|---|------|------|------|----------|
+| T27 | jsdom matchMedia 统一 mock 默认桌面（matches=false），移动端用例须自行 `installMatchMedia(true)` 且 afterEach 复位 | V2-9/V2-9b | 新写移动端用例忘记复位会污染同文件后续用例 | 维护注意即可；新增移动端用例时参照 Layout.test.jsx 模式 |
+| T28 | `FitImportPage.test.jsx:77` 既有 oxlint warning（未使用变量 `user`） | V2-4 | 无功能影响，lint 输出有噪音 | 下次触碰该文件时顺手删除该变量 |
+
+### 9.5 保留的已知设计内遗留（确认不处理，继续跟踪）
+
+- **T23 保留**：截图确认入库未做服务端幂等，前端按钮置灰兜底（双击/重试理论风险，单机自用可接受）；
+- **T24 保留**：PDF 导出中 echarts 围栏块不渲染图表，以代码文本呈现；
+- **T25 保留**：DeepSeek 涨价/峰谷定价待校准（`LLM_PRICES_JSON`），历史成本不重算；
+- **设计内成本项**：当日强刷/重融合每次触发当日 AI 报告重生成一次（单次成本约几分钱），属预期行为，不做节流。
+
+**评审结论**：Sprint 7 背景锚点七项全部复核通过（与 2026-08-10/11 实地/真机验收一致）；测试基线（后端 634+6 / 93.67%，前端 158 / 25 文件，oxlint 0 error，build 通过）逐项一致无回归。**Sprint 7 目标达成，打 tag `sprint-7`。** 新增 T27/T28 登记跟踪，T23-T25 保留观察，不阻塞。
