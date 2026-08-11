@@ -21,6 +21,10 @@ from sqlalchemy.orm import Session
 from app.adapters import llm
 from app.models import AIReport, BodyMetric, GarminDaily, JobRun, Workout, XunjiPlan
 from app.movements import load_movement_names
+# V2-8：计划缓存解析原语提取到 services/plans.py 共享（禁止复制粘贴）
+from app.services import plans as plan_service
+from app.services.plans import normalize_plan_movement as _normalize_plan_movement
+from app.services.plans import parse_json as _parse_json
 
 PROMPT_SECTIONS = ("完成质量", "与历史对比", "恢复评估", "注意事项")
 
@@ -240,15 +244,6 @@ def query_recovery_summary(
         "weight_trend": weights,
         "training_readiness": None,  # 当前 GarminDaily 未收录该字段
     }
-
-
-def _parse_json(text: str | None) -> Any:
-    if not text:
-        return None
-    try:
-        return json.loads(text)
-    except (json.JSONDecodeError, TypeError):
-        return None
 
 
 def build_session_review_prompt(
@@ -601,15 +596,6 @@ def query_next_plan_day(
     return best
 
 
-def _normalize_plan_movement(mv: dict) -> dict:
-    """计划动作归一化：真实响应的 target_sets 映射为 sets（供 prompt 组装统一读取）。"""
-    if not isinstance(mv, dict):
-        return {"name": str(mv), "sets": []}
-    if mv.get("sets") is None and mv.get("target_sets") is not None:
-        return {**mv, "sets": mv.get("target_sets") or []}
-    return mv
-
-
 def build_next_advice_prompt(
     workout: dict,
     plan_day: dict,
@@ -826,6 +812,294 @@ def run_daily_next_advices(
         "note": _plan_cache_note(session) if no_plan else None,
         "reports": reports,
     }
+
+
+# =====================================================================
+# V2-8 计划级 AI 点评（type='plan_review'）
+# =====================================================================
+
+PLAN_REVIEW_SCHEMA = "plan_review_v1"
+PLAN_REVIEW_FIELDS = ("weight", "reps", "sets", "add", "remove")
+
+
+class PlanReviewParseError(ValueError):
+    """计划点评的结构化 JSON 解析/校验失败。"""
+
+
+def parse_plan_review(content_md: str) -> dict:
+    """从 AI 输出中提取并校验 plan_review_v1 结构化 JSON 块。
+
+    modifications 每条必须含：movement（标准动作名白名单内）/
+    field（weight|reps|sets|add|remove）/ from / to / reason。
+    任一校验失败抛 PlanReviewParseError。
+    """
+    if not content_md:
+        raise PlanReviewParseError("内容为空，缺少 JSON 修改建议块")
+    match = _ADVICE_BLOCK_RE.search(content_md)
+    if match is None:
+        raise PlanReviewParseError("缺少 ```json 修改建议块")
+    try:
+        data = json.loads(match.group(1))
+    except json.JSONDecodeError as exc:
+        raise PlanReviewParseError(f"JSON 块解析失败: {exc}") from exc
+    if not isinstance(data, dict) or data.get("schema") != PLAN_REVIEW_SCHEMA:
+        raise PlanReviewParseError(f"schema 必须为 {PLAN_REVIEW_SCHEMA}")
+    if not isinstance(data.get("plan_date"), str) or not data["plan_date"].strip():
+        raise PlanReviewParseError("缺少 plan_date")
+    modifications = data.get("modifications")
+    if not isinstance(modifications, list):
+        raise PlanReviewParseError("modifications 必须为数组")
+
+    valid_names = set(load_movement_names())
+    for i, m in enumerate(modifications):
+        if not isinstance(m, dict):
+            raise PlanReviewParseError(f"第 {i + 1} 条修改建议不是对象")
+        movement = m.get("movement")
+        if not isinstance(movement, str) or movement.strip() not in valid_names:
+            raise PlanReviewParseError(f"第 {i + 1} 条修改建议动作名非法: {movement!r}")
+        if m.get("field") not in PLAN_REVIEW_FIELDS:
+            raise PlanReviewParseError(
+                f"第 {i + 1} 条修改建议 field 非法: {m.get('field')!r}"
+            )
+        for key in ("from", "to"):
+            if key not in m:
+                raise PlanReviewParseError(f"第 {i + 1} 条修改建议缺少 {key}")
+        if not isinstance(m.get("reason"), str) or not m["reason"].strip():
+            raise PlanReviewParseError(f"第 {i + 1} 条修改建议缺少 reason")
+    return data
+
+
+def query_last_similar_workout(
+    session: Session,
+    plan_day: dict,
+    target_date: date,
+) -> dict | None:
+    """最近一次同类型 workout：标题与计划日标题一致优先，否则动作名重叠兜底。"""
+    rows = (
+        session.query(Workout)
+        .filter(Workout.date < target_date, Workout.movements_json.isnot(None))
+        .order_by(Workout.date.desc(), Workout.id.desc())
+        .all()
+    )
+    title = (plan_day.get("title") or "").strip()
+    plan_names = {
+        (mv.get("name") or "").strip() for mv in plan_day.get("movements") or []
+    } - {""}
+
+    def to_dict(w: Workout, movements: list[dict]) -> dict:
+        return {
+            "date": w.date.isoformat(),
+            "title": w.title,
+            "tags": w.tags,
+            "duration_s": w.duration_s,
+            "calories": w.calories,
+            "avg_hr": w.avg_hr,
+            "max_hr": w.max_hr,
+            "movements": movements,
+        }
+
+    fallback: dict | None = None
+    for w in rows:
+        movements = _parse_movements(w)
+        if title and (w.title or "").strip() == title:
+            return to_dict(w, movements)
+        if fallback is None:
+            w_names = {(m.get("name") or "").strip() for m in movements}
+            if plan_names & w_names:
+                fallback = to_dict(w, movements)
+    return fallback
+
+
+def query_part_volume_trend(
+    session: Session,
+    plan_day: dict,
+    target_date: date,
+    *,
+    weeks: int = 4,
+) -> list[dict]:
+    """近 N 周计划涉及部位的容量趋势（复用周期汇总 + 部位归类）。"""
+    from app.services import stats as stats_service
+
+    parts = {
+        stats_service.classify_part(mv.get("name"))
+        for mv in plan_day.get("movements") or []
+    }
+    summary = query_period_training_summary(
+        session,
+        target_date - timedelta(weeks=weeks),
+        target_date - timedelta(days=1),
+    )
+    return [p for p in summary["part_distribution"] if p["part"] in parts]
+
+
+def build_plan_review_prompt(
+    plan_day: dict,
+    last_workout: dict | None,
+    part_trend: list[dict],
+    recovery: dict,
+    movement_names: list[str] | tuple[str, ...],
+) -> list[dict]:
+    """纯函数：组装计划级点评 prompt（动作名表注入 system 约束模型）。"""
+    lines: list[str] = []
+    lines.append(
+        f"# 训记官方计划 · {plan_day.get('date')}（计划："
+        f"{plan_day.get('plan_name') or plan_day.get('plan_ref') or '未命名'}"
+        f"{(' · ' + plan_day['title']) if plan_day.get('title') else ''}）"
+    )
+    for mv in plan_day.get("movements") or []:
+        sets = mv.get("sets") or []
+        if sets:
+            parts = [f"{s.get('weight')}{s.get('unit') or 'kg'}×{s.get('reps')}" for s in sets]
+            lines.append(f"- {mv.get('name') or '未命名动作'}：计划 {len(sets)} 组（" + "，".join(parts) + "）")
+        else:
+            lines.append(f"- {mv.get('name') or '未命名动作'}")
+
+    lines.append("")
+    lines.append("# 最近一次同类型训练完成情况")
+    if last_workout:
+        lines.append(
+            f"日期：{last_workout.get('date')} | 标题：{last_workout.get('title') or '-'} | "
+            f"时长：{_format_duration(last_workout.get('duration_s'))} | "
+            f"热量：{last_workout.get('calories') or '-'} 千卡 | "
+            f"平均心率：{last_workout.get('avg_hr') or '-'} bpm"
+        )
+        for mv in last_workout.get("movements") or []:
+            sets = mv.get("sets") or []
+            parts = []
+            for s in sets:
+                part = f"{s.get('weight')}{s.get('unit') or 'kg'}×{s.get('reps')}"
+                if s.get("rpe") is not None:
+                    part += f"(RPE{s['rpe']})"
+                if s.get("done") is False:
+                    part += "【未完成】"
+                parts.append(part)
+            lines.append(f"- {mv.get('name') or '未命名动作'}：" + "，".join(parts))
+    else:
+        lines.append("- 无同类型训练历史")
+
+    lines.append("")
+    lines.append("# 近4周同部位容量趋势")
+    if part_trend:
+        for p in part_trend:
+            lines.append(f"- {p['part']}：{p['sets']} 组 / {p['volume_kg']} kg")
+    else:
+        lines.append("- 近4周无同部位训练记录")
+
+    lines.append("")
+    lines.append("# 近7天恢复指标")
+    if recovery.get("days_count", 0) > 0:
+        if recovery.get("avg_sleep_hours") is not None:
+            lines.append(f"- 平均睡眠时长：{recovery['avg_sleep_hours']} 小时")
+        if recovery.get("hrv_status"):
+            lines.append(f"- HRV 状态：{recovery['hrv_status']}")
+        if recovery.get("body_battery_high") is not None:
+            lines.append(
+                f"- 身体电量：高 {recovery.get('body_battery_high')} / 低 {recovery.get('body_battery_low')}"
+            )
+        if recovery.get("resting_hr") is not None:
+            lines.append(f"- 平均静息心率：{recovery['resting_hr']} bpm")
+        if recovery.get("stress_avg") is not None:
+            lines.append(f"- 平均压力：{recovery['stress_avg']}")
+    else:
+        lines.append("- 近7天无恢复数据")
+
+    if recovery.get("weight_trend"):
+        lines.append("- 近4周体重趋势（kg）：")
+        for item in recovery["weight_trend"]:
+            lines.append(f"  - {item['date']}：{item['value']} kg")
+    else:
+        lines.append("- 近4周无体重记录")
+
+    system = (
+        "你是一位资深力量训练教练。请针对训记官方计划的指定训练日，结合最近一次同类型"
+        "训练完成情况、近4周同部位容量趋势、恢复指标与体重趋势，点评该计划日安排是否合理，"
+        "并给出逐动作的调整建议（重量/次数/组数/增删动作）。\n"
+        "输出要求：\n"
+        "1. 先输出给人看的 Markdown 正文（计划合理性点评与调整说明）；\n"
+        "2. 再输出一个 ```json 围栏代码块，schema 为 plan_review_v1，结构：\n"
+        '{"schema": "plan_review_v1", "plan_date": "YYYY-MM-DD", "modifications": ['
+        '{"movement": "标准动作中文名", "field": "weight|reps|sets|add|remove", '
+        '"from": "原计划", "to": "建议改为", "reason": "理由"}]}\n'
+        "3. 训记计划接口只读，所有修改建议仅供用户去训记 App 手动调整，"
+        "严禁暗示可以自动写回计划；\n"
+        "4. movement 只能使用下列训记标准动作中文名表中的名字，禁止自造动作名：\n"
+        + "、".join(movement_names)
+    )
+
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": "\n".join(lines)},
+    ]
+
+
+def generate_plan_review(
+    session: Session,
+    target_date: date | str,
+    *,
+    chat_fn: Callable[[list[dict]], dict] | None = None,
+) -> AIReport | None:
+    """为某日计划训练日生成计划级点评并落库（type='plan_review'）。
+
+    - 无计划日（休息日/缓存缺失/计划已结束）返回 None，不调用模型，
+      可读原因见 plans.plan_day_skip_reason；
+    - AI 输出未通过结构化校验（含非法动作名）时重试 1 次，仍失败抛
+      PlanReviewParseError，不落库；
+    - 幂等覆盖：同日已有 plan_review 先删旧再生成（用户会反复调整计划，
+      与 next_advice 的跳过策略不同）。
+    """
+    target = date.fromisoformat(target_date) if isinstance(target_date, str) else target_date
+
+    plan_day = plan_service.query_plan_day(session, target)
+    if plan_day is None:
+        return None
+
+    last_workout = query_last_similar_workout(session, plan_day, target)
+    part_trend = query_part_volume_trend(session, plan_day, target)
+    recovery = query_recovery_summary(session, target)  # 含近4周体重趋势
+    messages = build_plan_review_prompt(
+        plan_day, last_workout, part_trend, recovery, load_movement_names()
+    )
+
+    if chat_fn is None:
+        chat_fn = lambda msgs: llm.chat(  # noqa: E731
+            msgs, session=session, purpose="plan_review"
+        )
+
+    result = chat_fn(messages)
+    content = result.get("content", "")
+    try:
+        parse_plan_review(content)
+    except PlanReviewParseError:
+        # 校验失败重试 1 次；仍失败向外抛，不落库
+        result = chat_fn(messages)
+        content = result.get("content", "")
+        parse_plan_review(content)
+
+    prompt_tokens = result.get("prompt_tokens") or 0
+    completion_tokens = result.get("completion_tokens") or 0
+    provider = _resolve_provider(session)
+    model = result.get("model") or llm.PROVIDERS[provider]["default_model"]
+    cost = llm.compute_cost(provider, prompt_tokens, completion_tokens)
+
+    # 幂等覆盖：先删旧再生成
+    session.query(AIReport).filter(
+        AIReport.type == "plan_review",
+        AIReport.period_start == target,
+    ).delete()
+    report = AIReport(
+        type="plan_review",
+        workout_id=None,
+        period_start=target,
+        period_end=target,
+        model=model,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        cost_estimate=round(cost, 6),
+        content_md=content,
+    )
+    session.add(report)
+    session.commit()
+    return report
 
 
 # =====================================================================

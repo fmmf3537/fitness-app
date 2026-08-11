@@ -11,6 +11,7 @@ from app.api.fit_import import router as fit_import_router
 from app.api.llm import router as llm_router
 from app.api.body_metrics import router as body_metrics_router
 from app.api.match_candidates import router as match_candidates_router
+from app.api.plans import router as plans_router
 from app.api.screenshot import router as screenshot_router
 from app.api.settings import router as settings_router
 from app.api.stats import router as stats_router
@@ -48,6 +49,7 @@ app.include_router(fit_import_router)
 app.include_router(writeback_router)
 app.include_router(body_metrics_router)
 app.include_router(screenshot_router)
+app.include_router(plans_router)
 
 
 @app.get("/health")

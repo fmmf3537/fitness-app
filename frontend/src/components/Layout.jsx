@@ -46,6 +46,9 @@ export default function Layout() {
                   </span>
                 )}
               </NavLink>
+              <NavLink to="/plans" className={linkClass}>
+                训练计划
+              </NavLink>
               <NavLink to="/ai-reports" className={linkClass}>
                 AI 报告
               </NavLink>
