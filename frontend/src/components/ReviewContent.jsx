@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import * as echarts from 'echarts'
+import SimpleMarkdown from './SimpleMarkdown'
 
 // 拆分 content_md 中的 ```echarts 围栏块，其余按轻量 Markdown 渲染
 const ECHARTS_RE = /```echarts\s*\n([\s\S]*?)```/g
@@ -50,35 +51,6 @@ function EChartBlock({ optionText }) {
   return <div ref={ref} data-testid="echarts-block" className="h-64 w-full" />
 }
 
-function MarkdownLines({ text }) {
-  return (
-    <div className="space-y-2">
-      {(text || '').split('\n').map((line, i) => {
-        if (line.startsWith('## ')) {
-          return (
-            <h2 key={i} className="text-lg font-bold text-gray-900">
-              {line.slice(3)}
-            </h2>
-          )
-        }
-        if (line.startsWith('# ')) {
-          return (
-            <h1 key={i} className="text-xl font-bold text-gray-900">
-              {line.slice(2)}
-            </h1>
-          )
-        }
-        if (line.trim() === '') return <br key={i} />
-        return (
-          <p key={i} className="text-gray-800">
-            {line}
-          </p>
-        )
-      })}
-    </div>
-  )
-}
-
 export default function ReviewContent({ text }) {
   const blocks = splitReviewBlocks(text)
   return (
@@ -87,7 +59,7 @@ export default function ReviewContent({ text }) {
         b.type === 'echarts' ? (
           <EChartBlock key={i} optionText={b.text} />
         ) : (
-          <MarkdownLines key={i} text={b.text} />
+          <SimpleMarkdown key={i} text={b.text} />
         ),
       )}
     </div>

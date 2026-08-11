@@ -59,6 +59,32 @@ describe('BottomSheet', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
+  it('抽屉容器/内容区/footer 具备防撑破与高度兜底 class（移动端真机缺陷修复）', () => {
+    render(
+      <BottomSheet
+        open
+        onClose={() => {}}
+        title="t"
+        footer={<button type="button">下一篇</button>}
+      >
+        <p>正文</p>
+      </BottomSheet>,
+    )
+    // 抽屉容器：min-w-0 防内容撑宽；max-h vh + dvh 兜底链
+    const sheet = screen.getByTestId('bottom-sheet')
+    expect(sheet.className).toContain('min-w-0')
+    expect(sheet.className).toContain('max-h-[85vh]')
+    expect(sheet.className).toContain('max-h-[85dvh]')
+    // 内容滚动区：min-w-0 + 横向隐藏溢出
+    const content = screen.getByTestId('bottom-sheet-content')
+    expect(content.className).toContain('min-w-0')
+    expect(content.className).toContain('overflow-y-auto')
+    expect(content.className).toContain('overflow-x-hidden')
+    // footer：shrink-0 保证任何高度下可见
+    const footer = screen.getByTestId('bottom-sheet-footer')
+    expect(footer.className).toContain('shrink-0')
+  })
+
   it('点击内容区不触发 onClose', async () => {
     const user = userEvent.setup()
     const onClose = vi.fn()

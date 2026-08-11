@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
 import BottomSheet from '../components/BottomSheet'
+import SimpleMarkdown from '../components/SimpleMarkdown'
 import useIsMobile from '../hooks/useIsMobile'
 
 function formatDateInput(date) {
@@ -16,25 +17,6 @@ const TYPE_LABELS = {
 
 function typeLabel(type) {
   return TYPE_LABELS[type] || type || '-'
-}
-
-function SimpleMarkdown({ text }) {
-  return (
-    <div className="space-y-2">
-      {(text || '').split('\n').map((line, i) => {
-        if (line.startsWith('## ')) {
-          return <h2 key={i} className="text-lg font-bold text-gray-900">{line.slice(3)}</h2>
-        }
-        if (line.startsWith('# ')) {
-          return <h1 key={i} className="text-xl font-bold text-gray-900">{line.slice(2)}</h1>
-        }
-        if (line.trim() === '') {
-          return <br key={i} />
-        }
-        return <p key={i} className="text-gray-800">{line}</p>
-      })}
-    </div>
-  )
 }
 
 function ReportDetail({ report }) {
