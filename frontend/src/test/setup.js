@@ -1,4 +1,8 @@
 import '@testing-library/jest-dom'
+import { installMatchMedia } from './mockMatchMedia'
+
+// 默认按桌面断点（matchMedia matches=false），移动端用例在测试内自行 installMatchMedia(true)
+installMatchMedia(false)
 
 // jsdom 环境下补齐 localStorage（部分版本默认不提供）
 if (

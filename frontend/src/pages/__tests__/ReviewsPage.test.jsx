@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import ReviewsPage from '../ReviewsPage'
+import { installMatchMedia } from '../../test/mockMatchMedia'
 
 vi.mock('echarts', () => ({
   init: () => ({ setOption: vi.fn(), resize: vi.fn(), dispose: vi.fn() }),
@@ -191,5 +192,86 @@ describe('ReviewsPage', () => {
 
     await user.click(screen.getByTestId('generate-button'))
     expect(await screen.findByText('该周期复盘已存在')).toBeInTheDocument()
+  })
+})
+
+const WEEKLY_TWO = {
+  reports: [
+    WEEKLY.reports[0],
+    {
+      ...WEEKLY.reports[0],
+      id: 3,
+      date: '2026-07-27',
+      period_end: '2026-08-02',
+      content_md: '## 上周概览\n上周训练 2 次。',
+      created_at: '2026-08-02T21:13:00',
+    },
+  ],
+}
+
+describe('ReviewsPage 移动端（底部抽屉）', () => {
+  beforeEach(() => {
+    localStorage.setItem('fh_token', 'test-token')
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(new Date('2026-08-10T12:00:00'))
+    URL.createObjectURL = vi.fn(() => 'blob:mock')
+    URL.revokeObjectURL = vi.fn()
+    HTMLAnchorElement.prototype.click = vi.fn()
+    installMatchMedia(true)
+  })
+
+  afterEach(() => {
+    installMatchMedia(false)
+    vi.useRealTimers()
+  })
+
+  it('点击卡片弹出抽屉展示详情，导出 Markdown/PDF 按钮在抽屉内可用', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    globalThis.fetch = routeFetch([['/api/ai-reports?type=weekly', WEEKLY]])
+    render(<ReviewsPage />)
+    await screen.findByText(/2026-08-03/)
+
+    await user.click(screen.getByTestId('report-card-1'))
+
+    expect(await screen.findByTestId('bottom-sheet')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '本周概览' })).toBeInTheDocument()
+
+    await user.click(screen.getByTestId('export-md'))
+    await vi.waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/ai-reports/1/export?format=md',
+        expect.any(Object),
+      )
+    })
+    await user.click(screen.getByTestId('export-pdf'))
+    await vi.waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/ai-reports/1/export?format=pdf',
+        expect.any(Object),
+      )
+    })
+
+    // 仅一篇时「上一篇/下一篇」均禁用
+    expect(screen.getByTestId('sheet-prev')).toBeDisabled()
+    expect(screen.getByTestId('sheet-next')).toBeDisabled()
+  })
+
+  it('抽屉内「上一篇/下一篇」在当前列表内切换，末篇禁用下一篇', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    globalThis.fetch = routeFetch([['/api/ai-reports?type=weekly', WEEKLY_TWO]])
+    render(<ReviewsPage />)
+    await screen.findByText(/2026-08-03/)
+
+    await user.click(screen.getByTestId('report-card-1'))
+    await screen.findByTestId('bottom-sheet')
+    expect(screen.getByRole('heading', { name: '本周概览' })).toBeInTheDocument()
+    expect(screen.getByTestId('sheet-prev')).toBeDisabled()
+
+    await user.click(screen.getByTestId('sheet-next'))
+    expect(screen.getByRole('heading', { name: '上周概览' })).toBeInTheDocument()
+    expect(screen.getByTestId('sheet-next')).toBeDisabled()
+
+    await user.click(screen.getByTestId('sheet-prev'))
+    expect(screen.getByRole('heading', { name: '本周概览' })).toBeInTheDocument()
   })
 })

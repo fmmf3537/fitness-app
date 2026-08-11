@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
+import BottomSheet from '../components/BottomSheet'
+import useIsMobile from '../hooks/useIsMobile'
 
 function formatDateInput(date) {
   return date.toISOString().slice(0, 10)
@@ -35,7 +37,30 @@ function SimpleMarkdown({ text }) {
   )
 }
 
+function ReportDetail({ report }) {
+  return (
+    <div
+      data-testid="report-detail"
+      className="max-w-none rounded-lg border border-gray-200 bg-white p-6 shadow-sm"
+    >
+      <div className="mb-4 border-b border-gray-100 pb-4 text-sm text-gray-500">
+        <p>训练：{report.workout_title || '-'}</p>
+        <p>
+          类型：{typeLabel(report.type)} · 日期：{report.date || '-'}
+        </p>
+        <p>模型：{report.model || '-'}</p>
+        <p>
+          tokens：{report.prompt_tokens || 0} / {report.completion_tokens || 0}
+          {report.cost_estimate != null && ` · 约 ¥${report.cost_estimate.toFixed(6)}`}
+        </p>
+      </div>
+      <SimpleMarkdown text={report.content_md || '无内容'} />
+    </div>
+  )
+}
+
 export default function AIReportsPage() {
+  const isMobile = useIsMobile()
   const [mode, setMode] = useState('recent') // recent / bydate
   const [typeFilter, setTypeFilter] = useState('all') // all / session_review / next_advice
   const [date, setDate] = useState(formatDateInput(new Date()))
@@ -65,6 +90,34 @@ export default function AIReportsPage() {
     `rounded-md px-3 py-2 text-sm font-medium ${
       active ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-200'
     }`
+
+  const selectedIndex = reports.findIndex((r) => selected != null && r.id === selected.id)
+
+  const navFooter = (
+    <div className="flex items-center justify-between gap-2">
+      <button
+        type="button"
+        data-testid="sheet-prev"
+        disabled={selectedIndex <= 0}
+        onClick={() => setSelected(reports[selectedIndex - 1])}
+        className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-40"
+      >
+        上一篇
+      </button>
+      <span className="text-xs text-gray-400">
+        {selectedIndex + 1} / {reports.length}
+      </span>
+      <button
+        type="button"
+        data-testid="sheet-next"
+        disabled={selectedIndex < 0 || selectedIndex >= reports.length - 1}
+        onClick={() => setSelected(reports[selectedIndex + 1])}
+        className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-40"
+      >
+        下一篇
+      </button>
+    </div>
+  )
 
   return (
     <div className="space-y-4">
@@ -157,32 +210,28 @@ export default function AIReportsPage() {
           ))}
         </div>
 
-        <div className="md:col-span-2">
-          {selected ? (
-            <div
-              data-testid="report-detail"
-              className="max-w-none rounded-lg border border-gray-200 bg-white p-6 shadow-sm"
-            >
-              <div className="mb-4 border-b border-gray-100 pb-4 text-sm text-gray-500">
-                <p>训练：{selected.workout_title || '-'}</p>
-                <p>
-                  类型：{typeLabel(selected.type)} · 日期：{selected.date || '-'}
-                </p>
-                <p>模型：{selected.model || '-'}</p>
-                <p>
-                  tokens：{selected.prompt_tokens || 0} / {selected.completion_tokens || 0}
-                  {selected.cost_estimate != null && ` · 约 ¥${selected.cost_estimate.toFixed(6)}`}
-                </p>
+        {!isMobile && (
+          <div className="md:col-span-2">
+            {selected ? (
+              <ReportDetail report={selected} />
+            ) : (
+              <div className="flex h-48 items-center justify-center rounded-lg border border-dashed border-gray-300 bg-gray-50 text-sm text-gray-500">
+                选择左侧报告查看详情
               </div>
-              <SimpleMarkdown text={selected.content_md || '无内容'} />
-            </div>
-          ) : (
-            <div className="flex h-48 items-center justify-center rounded-lg border border-dashed border-gray-300 bg-gray-50 text-sm text-gray-500">
-              选择左侧报告查看详情
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </div>
+
+      {isMobile && selected && (
+        <BottomSheet
+          title={selected.workout_title || '未命名训练'}
+          onClose={() => setSelected(null)}
+          footer={navFooter}
+        >
+          <ReportDetail report={selected} />
+        </BottomSheet>
+      )}
     </div>
   )
 }

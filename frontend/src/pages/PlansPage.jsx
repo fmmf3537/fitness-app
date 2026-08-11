@@ -26,10 +26,11 @@ function PlanReviewBlock({ report }) {
       {review && review.modifications.length > 0 && (
         <div>
           <h4 className="mb-1 text-sm font-bold text-gray-900">修改建议</h4>
-          <table
-            data-testid={`modifications-${report.date}`}
-            className="w-full border-collapse text-xs"
-          >
+          <div className="overflow-x-auto">
+            <table
+              data-testid={`modifications-${report.date}`}
+              className="w-full border-collapse text-xs whitespace-nowrap"
+            >
             <thead>
               <tr className="border-b border-gray-300 text-left text-gray-600">
                 <th className="py-1 pr-2 font-medium">动作</th>
@@ -49,8 +50,9 @@ function PlanReviewBlock({ report }) {
                   <td className="py-1">{m.reason}</td>
                 </tr>
               ))}
-            </tbody>
-          </table>
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
       <p className="rounded-md bg-amber-50 p-2 text-xs font-medium text-amber-800">

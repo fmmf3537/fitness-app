@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AIReportsPage from '../AIReportsPage'
+import { installMatchMedia } from '../../test/mockMatchMedia'
 
 function mockResponse(data, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: async () => data }
@@ -181,5 +182,75 @@ describe('AIReportsPage', () => {
     globalThis.fetch = vi.fn(() => Promise.resolve(mockResponse({ detail: 'bad request' }, 500)))
     render(<AIReportsPage />)
     expect(await screen.findByRole('alert')).toBeInTheDocument()
+  })
+})
+
+describe('AIReportsPage 移动端（底部抽屉）', () => {
+  beforeEach(() => {
+    localStorage.setItem('fh_token', 'test-token')
+    globalThis.fetch = vi.fn(() => Promise.resolve(mockResponse(REPORTS)))
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(new Date('2026-08-03T12:00:00'))
+    installMatchMedia(true)
+  })
+
+  afterEach(() => {
+    installMatchMedia(false)
+    vi.useRealTimers()
+  })
+
+  it('点击卡片弹出底部抽屉展示详情，不渲染桌面详情栏', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<AIReportsPage />)
+    await screen.findByText('胸部训练')
+    // 未选中时无详情
+    expect(screen.queryByTestId('report-detail')).not.toBeInTheDocument()
+
+    await user.click(screen.getByTestId('report-card-1'))
+
+    expect(await screen.findByTestId('bottom-sheet')).toBeInTheDocument()
+    expect(screen.getByTestId('report-detail')).toBeInTheDocument()
+    expect(screen.getByText('训练完成度较高')).toBeInTheDocument()
+    // 打开抽屉时锁定 body 滚动
+    expect(document.body.style.overflow).toBe('hidden')
+  })
+
+  it('抽屉内「上一篇/下一篇」在当前列表内切换，首尾禁用', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<AIReportsPage />)
+    await screen.findByText('胸部训练')
+
+    await user.click(screen.getByTestId('report-card-1'))
+    await screen.findByTestId('bottom-sheet')
+    // 第一篇：上一篇禁用、下一篇可用
+    expect(screen.getByTestId('sheet-prev')).toBeDisabled()
+    expect(screen.getByTestId('sheet-next')).toBeEnabled()
+
+    await user.click(screen.getByTestId('sheet-next'))
+    expect(screen.getByText('背部训练完整')).toBeInTheDocument()
+    // 末篇：下一篇禁用、上一篇可用
+    expect(screen.getByTestId('sheet-next')).toBeDisabled()
+    expect(screen.getByTestId('sheet-prev')).toBeEnabled()
+
+    await user.click(screen.getByTestId('sheet-prev'))
+    expect(screen.getByText('训练完成度较高')).toBeInTheDocument()
+  })
+
+  it('关闭按钮与背板均可收起抽屉并恢复 body 滚动', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<AIReportsPage />)
+    await screen.findByText('胸部训练')
+
+    await user.click(screen.getByTestId('report-card-1'))
+    await screen.findByTestId('bottom-sheet')
+    await user.click(screen.getByTestId('bottom-sheet-close'))
+    expect(screen.queryByTestId('bottom-sheet')).not.toBeInTheDocument()
+    expect(document.body.style.overflow).toBe('')
+
+    await user.click(screen.getByTestId('report-card-2'))
+    await screen.findByTestId('bottom-sheet')
+    await user.click(screen.getByTestId('bottom-sheet-backdrop'))
+    expect(screen.queryByTestId('bottom-sheet')).not.toBeInTheDocument()
+    expect(document.body.style.overflow).toBe('')
   })
 })

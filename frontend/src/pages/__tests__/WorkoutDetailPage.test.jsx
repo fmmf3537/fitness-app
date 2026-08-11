@@ -77,6 +77,9 @@ describe('WorkoutDetailPage', () => {
     expect(screen.getByText(/60\s*kg\s*×\s*10/)).toBeInTheDocument()
     expect(screen.getByText('RPE 8')).toBeInTheDocument()
     expect(screen.getByTestId('hr-chart')).toBeInTheDocument()
+    // 窄屏可横向滚动：组次表外层包 overflow-x-auto 容器
+    const table = screen.getByRole('table')
+    expect(table.parentElement).toHaveClass('overflow-x-auto')
   })
 
   it('切换到训记原始 / 佳明原始标签', async () => {

@@ -107,6 +107,9 @@ describe('SettingsPage', () => {
     expect(screen.getByTestId('usage-total-calls').textContent).toContain('12')
     expect(screen.getByTestId('usage-total-cost').textContent).toContain('0.1234')
     expect(screen.getByTestId('llm-usage').textContent).toContain('deepseek-chat')
+    // 窄屏可横向滚动：月度用量表外层包 overflow-x-auto 容器
+    const usageTable = screen.getByTestId('llm-usage').querySelector('table')
+    expect(usageTable.parentElement).toHaveClass('overflow-x-auto')
   })
 
   it('输入新 Key 保存成功显示提示并发起 PUT', async () => {

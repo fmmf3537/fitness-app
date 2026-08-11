@@ -16,7 +16,8 @@ function formatValue(v) {
 /** diff 表格：字段/原值/新值三列，变更行高亮。 */
 function DiffTable({ diff }) {
   return (
-    <table className="mt-2 w-full border-collapse text-xs">
+    <div className="overflow-x-auto">
+      <table className="mt-2 w-full border-collapse text-xs whitespace-nowrap">
       <thead>
         <tr className="border-b border-gray-300 text-left text-gray-600">
           <th className="py-1 pr-2 font-medium">字段</th>
@@ -36,7 +37,8 @@ function DiffTable({ diff }) {
           </tr>
         ))}
       </tbody>
-    </table>
+      </table>
+    </div>
   )
 }
 

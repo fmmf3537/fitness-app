@@ -40,7 +40,8 @@ function MovementsTable({ movements }) {
       {movements.map((mv, idx) => (
         <div key={`${mv.name}-${idx}`} className="rounded-lg bg-white p-4 shadow">
           <h3 className="mb-2 font-bold text-gray-900">{mv.name}</h3>
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm whitespace-nowrap">
             <thead>
               <tr className="text-left text-gray-500">
                 <th className="py-1">组</th>
@@ -62,7 +63,8 @@ function MovementsTable({ movements }) {
                 </tr>
               ))}
             </tbody>
-          </table>
+            </table>
+          </div>
         </div>
       ))}
     </div>

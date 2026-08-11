@@ -119,6 +119,8 @@ describe('PlansPage', () => {
     expect(table).toHaveTextContent('32.5kg')
     expect(table).toHaveTextContent('35kg')
     expect(table).toHaveTextContent('渐进超负荷')
+    // 窄屏可横向滚动：表格外层包 overflow-x-auto 容器
+    expect(table.parentElement).toHaveClass('overflow-x-auto')
     // 醒目提示计划接口只读
     expect(block).toHaveTextContent('计划接口只读，请在训记 App 中手动调整')
   })

@@ -168,6 +168,9 @@ describe('NextAdviceSection', () => {
     expect(preview.textContent).toContain('新值')
     const changedCell = await screen.findByText('动作1 宽距高位下拉 第1组 rpe')
     expect(changedCell.closest('tr').className).toContain('bg-amber')
+    // 窄屏可横向滚动：diff 表外层包 overflow-x-auto 容器
+    const diffTable = preview.querySelector('table')
+    expect(diffTable.parentElement).toHaveClass('overflow-x-auto')
   })
 
   it('「确认写回」弹窗确认后调用 confirm 接口并显示成功', async () => {

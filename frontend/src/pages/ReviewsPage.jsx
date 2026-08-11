@@ -1,13 +1,52 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, download } from '../api/client'
+import BottomSheet from '../components/BottomSheet'
 import ReviewContent from '../components/ReviewContent'
+import useIsMobile from '../hooks/useIsMobile'
 
 const TABS = [
   { key: 'weekly', label: '周复盘' },
   { key: 'monthly', label: '月复盘' },
 ]
 
+/** 复盘详情：头部元信息 + 导出按钮 + ReviewContent，桌面分栏与移动端抽屉复用。 */
+function ReviewDetail({ report, onExport }) {
+  return (
+    <div
+      data-testid="report-detail"
+      className="max-w-none rounded-lg border border-gray-200 bg-white p-6 shadow-sm"
+    >
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-2 border-b border-gray-100 pb-4 text-sm text-gray-500">
+        <div>
+          <p>
+            周期：{report.date || '-'} ~ {report.period_end || '-'}
+          </p>
+          <p>模型：{report.model || '-'}</p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            data-testid="export-md"
+            onClick={() => onExport('md')}
+            className="rounded-md border border-gray-300 px-3 py-1 text-sm text-gray-700 hover:bg-gray-100"
+          >
+            导出 Markdown
+          </button>
+          <button
+            data-testid="export-pdf"
+            onClick={() => onExport('pdf')}
+            className="rounded-md border border-gray-300 px-3 py-1 text-sm text-gray-700 hover:bg-gray-100"
+          >
+            导出 PDF
+          </button>
+        </div>
+      </div>
+      <ReviewContent text={report.content_md || '无内容'} />
+    </div>
+  )
+}
+
 export default function ReviewsPage() {
+  const isMobile = useIsMobile()
   const [tab, setTab] = useState('weekly')
   const [reports, setReports] = useState([])
   const [selected, setSelected] = useState(null)
@@ -89,6 +128,34 @@ export default function ReviewsPage() {
       active ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-200'
     }`
 
+  const selectedIndex = reports.findIndex((r) => selected != null && r.id === selected.id)
+
+  const navFooter = (
+    <div className="flex items-center justify-between gap-2">
+      <button
+        type="button"
+        data-testid="sheet-prev"
+        disabled={selectedIndex <= 0}
+        onClick={() => setSelected(reports[selectedIndex - 1])}
+        className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-40"
+      >
+        上一篇
+      </button>
+      <span className="text-xs text-gray-400">
+        {selectedIndex + 1} / {reports.length}
+      </span>
+      <button
+        type="button"
+        data-testid="sheet-next"
+        disabled={selectedIndex < 0 || selectedIndex >= reports.length - 1}
+        onClick={() => setSelected(reports[selectedIndex + 1])}
+        className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-40"
+      >
+        下一篇
+      </button>
+    </div>
+  )
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -156,45 +223,28 @@ export default function ReviewsPage() {
           ))}
         </div>
 
-        <div className="md:col-span-2">
-          {selected ? (
-            <div
-              data-testid="report-detail"
-              className="max-w-none rounded-lg border border-gray-200 bg-white p-6 shadow-sm"
-            >
-              <div className="mb-4 flex flex-wrap items-start justify-between gap-2 border-b border-gray-100 pb-4 text-sm text-gray-500">
-                <div>
-                  <p>
-                    周期：{selected.date || '-'} ~ {selected.period_end || '-'}
-                  </p>
-                  <p>模型：{selected.model || '-'}</p>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    data-testid="export-md"
-                    onClick={() => handleExport('md')}
-                    className="rounded-md border border-gray-300 px-3 py-1 text-sm text-gray-700 hover:bg-gray-100"
-                  >
-                    导出 Markdown
-                  </button>
-                  <button
-                    data-testid="export-pdf"
-                    onClick={() => handleExport('pdf')}
-                    className="rounded-md border border-gray-300 px-3 py-1 text-sm text-gray-700 hover:bg-gray-100"
-                  >
-                    导出 PDF
-                  </button>
-                </div>
+        {!isMobile && (
+          <div className="md:col-span-2">
+            {selected ? (
+              <ReviewDetail report={selected} onExport={handleExport} />
+            ) : (
+              <div className="flex h-48 items-center justify-center rounded-lg border border-dashed border-gray-300 bg-gray-50 text-sm text-gray-500">
+                选择左侧报告查看详情
               </div>
-              <ReviewContent text={selected.content_md || '无内容'} />
-            </div>
-          ) : (
-            <div className="flex h-48 items-center justify-center rounded-lg border border-dashed border-gray-300 bg-gray-50 text-sm text-gray-500">
-              选择左侧报告查看详情
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </div>
+
+      {isMobile && selected && (
+        <BottomSheet
+          title={`${selected.date || '-'} ~ ${selected.period_end || selected.date || '-'}`}
+          onClose={() => setSelected(null)}
+          footer={navFooter}
+        >
+          <ReviewDetail report={selected} onExport={handleExport} />
+        </BottomSheet>
+      )}
     </div>
   )
 }

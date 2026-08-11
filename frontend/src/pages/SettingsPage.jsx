@@ -180,7 +180,8 @@ export default function SettingsPage() {
                 <span className="font-medium text-gray-900">¥{usage.total_cost.toFixed(4)}</span>
               </p>
             </div>
-            <table className="w-full text-left text-xs text-gray-600">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs whitespace-nowrap text-gray-600">
               <thead>
                 <tr className="border-b border-gray-200 text-gray-500">
                   <th className="py-1 pr-2 font-medium">Provider</th>
@@ -203,7 +204,8 @@ export default function SettingsPage() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+              </table>
+            </div>
           </div>
         )}
       </section>
