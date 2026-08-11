@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { api } from '../api/client'
 import HeartRateChart from '../components/HeartRateChart'
 import NextAdviceSection from '../components/NextAdviceSection'
+import SessionReviewSection from '../components/SessionReviewSection'
 import { formatDuration, statusLabel } from '../utils/status'
 
 const TABS = [
@@ -146,6 +147,7 @@ export default function WorkoutDetailPage() {
             ) : (
               <p className="text-sm text-gray-500">无心率数据</p>
             )}
+            <SessionReviewSection workout={workout} />
             <NextAdviceSection workout={workout} />
           </div>
         )}

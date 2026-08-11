@@ -3,11 +3,12 @@
 覆盖：完全重叠、59%/60%/61% 边界、起止差 29/31 分钟边界、一日两练、
 单边记录两种、佳明力量单边入待确认、多次运行幂等。
 """
+import json
 from datetime import date, datetime, time, timedelta
 
 from tests.conftest import make_garmin_activity, make_xunji_train
 
-from app.models import GarminActivity, MatchCandidate, Workout, XunjiTrain
+from app.models import AIReport, GarminActivity, MatchCandidate, Workout, XunjiPlan, XunjiTrain
 from app.services.matcher import _xunji_interval, match_day, overlap_ratio
 
 DAY = date(2026, 8, 3)
@@ -270,6 +271,120 @@ def test_train_without_interval_goes_xunji_only(session):
     # 佳明活动不受影响，正常 garmin_only
     assert session.query(Workout).filter_by(match_status="garmin_only").count() == 1
     assert session.query(MatchCandidate).count() == 1  # strength_training 单边候选
+
+
+# ---------- V2-7b 重融合就地更新（缺陷3） ----------
+
+ADVICE_DAY = DAY + timedelta(days=2)
+
+_REGEN_CONTENT = (
+    "## 新点评\n基于最新融合数据。\n\n```json\n"
+    + json.dumps({
+        "schema": "next_advice_v1",
+        "next_plan_date": ADVICE_DAY.isoformat(),
+        "suggestions": [{"movement": "杠铃划船", "category": "manual",
+                         "original": {"weight": 60}, "suggested": {"weight": 62.5},
+                         "reason": "渐进超负荷"}],
+    }, ensure_ascii=False) + "\n```\n"
+)
+
+
+def _make_plan_for_advice(session):
+    row = XunjiPlan(
+        plan_ref="platform:155",
+        plan_json=json.dumps(
+            {"plan": {"plan_ref": "platform:155", "name": "增肌计划"},
+             "days": [{"date": ADVICE_DAY.isoformat(),
+                       "movements": [{"name": "杠铃划船"}]}]},
+            ensure_ascii=False,
+        ),
+        date_from=DAY - timedelta(days=7),
+        date_to=DAY + timedelta(days=30),
+    )
+    session.add(row)
+    session.commit()
+    return row
+
+
+def _regen_chat(messages):
+    return {"content": _REGEN_CONTENT, "prompt_tokens": 10, "completion_tokens": 5}
+
+
+def test_stale_train_inplace_refuse_and_ai_regen(session):
+    """缺陷3：force_refresh 补齐组数后重跑 match_day，须就地刷新 movements_json
+    （不新建 workout 行、不动匹配关系），并删除当日旧 AI 报告后重生成。"""
+    movements_v1 = [{"name": "杠铃划船",
+                     "sets": [{"weight": 60, "unit": "kg", "reps": 10, "done": True}]}]
+    x = make_xunji_train(session, DAY, localid="1", title="背部训练", movements=movements_v1)
+    make_garmin_activity(session, DAY, activity_id="g1")
+    match_day(session, DAY)
+    w = session.query(Workout).one()
+    wid = w.id
+
+    # 当日已有 AI 报告（基于旧数据）
+    session.add_all([
+        AIReport(type="session_review", workout_id=wid, period_start=DAY, period_end=DAY,
+                 model="m", content_md="旧点评"),
+        AIReport(type="next_advice", workout_id=wid, period_start=DAY, period_end=ADVICE_DAY,
+                 model="m", content_md="旧建议"),
+    ])
+    session.commit()
+
+    # 训记原始记录补录一组，fetched_at 晚于 workout.updated_at
+    movements_v2 = [{"name": "杠铃划船", "sets": [
+        {"weight": 60, "unit": "kg", "reps": 10, "done": True},
+        {"weight": 60, "unit": "kg", "reps": 8, "done": True}]}]
+    raw = json.loads(x.raw_json)
+    raw["movements"] = movements_v2
+    x.raw_json = json.dumps(raw, ensure_ascii=False)
+    x.fetched_at = datetime.now() + timedelta(seconds=5)
+    w.updated_at = datetime.now() - timedelta(hours=1)
+    session.commit()
+    _make_plan_for_advice(session)
+
+    result = match_day(session, DAY, chat_fn=_regen_chat)
+
+    # 不新建行、匹配关系不变、movements_json 刷新
+    assert session.query(Workout).count() == 1
+    w2 = session.query(Workout).one()
+    assert w2.id == wid
+    assert w2.match_status == "auto_matched"
+    assert w2.xunji_train_id == x.id
+    assert w2.garmin_activity_id is not None
+    assert json.loads(w2.movements_json) == movements_v2
+    assert result["refreshed"] == [wid]
+
+    # 旧报告删除、新报告落库
+    reviews = session.query(AIReport).filter_by(workout_id=wid, type="session_review").all()
+    assert len(reviews) == 1
+    assert reviews[0].content_md != "旧点评"
+    advices = session.query(AIReport).filter_by(workout_id=wid, type="next_advice").all()
+    assert len(advices) == 1
+    assert advices[0].content_md != "旧建议"
+
+
+def test_fresh_train_no_refuse_no_ai_regen(session):
+    """训记记录不比 workout 新（fetched_at <= updated_at）时不触发重融合，
+    旧报告保留，且不调用模型。"""
+    movements = [{"name": "杠铃划船",
+                  "sets": [{"weight": 60, "unit": "kg", "reps": 10, "done": True}]}]
+    make_xunji_train(session, DAY, localid="1", title="背部训练", movements=movements)
+    make_garmin_activity(session, DAY, activity_id="g1")
+    match_day(session, DAY)
+    w = session.query(Workout).one()
+    old_movements = w.movements_json
+    session.add(AIReport(type="session_review", workout_id=w.id, period_start=DAY,
+                         period_end=DAY, model="m", content_md="旧点评"))
+    session.commit()
+
+    def forbidden_chat(messages):
+        raise AssertionError("数据未变新，不应调用模型")
+
+    result = match_day(session, DAY, chat_fn=forbidden_chat)
+
+    assert result["refreshed"] == []
+    assert session.query(Workout).one().movements_json == old_movements
+    assert session.query(AIReport).one().content_md == "旧点评"
 
 
 def test_activity_without_interval_goes_garmin_only(session):

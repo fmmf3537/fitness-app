@@ -92,6 +92,34 @@ def test_daily_sync_creates_session_when_none(session, monkeypatch):
     assert result["status"] == "success"
 
 
+# ---------- V2-7b 当日强刷（缺陷3） ----------
+
+
+def test_daily_sync_today_force_refresh(session, monkeypatch):
+    """V2-7b：同步日期为今天时必须 force_refresh=True 绕过同日缓存，
+    否则当天补录的组数拉不下来（Sprint 7 背景锚点缺陷3）。"""
+    monkeypatch.setattr(sync_mod, "match_day", _stub_match())
+    xunji, garmin = _mock_adapters()
+    today = date.today()
+
+    result = daily_sync(today, session=session, xunji=xunji, garmin=garmin, sleep=_no_sleep)
+
+    assert result["status"] == "success"
+    xunji.fetch_trains.assert_called_once_with(today.isoformat(), force_refresh=True)
+
+
+def test_daily_sync_history_day_keeps_cache(session, monkeypatch):
+    """V2-7b：历史日期保持缓存命中策略不变（不传 force_refresh）。"""
+    monkeypatch.setattr(sync_mod, "match_day", _stub_match())
+    xunji, garmin = _mock_adapters()
+    history_day = date.today() - timedelta(days=1)
+
+    result = daily_sync(history_day, session=session, xunji=xunji, garmin=garmin, sleep=_no_sleep)
+
+    assert result["status"] == "success"
+    xunji.fetch_trains.assert_called_once_with(history_day.isoformat())
+
+
 # ---------- 重试与退避 ----------
 
 def test_retry_backoff_then_success(session, monkeypatch):

@@ -68,8 +68,16 @@ def daily_sync(day, *, session: Session | None = None, xunji=None, garmin=None,
             from app.adapters.garmin_adapter import GarminClient
             garmin = GarminClient(session)
 
+        # V2-7b 缺陷3：同步日期为今天时必须绕过同日缓存强刷，否则当天补录的
+        # 组数拉不下来；历史日期保持缓存命中策略不变（SyncManager 手动同步亦走此处）。
+        is_today = day_date == date.today()
+        xunji_step = (
+            (lambda: xunji.fetch_trains(datestr, force_refresh=True))  # noqa: E731
+            if is_today else
+            (lambda: xunji.fetch_trains(datestr))  # noqa: E731
+        )
         steps = [
-            ("xunji_trains", lambda: xunji.fetch_trains(datestr)),
+            ("xunji_trains", xunji_step),
             ("garmin_activities", lambda: garmin.sync_activities(datestr)),
             ("garmin_daily", lambda: garmin.sync_daily(datestr)),
             ("match", lambda: match_day(session, day_date)),

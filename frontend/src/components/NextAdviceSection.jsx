@@ -1,39 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '../api/client'
+import SimpleMarkdown from './SimpleMarkdown'
 import { formatParams, groupSuggestions, parseNextAdvice } from '../utils/nextAdvice'
 import { buildChanges } from '../utils/writeback'
 
 const MANUAL_GUIDE =
   '训记 App 操作路径：打开训记 App → 计划 → 找到对应训练日 → 长按动作修改重量/组数/次数后保存。'
-
-function SimpleMarkdown({ text }) {
-  return (
-    <div className="space-y-2">
-      {(text || '').split('\n').map((line, i) => {
-        if (line.startsWith('## ')) {
-          return (
-            <h3 key={i} className="text-base font-bold text-gray-900">
-              {line.slice(3)}
-            </h3>
-          )
-        }
-        if (line.startsWith('# ')) {
-          return (
-            <h3 key={i} className="text-lg font-bold text-gray-900">
-              {line.slice(2)}
-            </h3>
-          )
-        }
-        if (line.trim() === '') return null
-        return (
-          <p key={i} className="text-sm text-gray-800">
-            {line}
-          </p>
-        )
-      })}
-    </div>
-  )
-}
 
 function formatValue(v) {
   if (v === null || v === undefined) return '—'
