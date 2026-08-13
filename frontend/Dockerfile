@@ -3,6 +3,12 @@ FROM node:20-alpine AS build
 WORKDIR /app
 
 COPY package.json package-lock.json ./
+
+# sharp（@capacitor/assets 传递依赖）需从 GitHub 下载 libvips 预编译二进制，
+# 国内服务器直连超时；npm_config_* 环境变量将其重定向到 npmmirror 镜像。
+ENV npm_config_sharp_binary_host=https://registry.npmmirror.com/-/binary/sharp \
+    npm_config_sharp_libvips_binary_host=https://registry.npmmirror.com/-/binary/sharp-libvips
+
 RUN npm ci
 
 COPY . .
