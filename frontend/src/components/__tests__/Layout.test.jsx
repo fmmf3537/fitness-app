@@ -37,12 +37,13 @@ describe('Layout 导航', () => {
       const link = await screen.findByRole('link', { name })
       expect(link).toHaveAttribute('href', href)
     }
-    // 桌面端不渲染汉堡按钮
+    // 桌面端不渲染汉堡按钮与底部 Tab 栏
     expect(screen.queryByTestId('nav-toggle')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('bottom-tabs')).not.toBeInTheDocument()
   })
 })
 
-describe('Layout 移动端汉堡菜单', () => {
+describe('Layout 移动端汉堡菜单与底部 Tab', () => {
   beforeEach(() => {
     installMatchMedia(true)
     localStorage.setItem('fh_token', 'test-token')
@@ -59,30 +60,57 @@ describe('Layout 移动端汉堡菜单', () => {
         <Routes>
           <Route element={<Layout />}>
             <Route path="/" element={<div>home</div>} />
-            <Route path="/trends" element={<div>trends</div>} />
+            <Route path="/reviews" element={<div>reviews</div>} />
           </Route>
         </Routes>
       </MemoryRouter>,
     )
   }
 
-  it('移动端默认收起竖向菜单，横向导航不渲染', async () => {
+  it('移动端渲染底部 Tab 栏，汉堡按钮位于头部右侧容器最右（右上角）', () => {
     renderLayout()
+    expect(screen.getByTestId('bottom-tabs')).toBeInTheDocument()
     expect(screen.getByTestId('nav-toggle')).toBeInTheDocument()
-    expect(screen.queryByTestId('mobile-nav')).not.toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: '训练日历' })).not.toBeInTheDocument()
+    // 汉堡按钮是头部右侧容器最后一个元素 → 视觉右上角
+    const toggle = screen.getByTestId('nav-toggle')
+    expect(toggle.parentElement.lastElementChild).toBe(toggle)
   })
 
-  it('点击汉堡按钮展开/收起竖向菜单', async () => {
+  it('移动端默认收起汉堡菜单，主内容区加底部 padding 防 Tab 遮挡', () => {
+    renderLayout()
+    expect(screen.queryByTestId('mobile-nav')).not.toBeInTheDocument()
+    expect(screen.getByRole('main').className).toMatch(/pb-24/)
+  })
+
+  it('汉堡菜单仅含次级入口，五个 Tab 主入口不在其中', async () => {
+    const user = userEvent.setup()
+    renderLayout()
+    await user.click(screen.getByTestId('nav-toggle'))
+    const menu = screen.getByTestId('mobile-nav')
+    const secondary = [
+      ['待确认队列', '/candidates'],
+      ['复盘中心', '/reviews'],
+      ['身体数据', '/body-metrics'],
+      ['截图导入', '/screenshot-import'],
+      ['文件导入', '/fit-import'],
+      ['历史补录', '/backfill'],
+    ]
+    for (const [name, href] of secondary) {
+      expect(within(menu).getByRole('link', { name })).toHaveAttribute('href', href)
+    }
+    for (const name of ['训练日历', '训练计划', 'AI报告', '趋势', '我的']) {
+      expect(within(menu).queryByRole('link', { name })).not.toBeInTheDocument()
+    }
+  })
+
+  it('点击汉堡按钮展开/收起菜单', async () => {
     const user = userEvent.setup()
     renderLayout()
     const toggle = screen.getByTestId('nav-toggle')
 
     await user.click(toggle)
-    const menu = screen.getByTestId('mobile-nav')
+    expect(screen.getByTestId('mobile-nav')).toBeInTheDocument()
     expect(toggle).toHaveAttribute('aria-expanded', 'true')
-    expect(within(menu).getByRole('link', { name: '训练日历' })).toBeInTheDocument()
-    expect(within(menu).getByRole('link', { name: '设置' })).toBeInTheDocument()
 
     await user.click(toggle)
     expect(screen.queryByTestId('mobile-nav')).not.toBeInTheDocument()
@@ -92,7 +120,13 @@ describe('Layout 移动端汉堡菜单', () => {
     const user = userEvent.setup()
     renderLayout()
     await user.click(screen.getByTestId('nav-toggle'))
-    await user.click(within(screen.getByTestId('mobile-nav')).getByRole('link', { name: '趋势' }))
+    await user.click(within(screen.getByTestId('mobile-nav')).getByRole('link', { name: '复盘中心' }))
     expect(screen.queryByTestId('mobile-nav')).not.toBeInTheDocument()
+  })
+
+  it('头部加顶部安全区 padding（沉浸式状态栏）', () => {
+    renderLayout()
+    const header = screen.getByRole('banner')
+    expect(header.className).toContain('pt-[env(safe-area-inset-top)]')
   })
 })

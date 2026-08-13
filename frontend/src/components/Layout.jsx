@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { api, clearToken } from '../api/client'
 import useIsMobile from '../hooks/useIsMobile'
+import useAndroidBackButton from '../hooks/useAndroidBackButton'
+import useNativeStatusBar from '../hooks/useNativeStatusBar'
+import BottomTabs from './BottomTabs'
 
 const NAV_LINKS = [
   { to: '/', label: '训练日历', end: true },
@@ -17,11 +20,25 @@ const NAV_LINKS = [
   { to: '/settings', label: '设置' },
 ]
 
+// 移动端汉堡菜单仅保留次级入口；五个主入口由 BottomTabs 承载
+const SECONDARY_LINKS = [
+  { to: '/candidates', label: '待确认队列', badge: true },
+  { to: '/reviews', label: '复盘中心' },
+  { to: '/body-metrics', label: '身体数据' },
+  { to: '/screenshot-import', label: '截图导入' },
+  { to: '/fit-import', label: '文件导入' },
+  { to: '/backfill', label: '历史补录' },
+]
+
 export default function Layout() {
   const navigate = useNavigate()
   const isMobile = useIsMobile()
   const [pendingCount, setPendingCount] = useState(0)
   const [menuOpen, setMenuOpen] = useState(false)
+
+  const closeMenu = useCallback(() => setMenuOpen(false), [])
+  useAndroidBackButton({ isOverlayOpen: menuOpen, closeOverlay: closeMenu })
+  useNativeStatusBar()
 
   useEffect(() => {
     api('/api/match-candidates')
@@ -56,7 +73,7 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm">
+      <header className="bg-white shadow-sm pt-[env(safe-area-inset-top)]">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
           <div className="flex items-center gap-2">
             <span className="text-lg font-bold text-gray-900">健身看板</span>
@@ -72,6 +89,12 @@ export default function Layout() {
             )}
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={handleLogout}
+              className="rounded-md px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200"
+            >
+              退出登录
+            </button>
             {isMobile && (
               <button
                 type="button"
@@ -84,18 +107,12 @@ export default function Layout() {
                 ☰
               </button>
             )}
-            <button
-              onClick={handleLogout}
-              className="rounded-md px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200"
-            >
-              退出登录
-            </button>
           </div>
         </div>
         {isMobile && menuOpen && (
           <nav data-testid="mobile-nav" className="border-t border-gray-100 px-4 py-2">
             <div className="mx-auto flex max-w-5xl flex-col gap-1">
-              {NAV_LINKS.map((link) => (
+              {SECONDARY_LINKS.map((link) => (
                 <NavLink
                   key={link.to}
                   to={link.to}
@@ -111,9 +128,10 @@ export default function Layout() {
           </nav>
         )}
       </header>
-      <main className="mx-auto max-w-5xl px-4 py-6">
+      <main className="mx-auto max-w-5xl px-4 py-6 max-md:pb-24">
         <Outlet />
       </main>
+      <BottomTabs />
     </div>
   )
 }
