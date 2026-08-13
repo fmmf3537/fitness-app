@@ -170,6 +170,10 @@ class AIReport(Base):
     completion_tokens: Mapped[int | None] = mapped_column(Integer)
     cost_estimate: Mapped[float | None] = mapped_column(Float)
     content_md: Mapped[str | None] = mapped_column(Text)
+    # V3-4 评分体系（仅 session_review 使用；存量报告为 NULL）
+    score: Mapped[int | None] = mapped_column(Integer)
+    one_liner: Mapped[str | None] = mapped_column(String(200))
+    subscores_json: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 

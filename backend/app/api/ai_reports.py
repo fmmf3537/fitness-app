@@ -1,5 +1,7 @@
-"""V1-3 AI 报告 API：按日期查询单次训练点评；V2-2 复盘生成/状态/导出。"""
+"""V1-3 AI 报告 API：按日期查询单次训练点评；V2-2 复盘生成/状态/导出；
+V3-4 评分字段透出 + session_review 重新生成。"""
 import datetime
+import json
 import threading
 from typing import Literal
 
@@ -36,8 +38,21 @@ def _serialize_report(session: Session, report: AIReport) -> dict:
         "completion_tokens": report.completion_tokens,
         "cost_estimate": report.cost_estimate,
         "content_md": report.content_md,
+        "score": report.score,
+        "one_liner": report.one_liner,
+        "subscores": _parse_subscores(report.subscores_json),
         "created_at": report.created_at.isoformat() if report.created_at else None,
     }
+
+
+def _parse_subscores(subscores_json: str | None) -> dict | None:
+    if not subscores_json:
+        return None
+    try:
+        data = json.loads(subscores_json)
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, dict) else None
 
 
 @router.get("")
@@ -207,6 +222,103 @@ def generate_status(
         "running": manager.is_running(type),
         "error": manager.last_error(type),
         "report": _serialize_report(session, report) if report else None,
+    }
+
+
+# =====================================================================
+# V3-4 session_review 重新生成（存量无评分报告）：删旧 + run_daily_reviews
+# =====================================================================
+
+
+class SessionReviewRegenManager:
+    """session_review 重新生成管理器：后台线程执行 + 按日期防重（单用户单进程）。
+
+    runner 可注入（接受 day_str 参数），便于测试同步执行；
+    默认 runner 自建 session：删当日旧 session_review 后调 run_daily_reviews。
+    """
+
+    def __init__(self, runner=None):
+        self._runner = runner
+        self._lock = threading.Lock()
+        self._running: set[str] = set()
+        self._errors: dict[str, str] = {}
+
+    @staticmethod
+    def _default_runner(day_str: str) -> None:
+        from app.db import SessionLocal
+
+        session = SessionLocal()
+        try:
+            ai_service.regenerate_session_reviews(session, day_str)
+        finally:
+            session.close()
+
+    def start(self, day_str: str) -> bool:
+        """启动后台重新生成；该日期已在运行返回 False。"""
+        with self._lock:
+            if day_str in self._running:
+                return False
+            self._running.add(day_str)
+            self._errors.pop(day_str, None)
+        thread = threading.Thread(target=self._run, args=(day_str,), daemon=True)
+        thread.start()
+        return True
+
+    def _run(self, day_str: str) -> None:
+        try:
+            runner = self._runner or self._default_runner
+            runner(day_str)
+        except Exception as exc:  # 服务层已兜底，这里防御性记录
+            self._errors[day_str] = str(exc)
+        finally:
+            with self._lock:
+                self._running.discard(day_str)
+
+    def is_running(self, day_str: str) -> bool:
+        with self._lock:
+            return day_str in self._running
+
+    def last_error(self, day_str: str) -> str | None:
+        return self._errors.get(day_str)
+
+
+default_session_review_regen_manager = SessionReviewRegenManager()
+
+
+def get_session_review_regen_manager() -> SessionReviewRegenManager:
+    """依赖注入点：测试可 override 替换管理器。"""
+    return default_session_review_regen_manager
+
+
+class RegenerateRequest(BaseModel):
+    date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+
+
+@router.post("/session-review/regenerate")
+def regenerate_session_review(
+    payload: RegenerateRequest,
+    manager: SessionReviewRegenManager = Depends(get_session_review_regen_manager),
+) -> dict:
+    """重新生成某日单次点评（后台线程异步执行，前端轮询 status）。
+
+    删除当日旧 session_review 后调 run_daily_reviews；并发冲突返回 409。
+    """
+    datetime.date.fromisoformat(payload.date)  # 防御性校验日期合法性
+    if not manager.start(payload.date):
+        raise HTTPException(status_code=409, detail="该日期点评正在重新生成中")
+    return {"status": "started", "date": payload.date}
+
+
+@router.get("/session-review/regenerate/status")
+def regenerate_session_review_status(
+    date: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    manager: SessionReviewRegenManager = Depends(get_session_review_regen_manager),
+) -> dict:
+    """轮询重新生成状态：running + 最近错误。"""
+    return {
+        "date": date,
+        "running": manager.is_running(date),
+        "error": manager.last_error(date),
     }
 
 

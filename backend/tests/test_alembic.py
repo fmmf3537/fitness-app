@@ -48,6 +48,26 @@ def test_upgrade_downgrade_roundtrip(tmp_path):
     assert remaining == set()
 
 
+def test_ai_report_score_columns_roundtrip(tmp_path):
+    """V3-4：ai_report 增加 score/one_liner/subscores_json，升级出现、回滚消失。"""
+    db_url = f"sqlite:///{tmp_path}/mig.db"
+    cfg = _make_config(db_url)
+    command.upgrade(cfg, "head")
+    insp = inspect(create_engine(db_url))
+    cols = {c["name"] for c in insp.get_columns("ai_report")}
+    assert {"score", "one_liner", "subscores_json"} <= cols
+
+    command.downgrade(cfg, "c2d3e4f5a6b7")  # 回退一个版本
+    insp = inspect(create_engine(db_url))
+    cols = {c["name"] for c in insp.get_columns("ai_report")}
+    assert {"score", "one_liner", "subscores_json"}.isdisjoint(cols)
+
+    command.upgrade(cfg, "head")  # 再次升级恢复
+    insp = inspect(create_engine(db_url))
+    cols = {c["name"] for c in insp.get_columns("ai_report")}
+    assert {"score", "one_liner", "subscores_json"} <= cols
+
+
 def test_upgrade_twice_is_stable(tmp_path):
     db_url = f"sqlite:///{tmp_path}/mig.db"
     cfg = _make_config(db_url)

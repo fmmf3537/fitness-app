@@ -1,8 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api/client'
 import BottomSheet from '../components/BottomSheet'
+import ScoreBadge from '../components/ScoreBadge'
 import SimpleMarkdown from '../components/SimpleMarkdown'
 import useIsMobile from '../hooks/useIsMobile'
+
+const REGEN_POLL_INTERVAL_MS = 3000
 
 function formatDateInput(date) {
   return date.toISOString().slice(0, 10)
@@ -19,22 +22,40 @@ function typeLabel(type) {
   return TYPE_LABELS[type] || type || '-'
 }
 
-function ReportDetail({ report }) {
+function ReportDetail({ report, onRegenerate, regenerating, regenError }) {
   return (
     <div
       data-testid="report-detail"
       className="max-w-none rounded-lg border border-gray-200 bg-white p-6 shadow-sm"
     >
       <div className="mb-4 border-b border-gray-100 pb-4 text-sm text-gray-500">
-        <p>训练：{report.workout_title || '-'}</p>
+        <p className="flex flex-wrap items-center gap-2">
+          训练：{report.workout_title || '-'}
+          <ScoreBadge score={report.score} testId="detail-score-badge" />
+        </p>
         <p>
           类型：{typeLabel(report.type)} · 日期：{report.date || '-'}
         </p>
+        {report.one_liner && <p className="text-gray-700">一句话点评：{report.one_liner}</p>}
         <p>模型：{report.model || '-'}</p>
         <p>
           tokens：{report.prompt_tokens || 0} / {report.completion_tokens || 0}
           {report.cost_estimate != null && ` · 约 ¥${report.cost_estimate.toFixed(6)}`}
         </p>
+        {report.type === 'session_review' && report.score == null && onRegenerate && (
+          <div className="mt-2">
+            <button
+              type="button"
+              data-testid="regen-report-btn"
+              disabled={regenerating}
+              onClick={onRegenerate}
+              className="rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50"
+            >
+              {regenerating ? '重新生成中…' : '重新生成（含评分）'}
+            </button>
+            {regenError && <p className="mt-1 text-xs text-red-600">{regenError}</p>}
+          </div>
+        )}
       </div>
       <SimpleMarkdown text={report.content_md || '无内容'} />
     </div>
@@ -50,23 +71,71 @@ export default function AIReportsPage() {
   const [selected, setSelected] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [regenerating, setRegenerating] = useState(false)
+  const [regenError, setRegenError] = useState('')
+
+  const load = useCallback(
+    (keepSelection = false) => {
+      setLoading(true)
+      if (!keepSelection) setSelected(null)
+      setError('')
+      const typeParam = typeFilter === 'all' ? '' : `&type=${typeFilter}`
+      const url =
+        mode === 'recent'
+          ? `/api/ai-reports?limit=50${typeParam}`
+          : `/api/ai-reports?date=${date}${typeParam}`
+      return api(url)
+        .then((data) => {
+          const list = data.reports || []
+          setReports(list)
+          return list
+        })
+        .catch((err) => setError(err.status === 401 ? '未登录' : err.message))
+        .finally(() => setLoading(false))
+    },
+    [mode, date, typeFilter],
+  )
 
   useEffect(() => {
-    setLoading(true)
-    setSelected(null)
-    setError('')
-    const typeParam = typeFilter === 'all' ? '' : `&type=${typeFilter}`
-    const url =
-      mode === 'recent'
-        ? `/api/ai-reports?limit=50${typeParam}`
-        : `/api/ai-reports?date=${date}${typeParam}`
-    api(url)
-      .then((data) => {
-        setReports(data.reports || [])
+    load()
+  }, [load])
+
+  // V3-4：存量无评分报告「重新生成」——删旧后后台重生成，轮询状态直至完成
+  const handleRegenerate = async () => {
+    if (!selected?.date || regenerating) return
+    const targetDate = selected.date
+    setRegenerating(true)
+    setRegenError('')
+    try {
+      await api('/api/ai-reports/session-review/regenerate', {
+        method: 'POST',
+        body: JSON.stringify({ date: targetDate }),
       })
-      .catch((err) => setError(err.status === 401 ? '未登录' : err.message))
-      .finally(() => setLoading(false))
-  }, [mode, date, typeFilter])
+      // 轮询直至后台任务结束
+      for (;;) {
+        await new Promise((resolve) => setTimeout(resolve, REGEN_POLL_INTERVAL_MS))
+        const st = await api(
+          `/api/ai-reports/session-review/regenerate/status?date=${targetDate}`,
+        )
+        if (!st.running) {
+          if (st.error) setRegenError(st.error)
+          break
+        }
+      }
+      const list = await load(true)
+      // 重新选中该日新的 session_review（旧 id 已删除）
+      const next = (list || []).find(
+        (r) => r.type === 'session_review' && r.date === targetDate,
+      )
+      setSelected(next || null)
+    } catch (err) {
+      setRegenError(
+        err.status === 409 ? '该日期点评正在重新生成中，请稍候' : err.message || '重新生成失败',
+      )
+    } finally {
+      setRegenerating(false)
+    }
+  }
 
   const pillClass = (active) =>
     `rounded-md px-3 py-2 text-sm font-medium ${
@@ -182,8 +251,9 @@ export default function AIReportsPage() {
               <p className="font-medium text-gray-900">
                 {r.workout_title || '未命名训练'}
               </p>
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-1 flex items-center gap-2 text-xs text-gray-500">
                 {typeLabel(r.type)} · {r.date || '-'}
+                <ScoreBadge score={r.score} testId={`score-badge-${r.id}`} />
               </p>
               <p className="mt-1 text-xs text-gray-500">
                 {r.model} · {r.prompt_tokens}+{r.completion_tokens} tokens
@@ -195,7 +265,12 @@ export default function AIReportsPage() {
         {!isMobile && (
           <div className="md:col-span-2">
             {selected ? (
-              <ReportDetail report={selected} />
+              <ReportDetail
+                report={selected}
+                onRegenerate={handleRegenerate}
+                regenerating={regenerating}
+                regenError={regenError}
+              />
             ) : (
               <div className="flex h-48 items-center justify-center rounded-lg border border-dashed border-gray-300 bg-gray-50 text-sm text-gray-500">
                 选择左侧报告查看详情
@@ -211,7 +286,12 @@ export default function AIReportsPage() {
           onClose={() => setSelected(null)}
           footer={navFooter}
         >
-          <ReportDetail report={selected} />
+          <ReportDetail
+            report={selected}
+            onRegenerate={handleRegenerate}
+            regenerating={regenerating}
+            regenError={regenError}
+          />
         </BottomSheet>
       )}
     </div>

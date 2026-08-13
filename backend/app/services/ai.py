@@ -351,9 +351,17 @@ def build_session_review_prompt(
     system = (
         "你是一位资深力量训练教练。请根据用户本次训练、近4周同动作历史、"
         "近7天睡眠/HRV/身体电量/压力/静息心率/体重趋势，撰写单次训练点评。"
-        "输出为 Markdown，必须且只能包含以下四节（按顺序）：\n"
+        "输出为 Markdown，正文必须且只能包含以下四节（按顺序）：\n"
         "\n".join(f"## {s}" for s in PROMPT_SECTIONS)
         + "\n每节需结合真实数据，给出具体、可执行的评价与建议。"
+        "\n正文结束后，必须附加一个 ```json 围栏块，schema 为 session_review_v1，格式：\n"
+        "```json\n"
+        '{"schema":"session_review_v1","score":0-100整数,'
+        '"subscores":{"completion":0-100,"intensity":0-100,"recovery_fit":0-100},'
+        '"one_liner":"一句30字以内口语化点评（供分享海报用，禁 markdown 符号）"}\n'
+        "```\n"
+        "score 为本次训练综合评分；completion=完成度、intensity=强度合理性、"
+        "recovery_fit=训练与恢复状态的匹配度。"
     )
 
     return [
@@ -412,10 +420,31 @@ def generate_session_review(
             msgs, session=session, purpose="session_review"
         )
 
-    result = chat_fn(messages)
-    content = result.get("content", "")
-    prompt_tokens = result.get("prompt_tokens") or 0
-    completion_tokens = result.get("completion_tokens") or 0
+    # V3-4：正文后须附 session_review_v1 评分 JSON 块；解析失败重试 1 次，
+    # 仍失败则降级为仅落 markdown 正文（score 置 null，不阻断）。
+    content = ""
+    prompt_tokens = 0
+    completion_tokens = 0
+    parsed: dict | None = None
+    for attempt in range(2):
+        result = chat_fn(messages)
+        content = result.get("content", "")
+        prompt_tokens += result.get("prompt_tokens") or 0
+        completion_tokens += result.get("completion_tokens") or 0
+        try:
+            parsed = parse_session_review(content)
+            break
+        except SessionReviewParseError:
+            if attempt == 0:
+                messages = messages + [
+                    {
+                        "role": "user",
+                        "content": (
+                            "上次输出缺少合法的 session_review_v1 JSON 围栏块，"
+                            "请原样输出四节正文，并在结尾补上格式正确的 ```json 评分块。"
+                        ),
+                    }
+                ]
 
     provider = _resolve_provider(session)
     model = result.get("model") or llm.PROVIDERS[provider]["default_model"]
@@ -430,7 +459,12 @@ def generate_session_review(
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
         cost_estimate=round(cost, 6),
-        content_md=content,
+        content_md=parsed["markdown"] if parsed else content,
+        score=parsed["score"] if parsed else None,
+        one_liner=parsed["one_liner"] if parsed else None,
+        subscores_json=(
+            json.dumps(parsed["subscores"], ensure_ascii=False) if parsed else None
+        ),
     )
     session.add(report)
     session.commit()
@@ -477,6 +511,83 @@ def run_daily_reviews(
         "generated": len(reports),
         "skipped": skipped,
         "reports": reports,
+    }
+
+
+def regenerate_session_reviews(
+    session: Session,
+    day: date | str,
+    *,
+    chat_fn: Callable[[list[dict]], dict] | None = None,
+) -> dict:
+    """V3-4：删除某日全部旧 session_review 后重新生成（复用 V2-7b 删旧重生成逻辑）。
+
+    仅清理 session_review，不动 next_advice / weekly / monthly 等其他类型。
+    """
+    day_date = date.fromisoformat(day) if isinstance(day, str) else day
+    session.query(AIReport).filter(
+        AIReport.type == "session_review",
+        AIReport.period_start == day_date,
+    ).delete(synchronize_session=False)
+    session.commit()
+    return run_daily_reviews(session, day_date, chat_fn=chat_fn)
+
+
+# =====================================================================
+# V3-4 session_review 评分块解析（schema session_review_v1）
+# =====================================================================
+
+SCORE_JSON_SCHEMA = "session_review_v1"
+SCORE_SUBSCORE_KEYS = ("completion", "intensity", "recovery_fit")
+ONE_LINER_MAX_LEN = 40
+
+
+class SessionReviewParseError(ValueError):
+    """session_review 评分 JSON 块解析/校验失败。"""
+
+
+def _is_int_0_100(value) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 100
+
+
+def parse_session_review(content_md: str) -> dict:
+    """从 AI 输出中提取并校验 session_review_v1 评分块。
+
+    返回 {"markdown": 剔除评分块后的正文, "score", "subscores", "one_liner"}；
+    校验失败抛 SessionReviewParseError（由调用方重试/降级）。
+    """
+    content = content_md or ""
+    matches = list(_ADVICE_BLOCK_RE.finditer(content))
+    if not matches:
+        raise SessionReviewParseError("缺少 ```json 评分块")
+    block = matches[-1]  # 取最后一个围栏块，防止正文引用示例 JSON 干扰
+    try:
+        data = json.loads(block.group(1))
+    except json.JSONDecodeError as exc:
+        raise SessionReviewParseError(f"评分块 JSON 非法：{exc}") from exc
+    if not isinstance(data, dict) or data.get("schema") != SCORE_JSON_SCHEMA:
+        raise SessionReviewParseError("schema 不是 session_review_v1")
+    if not _is_int_0_100(data.get("score")):
+        raise SessionReviewParseError("score 须为 0-100 整数")
+    sub = data.get("subscores")
+    if not isinstance(sub, dict) or any(
+        not _is_int_0_100(sub.get(k)) for k in SCORE_SUBSCORE_KEYS
+    ):
+        raise SessionReviewParseError(
+            "subscores 须含 completion/intensity/recovery_fit 三个 0-100 整数"
+        )
+    one_liner = data.get("one_liner")
+    if not isinstance(one_liner, str) or not one_liner.strip():
+        raise SessionReviewParseError("one_liner 须为非空文本")
+    one_liner = one_liner.strip()
+    if len(one_liner) > ONE_LINER_MAX_LEN:
+        raise SessionReviewParseError(f"one_liner 超过 {ONE_LINER_MAX_LEN} 字")
+    markdown = (content[: block.start()] + content[block.end() :]).strip()
+    return {
+        "markdown": markdown,
+        "score": data["score"],
+        "subscores": {k: sub[k] for k in SCORE_SUBSCORE_KEYS},
+        "one_liner": one_liner,
     }
 
 

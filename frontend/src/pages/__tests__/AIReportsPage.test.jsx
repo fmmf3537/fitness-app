@@ -183,6 +183,123 @@ describe('AIReportsPage', () => {
     render(<AIReportsPage />)
     expect(await screen.findByRole('alert')).toBeInTheDocument()
   })
+
+  // ================= V3-4 任务2：评分徽章 + 重新生成 =================
+
+  it('报告卡片按分数档位渲染评分徽章（≥90绿/75-89 indigo/60-74黄/<60红）', async () => {
+    const scored = {
+      reports: [
+        { ...REPORTS.reports[0], id: 11, score: 92, one_liner: '状态极佳' },
+        { ...REPORTS.reports[0], id: 12, score: 80, one_liner: '稳定发挥' },
+        { ...REPORTS.reports[0], id: 13, score: 65, one_liner: '中规中矩' },
+        { ...REPORTS.reports[0], id: 14, score: 40, one_liner: '需要调整' },
+      ],
+    }
+    globalThis.fetch = vi.fn(() => Promise.resolve(mockResponse(scored)))
+    render(<AIReportsPage />)
+    expect(await screen.findByTestId('score-badge-11')).toHaveClass('bg-green-100', 'text-green-700')
+    expect(screen.getByTestId('score-badge-11')).toHaveTextContent('92')
+    expect(screen.getByTestId('score-badge-12')).toHaveClass('bg-indigo-100', 'text-indigo-700')
+    expect(screen.getByTestId('score-badge-13')).toHaveClass('bg-yellow-100', 'text-yellow-700')
+    expect(screen.getByTestId('score-badge-14')).toHaveClass('bg-red-100', 'text-red-700')
+  })
+
+  it('详情展示评分徽章与 one_liner', async () => {
+    const scored = {
+      reports: [{ ...REPORTS.reports[0], id: 21, score: 88, one_liner: '卧推很稳' }],
+    }
+    globalThis.fetch = vi.fn(() => Promise.resolve(mockResponse(scored)))
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<AIReportsPage />)
+    await user.click(await screen.findByTestId('report-card-21'))
+    const detail = await screen.findByTestId('report-detail')
+    expect(detail.textContent).toContain('88')
+    expect(detail.textContent).toContain('卧推很稳')
+  })
+
+  it('无评分的存量报告不显示徽章，详情出现「重新生成」按钮', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<AIReportsPage />)
+    await screen.findByText('胸部训练')
+    expect(screen.queryByTestId('score-badge-1')).not.toBeInTheDocument()
+
+    await user.click(screen.getByTestId('report-card-1'))
+    expect(await screen.findByTestId('regen-report-btn')).toBeInTheDocument()
+  })
+
+  it('非 session_review 类型报告不显示「重新生成」按钮', async () => {
+    const advice = {
+      reports: [{ ...REPORTS.reports[0], id: 31, type: 'next_advice', score: null }],
+    }
+    globalThis.fetch = vi.fn(() => Promise.resolve(mockResponse(advice)))
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<AIReportsPage />)
+    await user.click(await screen.findByTestId('report-card-31'))
+    await screen.findByTestId('report-detail')
+    expect(screen.queryByTestId('regen-report-btn')).not.toBeInTheDocument()
+  })
+
+  it('点击「重新生成」：POST 触发 → 轮询状态 → 完成后刷新列表', async () => {
+    globalThis.fetch = vi.fn((url) => {
+      if (url.includes('/session-review/regenerate/status')) {
+        return Promise.resolve(mockResponse({ date: '2026-08-03', running: false, error: null }))
+      }
+      if (url.includes('/session-review/regenerate')) {
+        return Promise.resolve(mockResponse({ status: 'started', date: '2026-08-03' }))
+      }
+      return Promise.resolve(mockResponse(REPORTS))
+    })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<AIReportsPage />)
+    await user.click(await screen.findByTestId('report-card-1'))
+    await user.click(await screen.findByTestId('regen-report-btn'))
+
+    await vi.waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/ai-reports/session-review/regenerate',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({ Authorization: 'Bearer test-token' }),
+          body: JSON.stringify({ date: '2026-08-03' }),
+        }),
+      )
+    })
+    await vi.waitFor(
+      () => {
+        expect(globalThis.fetch).toHaveBeenCalledWith(
+          '/api/ai-reports/session-review/regenerate/status?date=2026-08-03',
+          expect.any(Object),
+        )
+      },
+      { timeout: 8000 },
+    )
+    // 完成后重新拉取列表
+    await vi.waitFor(
+      () => {
+        const calls = globalThis.fetch.mock.calls.map((c) => c[0])
+        const regenAt = calls.findIndex(
+          (u) => u.includes('/session-review/regenerate') && !u.includes('status'),
+        )
+        const reloadAt = calls.lastIndexOf('/api/ai-reports?limit=50')
+        expect(reloadAt).toBeGreaterThan(regenAt)
+      },
+      { timeout: 8000 },
+    )
+  })
+
+  it('重新生成冲突（409）时提示稍候', async () => {
+    globalThis.fetch = vi.fn((url) => {
+      if (url.includes('/session-review/regenerate')) {
+        return Promise.resolve(mockResponse({ detail: '该日期点评正在重新生成中' }, 409))
+      }
+      return Promise.resolve(mockResponse(REPORTS))
+    })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<AIReportsPage />)
+    await user.click(await screen.findByTestId('report-card-1'))
+    await user.click(await screen.findByTestId('regen-report-btn'))
+    expect(await screen.findByText(/正在重新生成中/)).toBeInTheDocument()
+  })
 })
 
 describe('AIReportsPage 移动端（底部抽屉）', () => {

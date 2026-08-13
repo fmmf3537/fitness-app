@@ -200,8 +200,14 @@ class TestGenerateSessionReview:
                                  avg_hr=118, max_hr=152)
         w = fuse_workout(session, DAY, xunji=x, garmin=g, match_status="auto_matched")
 
+        # V3-4：合法输出须附 session_review_v1 评分块，否则触发重试/降级
         def fake_chat(messages):
-            return {"content": "## 完成质量\n不错\n## 与历史对比\n持平",
+            return {"content": (
+                        "## 完成质量\n不错\n## 与历史对比\n持平\n"
+                        '```json\n{"schema":"session_review_v1","score":82,'
+                        '"subscores":{"completion":85,"intensity":80,"recovery_fit":82},'
+                        '"one_liner":"稳定发挥"}\n```'
+                    ),
                     "prompt_tokens": 100, "completion_tokens": 20}
 
         report = generate_session_review(session, w.id, chat_fn=fake_chat)
@@ -214,6 +220,7 @@ class TestGenerateSessionReview:
         assert report.completion_tokens == 20
         assert report.cost_estimate > 0
         assert "完成质量" in report.content_md
+        assert report.score == 82
 
         persisted = session.get(AIReport, report.id)
         assert persisted is not None
