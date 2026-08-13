@@ -1,0 +1,14 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- 品牌图标：indigo #4F46E5 底 + 白色简约哑铃 -->
+  <rect width="1024" height="1024" fill="#4F46E5"/>
+  <g fill="#FFFFFF">
+    <!-- 握杆 -->
+    <rect x="332" y="484" width="360" height="56" rx="28"/>
+    <!-- 内侧铃片 -->
+    <rect x="248" y="392" width="84" height="240" rx="36"/>
+    <rect x="692" y="392" width="84" height="240" rx="36"/>
+    <!-- 外侧铃片 -->
+    <rect x="164" y="432" width="56" height="160" rx="28"/>
+    <rect x="804" y="432" width="56" height="160" rx="28"/>
+  </g>
+</svg>

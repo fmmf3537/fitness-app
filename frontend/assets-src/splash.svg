@@ -1,0 +1,14 @@
+<svg width="2732" height="2732" viewBox="0 0 2732 2732" xmlns="http://www.w3.org/2000/svg">
+  <!-- 启动屏：indigo #4F46E5 底 + 居中白色简约哑铃（居中安全区） -->
+  <rect width="2732" height="2732" fill="#4F46E5"/>
+  <g fill="#FFFFFF">
+    <!-- 握杆 -->
+    <rect x="1024" y="1338" width="684" height="96" rx="48"/>
+    <!-- 内侧铃片 -->
+    <rect x="896" y="1186" width="144" height="400" rx="60"/>
+    <rect x="1692" y="1186" width="144" height="400" rx="60"/>
+    <!-- 外侧铃片 -->
+    <rect x="756" y="1250" width="96" height="272" rx="48"/>
+    <rect x="1880" y="1250" width="96" height="272" rx="48"/>
+  </g>
+</svg>
