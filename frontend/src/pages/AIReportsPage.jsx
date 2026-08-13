@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api/client'
 import BottomSheet from '../components/BottomSheet'
 import ScoreBadge from '../components/ScoreBadge'
+import SharePosterButton from '../components/SharePosterButton'
 import SimpleMarkdown from '../components/SimpleMarkdown'
 import useIsMobile from '../hooks/useIsMobile'
 
@@ -42,6 +43,12 @@ function ReportDetail({ report, onRegenerate, regenerating, regenError }) {
           tokens：{report.prompt_tokens || 0} / {report.completion_tokens || 0}
           {report.cost_estimate != null && ` · 约 ¥${report.cost_estimate.toFixed(6)}`}
         </p>
+        {report.type === 'session_review' && (
+          <div className="mt-2">
+            {/* V3-5：分享海报（抽屉与桌面详情共用此组件，未传 workout 时按 workout_id 拉取） */}
+            <SharePosterButton report={report} />
+          </div>
+        )}
         {report.type === 'session_review' && report.score == null && onRegenerate && (
           <div className="mt-2">
             <button

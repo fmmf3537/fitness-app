@@ -38,6 +38,12 @@ describe('SessionReviewSection', () => {
     )
   })
 
+  it('有点评时展示「分享海报」按钮（V3-5）', async () => {
+    globalThis.fetch = vi.fn(() => Promise.resolve(mockResponse({ reports: [REVIEW] })))
+    render(<SessionReviewSection workout={WORKOUT} />)
+    expect(await screen.findByTestId('share-poster-btn')).toBeInTheDocument()
+  })
+
   it('无点评时不渲染任何内容', async () => {
     globalThis.fetch = vi.fn(() => Promise.resolve(mockResponse({ reports: [] })))
     const { container } = render(<SessionReviewSection workout={WORKOUT} />)

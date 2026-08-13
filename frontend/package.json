@@ -14,6 +14,8 @@
   "dependencies": {
     "@capacitor/app": "^6.0.3",
     "@capacitor/core": "^6.2.1",
+    "@capacitor/filesystem": "^6.0.4",
+    "@capacitor/share": "^6.0.4",
     "@capacitor/status-bar": "^6.0.3",
     "@tailwindcss/vite": "^4.3.3",
     "echarts": "^6.1.0",

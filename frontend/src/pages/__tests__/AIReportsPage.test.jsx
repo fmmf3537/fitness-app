@@ -371,3 +371,51 @@ describe('AIReportsPage 移动端（底部抽屉）', () => {
     expect(document.body.style.overflow).toBe('')
   })
 })
+
+// ================= V3-5：分享海报按钮接线 =================
+
+describe('AIReportsPage 分享海报入口（V3-5）', () => {
+  beforeEach(() => {
+    localStorage.setItem('fh_token', 'test-token')
+    globalThis.fetch = vi.fn(() => Promise.resolve(mockResponse(REPORTS)))
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(new Date('2026-08-03T12:00:00'))
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('桌面详情：session_review 报告显示「分享海报」按钮', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<AIReportsPage />)
+    await user.click(await screen.findByTestId('report-card-1'))
+    await screen.findByTestId('report-detail')
+    expect(screen.getByTestId('share-poster-btn')).toBeInTheDocument()
+  })
+
+  it('桌面详情：非 session_review 报告不显示「分享海报」按钮', async () => {
+    const advice = {
+      reports: [{ ...REPORTS.reports[0], id: 41, type: 'next_advice' }],
+    }
+    globalThis.fetch = vi.fn(() => Promise.resolve(mockResponse(advice)))
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<AIReportsPage />)
+    await user.click(await screen.findByTestId('report-card-41'))
+    await screen.findByTestId('report-detail')
+    expect(screen.queryByTestId('share-poster-btn')).not.toBeInTheDocument()
+  })
+
+  it('移动端抽屉：详情同样显示「分享海报」按钮', async () => {
+    installMatchMedia(true)
+    try {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      render(<AIReportsPage />)
+      await user.click(await screen.findByTestId('report-card-1'))
+      await screen.findByTestId('bottom-sheet')
+      expect(screen.getByTestId('share-poster-btn')).toBeInTheDocument()
+    } finally {
+      installMatchMedia(false)
+    }
+  })
+})

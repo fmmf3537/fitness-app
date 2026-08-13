@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
+import SharePosterButton from './SharePosterButton'
 import SimpleMarkdown from './SimpleMarkdown'
 
 /**
@@ -33,7 +34,10 @@ export default function SessionReviewSection({ workout }) {
 
   return (
     <section className="space-y-2 rounded-lg bg-white p-4 shadow">
-      <h3 className="text-base font-bold text-gray-900">本次训练点评</h3>
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-base font-bold text-gray-900">本次训练点评</h3>
+        <SharePosterButton report={report} workout={workout} />
+      </div>
       <SimpleMarkdown text={report.content_md} />
     </section>
   )
