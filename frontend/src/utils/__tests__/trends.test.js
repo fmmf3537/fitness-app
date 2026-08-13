@@ -100,6 +100,61 @@ describe('buildBodyMetricOption', () => {
   })
 })
 
+describe('移动端适配（mobile 参数）', () => {
+  const WEEKLY = [{ week_start: '2026-07-13', volume_tons: 12.34, sessions: 3 }]
+  const PARTS = [
+    { week_start: '2026-07-13', parts: { 胸: 2, 背: 1 } },
+    { week_start: '2026-07-20', parts: { 腿: 3 } },
+  ]
+
+  it('desktop 缺省：输出与基线一致（grid/legend/无 axisLabel 改造）', () => {
+    const option = buildBodyPartOption(PARTS)
+    expect(option.grid).toEqual({ left: 50, right: 20, top: 40, bottom: 30 })
+    expect(option.legend).toEqual({ top: 0 })
+    expect(option.xAxis.axisLabel).toBeUndefined()
+    expect(option.yAxis.name).toBe('次数')
+    // 显式传空参数对象与缺省完全一致
+    expect(buildBodyPartOption(PARTS, {})).toEqual(option)
+    expect(buildBodyPartOption(PARTS, { mobile: false })).toEqual(option)
+  })
+
+  it('mobile：x 轴标签 rotate 45、fontSize 10、YYYY-MM-DD 裁剪为 MM-DD', () => {
+    const option = buildWeeklyVolumeOption(WEEKLY, { mobile: true })
+    expect(option.xAxis.axisLabel.rotate).toBe(45)
+    expect(option.xAxis.axisLabel.fontSize).toBe(10)
+    expect(option.xAxis.axisLabel.formatter('2026-07-13')).toBe('07-13')
+    // 非日期值原样返回（value 轴不被误伤）
+    expect(option.xAxis.axisLabel.formatter('7.2')).toBe('7.2')
+  })
+
+  it('mobile：legend 可滚动且缩小，grid 移动端值，y 轴名称去掉防叠字', () => {
+    const option = buildBodyPartOption(PARTS, { mobile: true })
+    expect(option.legend.type).toBe('scroll')
+    expect(option.legend.textStyle.fontSize).toBe(10)
+    expect(option.legend.itemWidth).toBeLessThan(20)
+    expect(option.legend.itemGap).toBeLessThan(10)
+    expect(option.grid).toEqual({ left: 40, right: 12, top: 56, bottom: 48 })
+    expect(option.yAxis.name).toBeUndefined()
+  })
+
+  it('mobile：四个构建函数统一应用移动端 grid 与 x 轴标签', () => {
+    const options = [
+      buildWeeklyVolumeOption(WEEKLY, { mobile: true }),
+      buildBodyPartOption(PARTS, { mobile: true }),
+      buildBodyMetricOption(
+        { weight: [{ date: '2026-07-15', value: 72.4 }] },
+        { mobile: true },
+      ),
+      buildSleepVolumeOption([{ sleep_hours: 7.2, volume_tons: 4.1 }], { mobile: true }),
+    ]
+    for (const o of options) {
+      expect(o.grid).toEqual({ left: 40, right: 12, top: 56, bottom: 48 })
+      expect(o.xAxis.axisLabel.rotate).toBe(45)
+      expect(o.xAxis.axisLabel.fontSize).toBe(10)
+    }
+  })
+})
+
 describe('buildSleepVolumeOption', () => {
   it('散点图：x=sleep_hours，y=volume_tons', () => {
     const option = buildSleepVolumeOption([

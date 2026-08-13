@@ -79,7 +79,7 @@ describe('Layout 移动端汉堡菜单与底部 Tab', () => {
   it('移动端默认收起汉堡菜单，主内容区加底部 padding 防 Tab 遮挡', () => {
     renderLayout()
     expect(screen.queryByTestId('mobile-nav')).not.toBeInTheDocument()
-    expect(screen.getByRole('main').className).toMatch(/pb-24/)
+    expect(screen.getByRole('main').className).toMatch(/pb-32/)
   })
 
   it('汉堡菜单仅含次级入口，五个 Tab 主入口不在其中', async () => {

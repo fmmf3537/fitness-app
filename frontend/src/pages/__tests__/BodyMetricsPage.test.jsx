@@ -1,7 +1,9 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import * as echarts from 'echarts'
 import BodyMetricsPage from '../BodyMetricsPage'
+import { installMatchMedia } from '../../test/mockMatchMedia'
 
 vi.mock('echarts', () => ({
   init: vi.fn(() => ({
@@ -75,8 +77,18 @@ function mockFetch({ metrics = [], trends = EMPTY_TRENDS } = {}) {
 
 describe('BodyMetricsPage', () => {
   beforeEach(() => {
+    vi.clearAllMocks()
     localStorage.setItem('fh_token', 'test-token')
   })
+
+  afterEach(() => {
+    installMatchMedia(false)
+  })
+
+  /** 所有图表实例最终 setOption 的 option 列表。 */
+  function renderedOptions() {
+    return echarts.init.mock.results.map((r) => r.value.setOption.mock.calls.at(-1)?.[0])
+  }
 
   it('加载记录与趋势并渲染录入表单、图表、记录列表', async () => {
     mockFetch({ metrics: [WEIGHT_ROW, HEIGHT_ROW] })
@@ -200,5 +212,38 @@ describe('BodyMetricsPage', () => {
     globalThis.fetch = vi.fn(() => Promise.resolve(mockResponse({ detail: 'boom' }, 500)))
     render(<BodyMetricsPage />)
     expect(await screen.findByRole('alert')).toBeInTheDocument()
+  })
+
+  it('移动端断点：双轴图 time 轴 {MM}-{dd} 模板，指标图移动端 grid', async () => {
+    installMatchMedia(true)
+    mockFetch({ metrics: [WEIGHT_ROW] })
+    render(<BodyMetricsPage />)
+    await screen.findByTestId('trend-chart-weight')
+    const options = renderedOptions()
+    const dual = options.find((o) => o?.xAxis?.type === 'time')
+    const trend = options.find(
+      (o) => o?.xAxis?.type === 'category' && o?.series?.[0]?.name === '体重',
+    )
+    expect(dual.xAxis.axisLabel).toEqual({ rotate: 45, fontSize: 10, formatter: '{MM}-{dd}' })
+    expect(dual.legend.type).toBe('scroll')
+    expect(trend.grid).toEqual({ left: 40, right: 12, top: 56, bottom: 48 })
+    expect(trend.xAxis.axisLabel.rotate).toBe(45)
+    expect(trend.xAxis.axisLabel.formatter('2026-08-03')).toBe('08-03')
+    expect(trend.yAxis.name).toBeUndefined()
+  })
+
+  it('桌面断点：option 保持基线布局（无移动端改造）', async () => {
+    mockFetch({ metrics: [WEIGHT_ROW] })
+    render(<BodyMetricsPage />)
+    await screen.findByTestId('trend-chart-weight')
+    const options = renderedOptions()
+    const dual = options.find((o) => o?.xAxis?.type === 'time')
+    const trend = options.find(
+      (o) => o?.xAxis?.type === 'category' && o?.series?.[0]?.name === '体重',
+    )
+    expect(trend.grid).toEqual({ left: 50, right: 20, top: 40, bottom: 30 })
+    expect(trend.xAxis.axisLabel).toBeUndefined()
+    expect(dual.grid).toEqual({ left: 50, right: 50, top: 40, bottom: 30 })
+    expect(dual.xAxis.axisLabel).toBeUndefined()
   })
 })

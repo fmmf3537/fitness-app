@@ -1,7 +1,9 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import * as echarts from 'echarts'
 import TrendsPage from '../TrendsPage'
+import { installMatchMedia } from '../../test/mockMatchMedia'
 
 vi.mock('echarts', () => ({
   init: vi.fn(() => ({
@@ -36,9 +38,21 @@ const EMPTY_TRENDS = {
 
 describe('TrendsPage', () => {
   beforeEach(() => {
+    vi.clearAllMocks()
     localStorage.setItem('fh_token', 'test-token')
     globalThis.fetch = vi.fn(() => Promise.resolve(mockResponse(TRENDS)))
   })
+
+  afterEach(() => {
+    installMatchMedia(false)
+  })
+
+  /** 取最后 count 个图表实例最终 setOption 的 option（数据加载后会重建图表）。 */
+  function lastOptions(count) {
+    return echarts.init.mock.results
+      .slice(-count)
+      .map((r) => r.value.setOption.mock.calls.at(-1)?.[0])
+  }
 
   it('默认按 4 周拉取并渲染四张图', async () => {
     render(<TrendsPage />)
@@ -92,5 +106,27 @@ describe('TrendsPage', () => {
     globalThis.fetch = vi.fn(() => Promise.resolve(mockResponse({ detail: 'boom' }, 500)))
     render(<TrendsPage />)
     expect(await screen.findByRole('alert')).toBeInTheDocument()
+  })
+
+  it('移动端断点：option 使用移动端布局（rotate/grid/legend scroll）', async () => {
+    installMatchMedia(true)
+    render(<TrendsPage />)
+    await screen.findByTestId('trend-chart-volume')
+    const [volume, bodypart] = lastOptions(4)
+    expect(volume.grid).toEqual({ left: 40, right: 12, top: 56, bottom: 48 })
+    expect(volume.xAxis.axisLabel.rotate).toBe(45)
+    expect(volume.xAxis.axisLabel.fontSize).toBe(10)
+    expect(volume.xAxis.axisLabel.formatter('2026-07-13')).toBe('07-13')
+    expect(volume.yAxis.name).toBeUndefined()
+    expect(bodypart.legend.type).toBe('scroll')
+  })
+
+  it('桌面断点：option 保持基线布局（无移动端改造）', async () => {
+    render(<TrendsPage />)
+    await screen.findByTestId('trend-chart-volume')
+    const [volume, bodypart] = lastOptions(4)
+    expect(volume.grid).toEqual({ left: 50, right: 20, top: 40, bottom: 30 })
+    expect(volume.xAxis.axisLabel).toBeUndefined()
+    expect(bodypart.legend).toEqual({ top: 0 })
   })
 })

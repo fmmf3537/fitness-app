@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../api/client'
 import TrendChart from '../components/TrendChart'
+import useIsMobile from '../hooks/useIsMobile'
 import {
   METRIC_DEFS,
   buildMetricTrendOption,
@@ -23,6 +24,7 @@ function todayStr() {
 }
 
 export default function BodyMetricsPage() {
+  const isMobile = useIsMobile()
   const [records, setRecords] = useState(null)
   const [trends, setTrends] = useState(null)
   const [error, setError] = useState('')
@@ -56,6 +58,7 @@ export default function BodyMetricsPage() {
 
   const grouped = useMemo(() => groupByType(records), [records])
   const hasHeight = Boolean(grouped.height?.length)
+  const chartOpts = { mobile: isMobile }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -232,6 +235,7 @@ export default function BodyMetricsPage() {
             option={buildWeightVolumeOption(
               trends?.weekly_volume || [],
               grouped.weight || [],
+              chartOpts,
             )}
           />
         </section>
@@ -247,7 +251,7 @@ export default function BodyMetricsPage() {
           </h2>
           <TrendChart
             testId={`trend-chart-${d.type}`}
-            option={buildMetricTrendOption(grouped[d.type], d.label, d.unit)}
+            option={buildMetricTrendOption(grouped[d.type], d.label, d.unit, chartOpts)}
           />
         </section>
       ))}

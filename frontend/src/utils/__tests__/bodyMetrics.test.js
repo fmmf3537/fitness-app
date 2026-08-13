@@ -96,3 +96,41 @@ describe('buildWeightVolumeOption', () => {
     expect(option.series.find((s) => s.type === 'line').data).toEqual([])
   })
 })
+
+describe('移动端适配（mobile 参数）', () => {
+  const WEIGHTS = [
+    { date: '2026-08-01', value: 72.4 },
+    { date: '2026-08-03', value: 72.0 },
+  ]
+  const VOLUME = [{ week_start: '2026-07-27', volume_tons: 8.1, sessions: 2 }]
+
+  it('desktop 缺省：输出与基线一致', () => {
+    const trend = buildMetricTrendOption(WEIGHTS, '体重', 'kg')
+    expect(trend.grid).toEqual({ left: 50, right: 20, top: 40, bottom: 30 })
+    expect(trend.xAxis.axisLabel).toBeUndefined()
+    const dual = buildWeightVolumeOption(VOLUME, WEIGHTS)
+    expect(dual.grid).toEqual({ left: 50, right: 50, top: 40, bottom: 30 })
+    expect(dual.legend).toEqual({ top: 0 })
+    expect(dual.xAxis.axisLabel).toBeUndefined()
+  })
+
+  it('mobile：单指标趋势 rotate45/日期裁剪/grid 移动端值/y 轴去名', () => {
+    const option = buildMetricTrendOption(WEIGHTS, '体重', 'kg', { mobile: true })
+    expect(option.grid).toEqual({ left: 40, right: 12, top: 56, bottom: 48 })
+    expect(option.xAxis.axisLabel.rotate).toBe(45)
+    expect(option.xAxis.axisLabel.fontSize).toBe(10)
+    expect(option.xAxis.axisLabel.formatter('2026-08-01')).toBe('08-01')
+    expect(option.yAxis.name).toBeUndefined()
+  })
+
+  it('mobile：体重×容量双轴图 time 轴用 {MM}-{dd} 模板，右 y 轴保留宽度', () => {
+    const option = buildWeightVolumeOption(VOLUME, WEIGHTS, { mobile: true })
+    expect(option.xAxis.axisLabel).toEqual({ rotate: 45, fontSize: 10, formatter: '{MM}-{dd}' })
+    expect(option.legend.type).toBe('scroll')
+    expect(option.grid.left).toBe(40)
+    expect(option.grid.top).toBe(56)
+    expect(option.grid.bottom).toBe(48)
+    expect(option.grid.right).toBeGreaterThanOrEqual(30)
+    expect(option.yAxis.every((y) => y.name === undefined)).toBe(true)
+  })
+})

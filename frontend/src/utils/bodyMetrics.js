@@ -1,5 +1,7 @@
 // V1-7 身体数据页：指标定义与 ECharts option 构造纯函数（PRD US-12）。
 
+import { applyMobile } from './trends'
+
 /** 六类指标定义；syncable=false 的指标训记 API 不支持，仅本地保存。 */
 export const METRIC_DEFS = [
   { type: 'height', label: '身高', unit: 'cm', syncable: false },
@@ -35,9 +37,9 @@ export function groupByType(records) {
 const BASE_GRID = { left: 50, right: 20, top: 40, bottom: 30 }
 
 /** 单指标趋势折线：x=日期，y=数值。 */
-export function buildMetricTrendOption(records, label, unit) {
+export function buildMetricTrendOption(records, label, unit, { mobile = false } = {}) {
   const rows = Array.isArray(records) ? records : []
-  return {
+  const option = {
     tooltip: { trigger: 'axis' },
     grid: BASE_GRID,
     xAxis: { type: 'category', name: '日期', data: rows.map((r) => r.date) },
@@ -52,13 +54,14 @@ export function buildMetricTrendOption(records, label, unit) {
       },
     ],
   }
+  return mobile ? applyMobile(option) : option
 }
 
 /** 体重曲线与周训练容量同屏对照（双 y 轴，时间轴对齐）。 */
-export function buildWeightVolumeOption(weeklyVolume, weights) {
+export function buildWeightVolumeOption(weeklyVolume, weights, { mobile = false } = {}) {
   const volume = Array.isArray(weeklyVolume) ? weeklyVolume : []
   const weightRows = Array.isArray(weights) ? weights : []
-  return {
+  const option = {
     tooltip: { trigger: 'axis' },
     legend: { top: 0 },
     grid: { left: 50, right: 50, top: 40, bottom: 30 },
@@ -85,4 +88,6 @@ export function buildWeightVolumeOption(weeklyVolume, weights) {
       },
     ],
   }
+  // 双 y 轴：移动端 grid 右侧保留 40px 给第二根 y 轴刻度
+  return mobile ? applyMobile(option, { grid: { right: 40 } }) : option
 }
