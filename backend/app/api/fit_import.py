@@ -1,6 +1,6 @@
 """V2-4 佳明 FIT/TCX 手动导入 API（接口失效降级通道，PRD §6.2 /import/fit）。
 
-上传 .fit/.tcx 文件 → 解析落库 garmin_activity → 触发当日重匹配 → 返回融合结果。
+V3-7 扩展 GPX/KML：上传 .fit/.tcx/.gpx/.kml 文件 → 解析落库 garmin_activity → 触发当日重匹配 → 返回融合结果。
 """
 import tempfile
 from pathlib import Path
@@ -19,7 +19,7 @@ router = APIRouter(
     dependencies=[Depends(require_auth)],
 )
 
-ALLOWED_SUFFIXES = {".fit", ".tcx"}
+ALLOWED_SUFFIXES = {".fit", ".tcx", ".gpx", ".kml"}
 MAX_FILE_BYTES = 50 * 1024 * 1024  # 50MB
 
 
@@ -29,7 +29,7 @@ async def import_fit(file: UploadFile = File(...),
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in ALLOWED_SUFFIXES:
         raise HTTPException(status_code=422,
-                            detail=f"不支持的文件类型：{suffix or '(无后缀)'}（仅支持 .fit / .tcx）")
+                            detail=f"不支持的文件类型：{suffix or '(无后缀)'}（仅支持 .fit / .tcx / .gpx / .kml）")
     content = await file.read()
     if not content:
         raise HTTPException(status_code=422, detail="文件内容为空")

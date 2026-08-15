@@ -180,8 +180,8 @@ def test_import_match_fn_injectable(session, fit_file):
 def test_import_unsupported_extension(session, tmp_path):
     from app.adapters.garmin_adapter import FitImportError, import_fit_file
 
-    p = tmp_path / "track.gpx"
-    p.write_text("<gpx/>", encoding="utf-8")
+    p = tmp_path / "track.foo"
+    p.write_text("<foo/>", encoding="utf-8")
     with pytest.raises(FitImportError, match="不支持"):
         import_fit_file(session, p)
 

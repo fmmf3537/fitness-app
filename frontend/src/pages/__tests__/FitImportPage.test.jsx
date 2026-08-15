@@ -72,16 +72,27 @@ describe('FitImportPage', () => {
     expect(error).toHaveTextContent('导入失败')
   })
 
-  it('拒绝非 .fit/.tcx 文件', async () => {
+  it('接受 .gpx / .kml 扩展名文件', async () => {
     globalThis.fetch = vi.fn()
-    const user = userEvent.setup()
+    renderPage()
+
+    for (const name of ['run.gpx', 'ride.kml']) {
+      const file = new File(['<xml/>'], name, { type: 'application/xml' })
+      fireEvent.change(screen.getByTestId('file-input'), { target: { files: [file] } })
+      expect(screen.getByTestId('import-btn')).toBeEnabled()
+      expect(screen.queryByTestId('import-error')).not.toBeInTheDocument()
+    }
+  })
+
+  it('拒绝非 .fit/.tcx/.gpx/.kml 文件', async () => {
+    globalThis.fetch = vi.fn()
     renderPage()
 
     const file = new File(['hello'], 'notes.txt', { type: 'text/plain' })
     // userEvent.upload 会遵守 input accept 过滤，这里用 fireEvent 模拟绕过场景
     fireEvent.change(screen.getByTestId('file-input'), { target: { files: [file] } })
     expect(screen.getByTestId('import-btn')).toBeDisabled()
-    expect(screen.getByTestId('import-error')).toHaveTextContent('仅支持 .fit / .tcx')
+    expect(screen.getByTestId('import-error')).toHaveTextContent('仅支持 .fit / .tcx / .gpx / .kml')
     expect(globalThis.fetch).not.toHaveBeenCalled()
   })
 })

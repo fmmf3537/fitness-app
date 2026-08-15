@@ -248,7 +248,10 @@ POST https://api.xunjiapp.cn/open/body/upsert_gzip
   - 已实测（2026-08-04）：可拉到 strength_training/badminton 等活动；
 - **风控**：佳明有 IP 级 429（连续登录 2-3 次即触发）——同一进程只登录一次并复用会话；收到 429 指数退避；历史导入期间禁止重复登录；
 - 凭据从环境变量 `GARMIN_EMAIL` / `GARMIN_PASSWORD` 读取；token 缓存于 `~/.garminconnect`；
-- 失效降级：保留 FIT/TCX 文件手动导入入口（`/import/fit`）。
+- 失效降级：保留文件手动导入入口（`/import/fit`），支持 FIT/TCX/GPX/KML 四种格式（V3-7 扩展）：
+  - GPX 兼容 1.1/1.0 命名空间，心率取 `gpxtpx:TrackPointExtension/gpxtpx:hr`，距离无原始字段时按 haversine 逐点累加；
+  - KML 仅支持含 `gx:Track`（`<when>` 时间戳 + `<gx:coord>`）的轨迹导出；仅 LineString（无时间戳）的 KML 无法确定运动日期，直接拒绝并提示导出含 gx:Track 的版本；
+  - 全部用标准库 `xml.etree.ElementTree` 解析（零新依赖），落库/去重/重匹配复用 FIT/TCX 既有管线。
 
 ### 6.3 LLM 适配层
 

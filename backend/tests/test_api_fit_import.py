@@ -1,13 +1,16 @@
-"""V2-4 FIT/TCX 手动导入 API 测试（降级通道 /api/import/fit）。"""
+"""V2-4 FIT/TCX 手动导入 API 测试（降级通道 /api/import/fit）；V3-7 扩展 GPX/KML。"""
 from datetime import date, time
+from unittest.mock import Mock
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.db import get_session
 from app.main import app
+from app.models import GarminActivity
 from tests.conftest import make_xunji_train
 from tests.test_fit_import import build_fit_bytes
+from tests.test_gpx_kml_import import GPX_WITH_HR
 
 DAY = date(2026, 8, 5)
 
@@ -67,6 +70,48 @@ def test_upload_corrupt_file(client, auth):
     resp = client.post(
         "/api/import/fit",
         files={"file": ("broken.fit", b"not-a-fit", "application/octet-stream")},
+        headers=auth,
+    )
+    assert resp.status_code == 422
+
+
+def test_upload_gpx_file(client, auth, session, monkeypatch):
+    """V3-7 端到端：上传 GPX → 落库 garmin_activity → match_day 被调用；重复上传去重。"""
+    import app.services.matcher as matcher
+
+    fake_match = Mock(return_value={"workouts": [], "candidates": []})
+    monkeypatch.setattr(matcher, "match_day", fake_match)
+
+    resp = client.post(
+        "/api/import/fit",
+        files={"file": ("morning_run.gpx", GPX_WITH_HR.encode("utf-8"), "application/gpx+xml")},
+        headers=auth,
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True
+    assert body["activity_id"].startswith("file_")
+    assert body["date"] == "2026-08-05"
+    assert body["activity_type"] == "running"
+    assert session.query(GarminActivity).count() == 1
+    fake_match.assert_called_once()
+    assert fake_match.call_args.args[1] == DAY
+
+    # 重复上传同文件：去重不新建行
+    resp2 = client.post(
+        "/api/import/fit",
+        files={"file": ("morning_run.gpx", GPX_WITH_HR.encode("utf-8"), "application/gpx+xml")},
+        headers=auth,
+    )
+    assert resp2.status_code == 200
+    assert session.query(GarminActivity).count() == 1
+    assert fake_match.call_count == 2
+
+
+def test_upload_empty_file(client, auth):
+    resp = client.post(
+        "/api/import/fit",
+        files={"file": ("empty.gpx", b"", "application/gpx+xml")},
         headers=auth,
     )
     assert resp.status_code == 422

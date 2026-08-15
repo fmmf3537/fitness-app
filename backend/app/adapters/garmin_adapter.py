@@ -412,6 +412,21 @@ def _to_beijing_naive(dt: datetime) -> datetime:
     return dt.astimezone(BJ_TZ).replace(tzinfo=None)
 
 
+def _parse_iso_utc(raw: str) -> datetime:
+    """解析 ISO8601 UTC 时间（如 '2026-08-05T10:00:00Z'）为带时区 datetime。"""
+    return datetime.fromisoformat(raw.strip().replace("Z", "+00:00"))
+
+
+def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """两经纬度点的大圆距离（米），math 模块自实现（零新依赖）。"""
+    import math
+
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dlat, dlon = p2 - p1, math.radians(lon2 - lon1)
+    a = math.sin(dlat / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlon / 2) ** 2
+    return 2 * 6371000.0 * math.asin(math.sqrt(a))
+
+
 def _parse_fit(path: Path) -> dict:
     """用 fitparse 解析 FIT：优先 session 消息，缺失时回退聚合 record 消息。"""
     try:
@@ -496,10 +511,7 @@ def _parse_tcx(path: Path) -> dict:
         node = lap.find(f"t:{tag}/t:Value", ns)
         return _int(node.text) if node is not None else None
 
-    def _parse_iso(raw: str) -> datetime:
-        return _to_beijing_naive(datetime.fromisoformat(raw.strip().replace("Z", "+00:00")))
-
-    start = _parse_iso(laps[0].get("StartTime"))
+    start = _to_beijing_naive(_parse_iso_utc(laps[0].get("StartTime")))
     duration = sum(_int(lap.findtext("t:TotalTimeSeconds", default="0", namespaces=ns)) or 0 for lap in laps)
     calories = sum(_int(lap.findtext("t:Calories", default="0", namespaces=ns)) or 0 for lap in laps)
     avg_hrs = [v for v in (_lap_time(lap, "AverageHeartRateBpm") for lap in laps) if v]
@@ -515,8 +527,151 @@ def _parse_tcx(path: Path) -> dict:
     }
 
 
+# ---------- GPX/KML 解析（V3-7，stdlib ElementTree，零新依赖） ----------
+
+# GPX 命名空间：兼容 1.1 与 1.0
+GPX_NAMESPACES = (
+    "http://www.topografix.com/gpx/1/1",
+    "http://www.topografix.com/gpx/1/0",
+)
+# 佳明心率扩展命名空间（gpxtpx:TrackPointExtension/gpxtpx:hr）
+GPXTPX_NS = "http://www.garmin.com/xmlschemas/TrackPointExtension/v1"
+# KML 2.2 与 Google 轨迹扩展
+KML_NS = "http://www.opengis.net/kml/2.2"
+GX_NS = "http://www.google.com/kml/ext/2.2"
+
+
+def _summarize_track(points: list[tuple], *, activity_name, activity_type) -> dict:
+    """轨迹点列表 [(lat, lon, dt, hr|None)] → 与 _parse_tcx 同构的归一化 dict。
+
+    缺失字段一律给 None；distance_m 无原始字段时用 haversine 逐点累加。
+    """
+    times = [p[2] for p in points if p[2] is not None]
+    if not times:
+        raise FitImportError("文件缺少时间戳，无法确定运动时间")
+    hrs = [p[3] for p in points if isinstance(p[3], (int, float))]
+    coords = [(p[0], p[1]) for p in points if p[0] is not None and p[1] is not None]
+    distance_m = None
+    if len(coords) >= 2:
+        distance_m = round(
+            sum(_haversine_m(a[0], a[1], b[0], b[1]) for a, b in zip(coords, coords[1:])),
+            1,
+        )
+    start, end = min(times), max(times)
+    return {
+        "activity_name": activity_name,
+        "activity_type": activity_type or "other",
+        "start_ts": _to_beijing_naive(start),
+        "duration_s": int((end - start).total_seconds()) or None,
+        "distance_m": distance_m,
+        "calories": None,
+        "avg_hr": round(sum(hrs) / len(hrs)) if hrs else None,
+        "max_hr": max(hrs) if hrs else None,
+    }
+
+
+def _parse_gpx(path: Path) -> dict:
+    """用标准库 XML 解析 GPX（兼容 1.1/1.0 命名空间），聚合所有 trkpt。
+
+    心率取 gpxtpx:TrackPointExtension/gpxtpx:hr，无则 None；
+    运动类型取 trk 下 type/name，无则 'other'。
+    """
+    import xml.etree.ElementTree as ET
+
+    try:
+        root = ET.parse(path).getroot()
+    except Exception as exc:
+        raise FitImportError(f"GPX 文件解析失败：{exc}") from exc
+
+    trk = ns = None
+    for candidate in GPX_NAMESPACES:
+        trk = root.find(f".//{{{candidate}}}trk")
+        if trk is not None:
+            ns = candidate
+            break
+    if trk is None:
+        raise FitImportError("GPX 文件不含轨迹（trk）")
+
+    def _int(v):
+        try:
+            return int(float(v))
+        except (TypeError, ValueError):
+            return None
+
+    def _float(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    points = []
+    for pt in trk.findall(f".//{{{ns}}}trkpt"):
+        time_node = pt.find(f"{{{ns}}}time")
+        dt = _parse_iso_utc(time_node.text) if time_node is not None and time_node.text else None
+        hr_node = pt.find(f".//{{{GPXTPX_NS}}}hr")
+        points.append((
+            _float(pt.get("lat")),
+            _float(pt.get("lon")),
+            dt,
+            _int(hr_node.text) if hr_node is not None else None,
+        ))
+    if not points:
+        raise FitImportError("GPX 文件不含轨迹点（trkpt）")
+
+    name = (trk.findtext(f"{{{ns}}}name") or "").strip() or None
+    type_raw = (trk.findtext(f"{{{ns}}}type") or "").strip()
+    return _summarize_track(
+        points, activity_name=name, activity_type=type_raw or name
+    )
+
+
+def _parse_kml(path: Path) -> dict:
+    """用标准库 XML 解析 KML 2.2：优先 gx:Track（<when> 与 <gx:coord> 一一对应）。
+
+    仅 LineString（无时间戳）时无法确定运动日期，直接报错提示；
+    KML 一般无心率/类型，相应字段 None，activity_type 默认 'other'。
+    """
+    import xml.etree.ElementTree as ET
+
+    try:
+        root = ET.parse(path).getroot()
+    except Exception as exc:
+        raise FitImportError(f"KML 文件解析失败：{exc}") from exc
+
+    ns = {"k": KML_NS, "gx": GX_NS}
+    track = root.find(".//gx:Track", ns)
+    if track is None:
+        if root.find(".//k:LineString", ns) is not None:
+            raise FitImportError("该 KML 缺少时间信息，请导出含 gx:Track 的版本")
+        raise FitImportError("KML 文件不含轨迹（gx:Track）")
+
+    whens = [w.text.strip() for w in track.findall("k:when", ns) if w.text and w.text.strip()]
+    coords = []
+    for c in track.findall("gx:coord", ns):
+        parts = (c.text or "").split()  # gx:coord 固定 "lon lat ele"
+        if len(parts) >= 2:
+            try:
+                coords.append((float(parts[1]), float(parts[0])))
+            except ValueError:
+                continue
+    points = [
+        (lat, lon, _parse_iso_utc(whens[i]), None)
+        for i, (lat, lon) in enumerate(coords)
+        if i < len(whens)
+    ]
+    if not points:
+        raise FitImportError("该 KML 缺少时间信息，请导出含 gx:Track 的版本")
+
+    name = None
+    for pm in root.findall(".//k:Placemark", ns):
+        if pm.find(".//gx:Track", ns) is not None:
+            name = (pm.findtext("k:name", default="", namespaces=ns) or "").strip() or None
+            break
+    return _summarize_track(points, activity_name=name, activity_type=None)
+
+
 def parse_activity_file(path: str | Path) -> dict:
-    """解析 FIT/TCX 文件为统一 dict（activity_type/start_ts/duration_s/calories/avg_hr/max_hr）。"""
+    """解析 FIT/TCX/GPX/KML 文件为统一 dict（activity_type/start_ts/duration_s/calories/avg_hr/max_hr）。"""
     path = Path(path)
     if not path.is_file():
         raise FitImportError(f"文件不存在：{path}")
@@ -527,8 +682,14 @@ def parse_activity_file(path: str | Path) -> dict:
     elif suffix == ".tcx":
         parsed = _parse_tcx(path)
         parsed["format"] = "tcx"
+    elif suffix == ".gpx":
+        parsed = _parse_gpx(path)
+        parsed["format"] = "gpx"
+    elif suffix == ".kml":
+        parsed = _parse_kml(path)
+        parsed["format"] = "kml"
     else:
-        raise FitImportError(f"不支持的文件类型：{suffix or '(无后缀)'}（仅支持 .fit / .tcx）")
+        raise FitImportError(f"不支持的文件类型：{suffix or '(无后缀)'}（仅支持 .fit / .tcx / .gpx / .kml）")
     if parsed.get("start_ts") is None:
         raise FitImportError("文件缺少开始时间，无法入库")
     return parsed
@@ -554,7 +715,7 @@ def import_fit_file(session: Session, path: str | Path, *, match_fn=None) -> dic
         row = GarminActivity(activity_id=activity_id)
         session.add(row)
     row.activity_type = parsed.get("activity_type")
-    row.name = row.name or f"{path.stem}（文件导入）"
+    row.name = row.name or parsed.get("activity_name") or f"{path.stem}（文件导入）"
     row.start_ts = parsed["start_ts"]
     duration_s = parsed.get("duration_s")
     row.duration_s = duration_s

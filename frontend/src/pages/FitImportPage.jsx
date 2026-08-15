@@ -10,7 +10,8 @@ const STATUS_LABEL = {
   pending: '已入待确认队列',
 }
 
-const ALLOWED_EXT = ['.fit', '.tcx']
+const ALLOWED_EXT = ['.fit', '.tcx', '.gpx', '.kml']
+const ALLOWED_EXT_LABEL = '.fit / .tcx / .gpx / .kml'
 
 export default function FitImportPage() {
   const [file, setFile] = useState(null)
@@ -30,7 +31,7 @@ export default function FitImportPage() {
     const ext = f.name.slice(f.name.lastIndexOf('.')).toLowerCase()
     if (!ALLOWED_EXT.includes(ext)) {
       setFile(null)
-      setError('仅支持 .fit / .tcx 文件（从 Garmin Connect 活动详情页导出）')
+      setError(`仅支持 ${ALLOWED_EXT_LABEL} 文件（佳明/Strava/华为/咕咚等平台导出）`)
       return
     }
     setFile(f)
@@ -56,8 +57,9 @@ export default function FitImportPage() {
     <div className="space-y-4">
       <h1 className="text-xl font-bold text-gray-900">佳明文件导入</h1>
       <p className="text-sm text-gray-500">
-        佳明接口不可用时的降级通道：在 Garmin Connect 网页端打开活动 → 导出 FIT/TCX 文件，
-        在此处上传。系统会解析并写入训练档案，自动触发当日匹配融合。
+        佳明接口不可用时的降级通道，也支持 Strava/华为/咕咚/两步路等平台导出的通用格式：
+        上传 FIT / TCX / GPX / KML 文件（KML 需含 gx:Track 时间戳轨迹）。
+        系统会解析并写入训练档案，自动触发当日匹配融合。
       </p>
 
       <div
@@ -70,12 +72,12 @@ export default function FitImportPage() {
         }}
         onClick={() => inputRef.current?.click()}
       >
-        <p>拖拽 FIT/TCX 文件到此处，或点击选择文件</p>
+        <p>拖拽 FIT/TCX/GPX/KML 文件到此处，或点击选择文件</p>
         <input
           data-testid="file-input"
           ref={inputRef}
           type="file"
-          accept=".fit,.tcx"
+          accept=".fit,.tcx,.gpx,.kml"
           className="hidden"
           onChange={(e) => pickFile(e.target.files)}
         />
