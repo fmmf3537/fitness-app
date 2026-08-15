@@ -34,6 +34,12 @@ const REPORT = {
   content_md: '刷新 PR。',
 }
 const WORKOUT = { id: 10, date: '2026-08-12', title: '胸部训练', movements: [] }
+const POSTER_PAYLOAD = {
+  report: { ...REPORT, subscores: { completion: 90, intensity: 85, recovery_fit: 80 } },
+  workout: { id: 10, workout_kind: 'strength', volume_kg: 2220, highlights: [] },
+  prs: [],
+  week_count: 3,
+}
 const POSTER_DATA = { title: '胸部训练', score: 88 }
 const DATA_URL = 'data:image/png;base64,QUJD'
 
@@ -44,6 +50,7 @@ describe('SharePosterButton', () => {
     renderPosterDataUrl.mockReturnValue(DATA_URL)
     isNativeShare.mockReturnValue(false)
     sharePosterImage.mockResolvedValue({ mode: 'download' })
+    apiMock.mockResolvedValue(POSTER_PAYLOAD)
   })
 
   it('按钮流转：生成中 → 预览弹层（图 + 操作按钮）', async () => {
@@ -57,7 +64,9 @@ describe('SharePosterButton', () => {
     expect(dialog).toBeInTheDocument()
     const img = screen.getByTestId('poster-preview-img')
     expect(img).toHaveAttribute('src', DATA_URL)
-    expect(buildPosterData).toHaveBeenCalledWith({ report: REPORT, workout: WORKOUT })
+    // V3-6：数据统一由 /api/posters/data 装配端点提供
+    expect(apiMock).toHaveBeenCalledWith('/api/posters/data?report_id=5')
+    expect(buildPosterData).toHaveBeenCalledWith(POSTER_PAYLOAD)
     // 浏览器端：主按钮为下载 PNG
     expect(screen.getByTestId('poster-share-btn')).toHaveTextContent('下载 PNG')
   })
@@ -97,14 +106,18 @@ describe('SharePosterButton', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
-  it('未传 workout 时按 workout_id 拉取训练详情', async () => {
-    apiMock.mockResolvedValue(WORKOUT)
-    const user = userEvent.setup()
+  it('有评分时不显示解锁提示', () => {
     render(<SharePosterButton report={REPORT} />)
+    expect(screen.queryByTestId('share-poster-hint')).not.toBeInTheDocument()
+  })
+
+  it('report.score 为 null 时提示「重新生成点评可解锁评分海报」，不阻断分享', async () => {
+    const user = userEvent.setup()
+    render(<SharePosterButton report={{ ...REPORT, score: null }} />)
+    expect(screen.getByTestId('share-poster-hint')).toHaveTextContent('重新生成点评可解锁评分海报')
+    // 不阻断：仍可生成并预览
     await user.click(screen.getByTestId('share-poster-btn'))
-    await screen.findByRole('dialog')
-    expect(apiMock).toHaveBeenCalledWith('/api/workouts/10')
-    expect(buildPosterData).toHaveBeenCalledWith({ report: REPORT, workout: WORKOUT })
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
   })
 
   it('生成失败：回到可点击状态并提示错误', async () => {

@@ -5,11 +5,12 @@ import { isNativeShare, sharePosterImage } from '../utils/sharePoster'
 import PosterPreviewModal from './PosterPreviewModal'
 
 /**
- * V3-5 「分享海报」按钮：生成 → 预览弹层 → 分享（原生）/ 下载（浏览器）。
- * props：report（必需，取 score/one_liner/标题/日期）；
- *       workout（可选；缺省时按 report.workout_id 拉取，用于总容量/时长/热量指标）。
+ * V3-5/V3-6 「分享海报」按钮：生成 → 预览弹层 → 分享（原生）/ 下载（浏览器）。
+ * props：report（必需）。
+ * V3-6：海报数据统一由 GET /api/posters/data?report_id= 一次装配；
+ *       report.score 为 null 时提示「重新生成点评可解锁评分海报」（不阻断分享）。
  */
-export default function SharePosterButton({ report, workout = null, testId = 'share-poster-btn' }) {
+export default function SharePosterButton({ report, testId = 'share-poster-btn' }) {
   const [generating, setGenerating] = useState(false)
   const [dataUrl, setDataUrl] = useState('')
   const [posterDate, setPosterDate] = useState('')
@@ -22,11 +23,8 @@ export default function SharePosterButton({ report, workout = null, testId = 'sh
     setGenerating(true)
     setError('')
     try {
-      let w = workout
-      if (!w && report?.workout_id) {
-        w = await api(`/api/workouts/${report.workout_id}`)
-      }
-      const data = buildPosterData({ report, workout: w })
+      const payload = await api(`/api/posters/data?report_id=${report.id}`)
+      const data = buildPosterData(payload)
       const url = renderPosterDataUrl(data)
       setDataUrl(url)
       setPosterDate(data.date || report?.date || '')
@@ -66,6 +64,11 @@ export default function SharePosterButton({ report, workout = null, testId = 'sh
         >
           {generating ? '生成中…' : '分享海报'}
         </button>
+        {report?.score == null && (
+          <span data-testid="share-poster-hint" className="text-xs text-gray-400">
+            重新生成点评可解锁评分海报
+          </span>
+        )}
         {error && (
           <span data-testid="share-poster-error" className="text-xs text-red-600">
             {error}
