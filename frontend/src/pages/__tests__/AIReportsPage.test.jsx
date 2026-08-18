@@ -372,6 +372,55 @@ describe('AIReportsPage 移动端（底部抽屉）', () => {
   })
 })
 
+// ================= V3-8：追问对话入口接线 =================
+
+describe('AIReportsPage 追问对话入口（V3-8）', () => {
+  beforeEach(() => {
+    localStorage.setItem('fh_token', 'test-token')
+    globalThis.fetch = vi.fn((url) => {
+      if (url.includes('/messages')) {
+        return Promise.resolve(mockResponse({ messages: [] }))
+      }
+      return Promise.resolve(mockResponse(REPORTS))
+    })
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(new Date('2026-08-03T12:00:00'))
+  })
+
+  afterEach(() => {
+    installMatchMedia(false)
+    vi.useRealTimers()
+  })
+
+  it('桌面分栏详情：报告正文下方渲染「追问 AI 教练」入口，可展开拉取历史', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<AIReportsPage />)
+    await user.click(await screen.findByTestId('report-card-1'))
+    await screen.findByTestId('report-detail')
+
+    await user.click(screen.getByTestId('chat-expand-btn'))
+
+    expect(await screen.findByTestId('chat-thread')).toBeInTheDocument()
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      '/api/ai-reports/1/messages',
+      expect.any(Object),
+    )
+  })
+
+  it('移动端抽屉详情：同一追问组件可用', async () => {
+    installMatchMedia(true)
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<AIReportsPage />)
+    await user.click(await screen.findByTestId('report-card-1'))
+    await screen.findByTestId('bottom-sheet')
+
+    await user.click(screen.getByTestId('chat-expand-btn'))
+
+    expect(await screen.findByTestId('chat-thread')).toBeInTheDocument()
+    expect(screen.getByTestId('chat-input')).toBeInTheDocument()
+  })
+})
+
 // ================= V3-5：分享海报按钮接线 =================
 
 describe('AIReportsPage 分享海报入口（V3-5）', () => {

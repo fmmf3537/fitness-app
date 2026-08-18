@@ -27,6 +27,7 @@ ALL_TABLES = [
     "llm_call",
     "backfill_progress",
     "job_run",
+    "report_chat_message",
 ]
 
 PG_URL_PLACEHOLDER = "postgresql+psycopg2://fitness:fitness@localhost:5432/fitness"

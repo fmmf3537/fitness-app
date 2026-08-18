@@ -177,6 +177,34 @@ class AIReport(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
+class ReportChatMessage(Base):
+    """AI 报告追问对话消息（V3-8）。
+
+    client_request_id 为幂等键：客户端每次发送生成 UUID，重试/重放时
+    服务端直接返回已落库的消息对，不重复调 LLM。仅用户消息携带该键。
+    """
+
+    __tablename__ = "report_chat_message"
+    __table_args__ = (
+        UniqueConstraint(
+            "client_request_id", name="uq_report_chat_message_client_request_id"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    report_id: Mapped[int] = mapped_column(
+        ForeignKey("ai_report.id", ondelete="CASCADE")
+    )
+    role: Mapped[str] = mapped_column(String(10))  # user / assistant
+    content: Mapped[str] = mapped_column(Text)
+    model: Mapped[str | None] = mapped_column(String(100))
+    prompt_tokens: Mapped[int | None] = mapped_column(Integer)
+    completion_tokens: Mapped[int | None] = mapped_column(Integer)
+    cost_estimate: Mapped[float | None] = mapped_column(Float)
+    client_request_id: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class LLMCall(Base):
     """LLM 调用记账。"""
 

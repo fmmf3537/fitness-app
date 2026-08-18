@@ -1,5 +1,5 @@
 """V1-3 AI 报告 API：按日期查询单次训练点评；V2-2 复盘生成/状态/导出；
-V3-4 评分字段透出 + session_review 重新生成。"""
+V3-4 评分字段透出 + session_review 重新生成；V3-8 报告追问对话。"""
 import datetime
 import json
 import threading
@@ -16,6 +16,7 @@ from app.db import get_session
 from app.models import AIReport, Workout
 from app.services import ai as ai_service
 from app.services import export as export_service
+from app.services import report_chat as report_chat_service
 
 router = APIRouter(
     prefix="/api/ai-reports",
@@ -319,6 +320,71 @@ def regenerate_session_review_status(
         "date": date,
         "running": manager.is_running(date),
         "error": manager.last_error(date),
+    }
+
+
+# =====================================================================
+# V3-8 报告追问对话：GET 历史 / POST 发送（同步返回两条消息）
+# =====================================================================
+
+
+class ChatMessageRequest(BaseModel):
+    content: str = Field(min_length=1, max_length=report_chat_service.MAX_CONTENT_LENGTH)
+    client_request_id: str = Field(min_length=1, max_length=64)
+
+
+def _serialize_message(msg) -> dict:
+    return {
+        "id": msg.id,
+        "report_id": msg.report_id,
+        "role": msg.role,
+        "content": msg.content,
+        "model": msg.model,
+        "prompt_tokens": msg.prompt_tokens,
+        "completion_tokens": msg.completion_tokens,
+        "cost_estimate": msg.cost_estimate,
+        "created_at": msg.created_at.isoformat() if msg.created_at else None,
+    }
+
+
+@router.get("/{report_id}/messages")
+def list_report_messages(
+    report_id: int,
+    session: Session = Depends(get_session),
+) -> dict:
+    """该报告的追问对话历史（按时间正序）。"""
+    try:
+        messages = report_chat_service.list_messages(session, report_id)
+    except report_chat_service.ReportNotFoundError:
+        raise HTTPException(status_code=404, detail="报告不存在") from None
+    return {"messages": [_serialize_message(m) for m in messages]}
+
+
+@router.post("/{report_id}/messages")
+def post_report_message(
+    report_id: int,
+    payload: ChatMessageRequest,
+    session: Session = Depends(get_session),
+) -> dict:
+    """发送追问消息：落用户消息 → 调 LLM → 落 assistant 回复，同步返回两条。
+
+    幂等：client_request_id 重放时直接返回已落库消息对，不重复调 LLM。
+    """
+    if not payload.content.strip():
+        raise HTTPException(status_code=422, detail="消息内容不能为空")
+    try:
+        user_msg, assistant_msg = report_chat_service.post_message(
+            session, report_id, payload.content, payload.client_request_id
+        )
+    except report_chat_service.ReportNotFoundError:
+        raise HTTPException(status_code=404, detail="报告不存在") from None
+    except report_chat_service.ChatMessageLimitError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    return {
+        "user_message": _serialize_message(user_msg),
+        "assistant_message": _serialize_message(assistant_msg),
     }
 
 

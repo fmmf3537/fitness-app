@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api/client'
 import BottomSheet from '../components/BottomSheet'
+import ReportChatSection from '../components/ReportChatSection'
 import ScoreBadge from '../components/ScoreBadge'
 import SharePosterButton from '../components/SharePosterButton'
 import SimpleMarkdown from '../components/SimpleMarkdown'
@@ -65,6 +66,8 @@ function ReportDetail({ report, onRegenerate, regenerating, regenError }) {
         )}
       </div>
       <SimpleMarkdown text={report.content_md || '无内容'} />
+      {/* V3-8：追问对话（抽屉与桌面详情共用此组件） */}
+      <ReportChatSection reportId={report.id} />
     </div>
   )
 }

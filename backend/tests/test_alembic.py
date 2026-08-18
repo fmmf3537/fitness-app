@@ -20,6 +20,7 @@ EXPECTED_TABLES = {
     "llm_call",
     "job_run",
     "backfill_progress",
+    "report_chat_message",
 }
 
 
@@ -66,6 +67,36 @@ def test_ai_report_score_columns_roundtrip(tmp_path):
     insp = inspect(create_engine(db_url))
     cols = {c["name"] for c in insp.get_columns("ai_report")}
     assert {"score", "one_liner", "subscores_json"} <= cols
+
+
+def test_report_chat_message_table_roundtrip(tmp_path):
+    """V3-8：report_chat_message 表随升级出现、回退一个版本消失、再升级恢复。"""
+    db_url = f"sqlite:///{tmp_path}/mig.db"
+    cfg = _make_config(db_url)
+    command.upgrade(cfg, "head")
+    insp = inspect(create_engine(db_url))
+    assert "report_chat_message" in insp.get_table_names()
+    cols = {c["name"] for c in insp.get_columns("report_chat_message")}
+    assert {
+        "id",
+        "report_id",
+        "role",
+        "content",
+        "model",
+        "prompt_tokens",
+        "completion_tokens",
+        "cost_estimate",
+        "client_request_id",
+        "created_at",
+    } == cols
+
+    command.downgrade(cfg, "d3e4f5a6b7c8")  # 回退一个版本
+    insp = inspect(create_engine(db_url))
+    assert "report_chat_message" not in insp.get_table_names()
+
+    command.upgrade(cfg, "head")  # 再次升级恢复
+    insp = inspect(create_engine(db_url))
+    assert "report_chat_message" in insp.get_table_names()
 
 
 def test_upgrade_twice_is_stable(tmp_path):
