@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
+import { uuidv4 } from '../utils/uuid'
 import SimpleMarkdown from './SimpleMarkdown'
 
 /**
@@ -72,7 +73,8 @@ export default function ReportChatSection({ reportId }) {
   const handleSend = () => {
     const text = input.trim()
     if (!text || sending) return
-    doSend(text, crypto.randomUUID())
+    // V3-8b：HTTP 明文 WebView 无 crypto.randomUUID（安全上下文限定），走兼容实现
+    doSend(text, uuidv4())
   }
 
   const handleRetry = () => {

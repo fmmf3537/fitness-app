@@ -336,6 +336,9 @@
 |---|------|------|------|----------|
 | T29 | 全量 vitest 出现 1 例偶发 flake（V3-6 期间重跑两轮全绿，未定位） | V3-6 | 偶发误报风险，当前不阻断 | 后续观察，复现即修 |
 | T30 | 无 PR/无亮点的有氧海报，点评卡与水印间空白略大 | V3-6 真机验收 | 观感问题，不阻断 | 下次触碰海报布局时微调间距 |
+| T31 | ~~追问发送按钮安卓 APP 内点击无反应：`crypto.randomUUID()` 仅安全上下文可用，HTTP 明文 WebView 同步抛 TypeError~~ | V3-8b 真机截图确诊（2026-08-18） | ~~真机追问功能完全不可用；桌面/localhost 测试全绿掩盖问题~~ | 已闭环（V3-8b）：新增 `utils/uuid.js` 三级降级链（randomUUID → getRandomValues → Math.random），含真机环境回归用例 |
+
+**经验登记（V3-8b）**：HTTP 明文环境禁用安全上下文限定 API（如 `crypto.randomUUID`），前端新代码引入浏览器 API 前查 MDN 的 Secure context 标注。
 
 ### 10.5 保留项（继续跟踪，维持原判）
 

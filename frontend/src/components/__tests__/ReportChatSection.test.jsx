@@ -168,6 +168,36 @@ describe('ReportChatSection', () => {
     expect(globalThis.fetch.mock.calls.filter((c) => c[1]?.method === 'POST')).toHaveLength(0)
   })
 
+  it('真机回归：crypto.randomUUID 不存在（HTTP WebView 非安全上下文）时发送正常', async () => {
+    // 复现 V3-8b 真机环境：HTTP 明文下 randomUUID 为 undefined，仅 getRandomValues 可用
+    vi.stubGlobal('crypto', {
+      getRandomValues: (arr) => {
+        for (let i = 0; i < arr.length; i++) arr[i] = (i * 7 + 11) % 256
+        return arr
+      },
+    })
+    try {
+      const user = userEvent.setup()
+      render(<ReportChatSection reportId={7} />)
+      await user.click(screen.getByTestId('chat-expand-btn'))
+      const input = await screen.findByTestId('chat-input')
+
+      await user.type(input, '真机问题')
+      await user.click(screen.getByTestId('chat-send'))
+
+      // 修复前：crypto.randomUUID() 同步抛 TypeError，POST 永远发不出
+      const postCall = globalThis.fetch.mock.calls.find((c) => c[1]?.method === 'POST')
+      expect(postCall).toBeTruthy()
+      const body = JSON.parse(postCall[1].body)
+      expect(body.client_request_id).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+      )
+      expect(await screen.findByTestId('chat-msg-user-3')).toBeInTheDocument()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('切换报告后对话状态重置（折叠 + 清空）', async () => {
     const user = userEvent.setup()
     const { rerender } = render(<ReportChatSection reportId={7} />)
