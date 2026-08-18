@@ -2,14 +2,33 @@
 
 import { applyMobile } from './trends'
 
-/** 六类指标定义；syncable=false 的指标训记 API 不支持，仅本地保存。 */
+/** 指标定义；syncable=false 的指标训记 API 不支持，仅本地保存。
+ *  V3-9：新增体脂秤 10 类指标，并按 基础/成分/评估/日常记录 分组。 */
 export const METRIC_DEFS = [
-  { type: 'height', label: '身高', unit: 'cm', syncable: false },
-  { type: 'weight', label: '体重', unit: 'kg', syncable: true },
-  { type: 'bodyfat', label: '体脂率', unit: '%', syncable: true },
-  { type: 'bp_systolic', label: '收缩压', unit: 'mmHg', syncable: false },
-  { type: 'bp_diastolic', label: '舒张压', unit: 'mmHg', syncable: false },
-  { type: 'blood_glucose', label: '血糖', unit: 'mmol/L', syncable: false },
+  { type: 'weight', label: '体重', unit: 'kg', syncable: true, group: 'basic' },
+  { type: 'bodyfat', label: '体脂率', unit: '%', syncable: true, group: 'basic' },
+  { type: 'bmi', label: 'BMI', unit: 'kg/m²', syncable: false, group: 'basic' },
+  { type: 'muscle_rate', label: '肌肉率', unit: '%', syncable: false, group: 'composition' },
+  { type: 'water_rate', label: '水分', unit: '%', syncable: false, group: 'composition' },
+  { type: 'protein_rate', label: '蛋白质', unit: '%', syncable: false, group: 'composition' },
+  { type: 'bone_mass', label: '骨量', unit: 'kg', syncable: false, group: 'composition' },
+  { type: 'visceral_fat', label: '内脏脂肪指数', unit: '级', syncable: false, group: 'evaluation' },
+  { type: 'bmr', label: '基础代谢率', unit: 'kcal', syncable: false, group: 'evaluation' },
+  { type: 'body_age', label: '身体年龄', unit: '岁', syncable: false, group: 'evaluation' },
+  { type: 'body_score', label: '身体评分', unit: '分', syncable: false, group: 'evaluation' },
+  { type: 'muscle_ability', label: '储肌能力等级', unit: '级', syncable: false, group: 'evaluation' },
+  { type: 'height', label: '身高', unit: 'cm', syncable: false, group: 'daily' },
+  { type: 'bp_systolic', label: '收缩压', unit: 'mmHg', syncable: false, group: 'daily' },
+  { type: 'bp_diastolic', label: '舒张压', unit: 'mmHg', syncable: false, group: 'daily' },
+  { type: 'blood_glucose', label: '血糖', unit: 'mmol/L', syncable: false, group: 'daily' },
+]
+
+/** 趋势切换器分组（顺序即展示顺序）。 */
+export const METRIC_GROUPS = [
+  { key: 'basic', label: '基础', types: ['weight', 'bodyfat', 'bmi'] },
+  { key: 'composition', label: '成分', types: ['muscle_rate', 'water_rate', 'protein_rate', 'bone_mass'] },
+  { key: 'evaluation', label: '评估', types: ['visceral_fat', 'bmr', 'body_age', 'body_score', 'muscle_ability'] },
+  { key: 'daily', label: '日常记录', types: ['height', 'bp_systolic', 'bp_diastolic', 'blood_glucose'] },
 ]
 
 export function metricLabel(type) {

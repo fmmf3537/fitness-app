@@ -44,12 +44,29 @@ const HEIGHT_ROW = {
   note: null,
 }
 
+const EXTRACT_RESULT = {
+  date: '2026-08-18',
+  metrics: [
+    { type: 'weight', value: 86.7 },
+    { type: 'bodyfat', value: 25.5 },
+    { type: 'bmi', value: 29.3 },
+  ],
+}
+
+const CONFIRM_RESULT = { imported: [], count: 2, warnings: [], sync: null }
+
 /** 按 URL/方法路由的 fetch mock；postBodies 收集所有 POST 请求体。 */
 function mockFetch({ metrics = [], trends = EMPTY_TRENDS } = {}) {
   const postBodies = []
   globalThis.fetch = vi.fn((url, options = {}) => {
-    if (options.method === 'POST' && options.body) {
+    if (options.method === 'POST' && typeof options.body === 'string') {
       postBodies.push({ url, body: JSON.parse(options.body) })
+    }
+    if (url === '/api/body-metrics/extract-image') {
+      return Promise.resolve(mockResponse(EXTRACT_RESULT))
+    }
+    if (url === '/api/body-metrics/confirm-import') {
+      return Promise.resolve(mockResponse(CONFIRM_RESULT))
     }
     if (url === '/api/body-metrics' && options.method === 'POST') {
       return Promise.resolve(mockResponse({ ...WEIGHT_ROW }))
@@ -95,8 +112,9 @@ describe('BodyMetricsPage', () => {
     render(<BodyMetricsPage />)
 
     expect(await screen.findByTestId('metric-form')).toBeInTheDocument()
+    // 趋势切换器：默认展示体重
     expect(screen.getByTestId('trend-chart-weight')).toBeInTheDocument()
-    expect(screen.getByTestId('trend-chart-height')).toBeInTheDocument()
+    expect(screen.getByTestId('trend-type-select')).toBeInTheDocument()
     expect(screen.getByTestId('metric-row-1')).toBeInTheDocument()
     expect(globalThis.fetch).toHaveBeenCalledWith(
       '/api/stats/trends?weeks=12',
@@ -104,6 +122,22 @@ describe('BodyMetricsPage', () => {
         headers: expect.objectContaining({ Authorization: 'Bearer test-token' }),
       }),
     )
+  })
+
+  it('趋势切换器：分组选项 + 切换后渲染对应指标图', async () => {
+    mockFetch({ metrics: [WEIGHT_ROW, HEIGHT_ROW] })
+    const user = userEvent.setup()
+    render(<BodyMetricsPage />)
+    await screen.findByTestId('trend-chart-weight')
+
+    const select = screen.getByTestId('trend-type-select')
+    // 身高在「日常记录」分组
+    expect(select.querySelector('optgroup[label="日常记录"]')).toBeTruthy()
+    expect(screen.queryByTestId('trend-chart-height')).not.toBeInTheDocument()
+
+    await user.selectOptions(select, 'height')
+    expect(await screen.findByTestId('trend-chart-height')).toBeInTheDocument()
+    expect(screen.queryByTestId('trend-chart-weight')).not.toBeInTheDocument()
   })
 
   it('无身高记录时显示首次使用引导，有身高记录时不显示', async () => {
@@ -245,5 +279,112 @@ describe('BodyMetricsPage', () => {
     expect(trend.xAxis.axisLabel).toBeUndefined()
     expect(dual.grid).toEqual({ left: 50, right: 50, top: 40, bottom: 30 })
     expect(dual.xAxis.axisLabel).toBeUndefined()
+  })
+})
+
+describe('BodyMetricsPage 体脂秤图片导入（V3-9）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.setItem('fh_token', 'test-token')
+  })
+
+  afterEach(() => {
+    installMatchMedia(false)
+  })
+
+  it('入口按钮打开导入面板', async () => {
+    mockFetch({ metrics: [] })
+    const user = userEvent.setup()
+    render(<BodyMetricsPage />)
+    await screen.findByTestId('metric-form')
+
+    expect(screen.queryByTestId('image-import-panel')).not.toBeInTheDocument()
+    await user.click(screen.getByTestId('open-image-import'))
+    expect(screen.getByTestId('image-import-panel')).toBeInTheDocument()
+  })
+
+  it('上传 → 识别 → 确认页渲染（日期可改/逐条可编辑/默认全选/同步默认不勾）', async () => {
+    mockFetch({ metrics: [] })
+    const user = userEvent.setup()
+    render(<BodyMetricsPage />)
+    await screen.findByTestId('metric-form')
+
+    await user.click(screen.getByTestId('open-image-import'))
+    const file = new File(['jpg'], 'report.jpg', { type: 'image/jpeg' })
+    await user.upload(screen.getByTestId('scale-file-input'), file)
+    await user.click(screen.getByTestId('extract-image-btn'))
+
+    await screen.findByTestId('import-preview')
+    expect(screen.getByTestId('import-date')).toHaveValue('2026-08-18')
+    expect(screen.getByTestId('import-select-weight')).toBeChecked()
+    expect(screen.getByTestId('import-select-bodyfat')).toBeChecked()
+    expect(screen.getByTestId('import-select-bmi')).toBeChecked()
+    expect(screen.getByTestId('import-value-weight')).toHaveValue(86.7)
+    // 同步体重/体脂到训记默认不勾选
+    expect(screen.getByTestId('import-sync-xunji')).not.toBeChecked()
+  })
+
+  it('确认入库：编辑数值 + 取消勾选 + 勾选同步 → 请求体正确，成功 toast', async () => {
+    const postBodies = mockFetch({ metrics: [] })
+    const user = userEvent.setup()
+    render(<BodyMetricsPage />)
+    await screen.findByTestId('metric-form')
+
+    await user.click(screen.getByTestId('open-image-import'))
+    await user.upload(
+      screen.getByTestId('scale-file-input'),
+      new File(['jpg'], 'report.jpg', { type: 'image/jpeg' }),
+    )
+    await user.click(screen.getByTestId('extract-image-btn'))
+    await screen.findByTestId('import-preview')
+
+    // 编辑 bmi 数值、取消勾选 bodyfat、勾选同步训记
+    const bmiInput = screen.getByTestId('import-value-bmi')
+    await user.clear(bmiInput)
+    await user.type(bmiInput, '30.1')
+    await user.click(screen.getByTestId('import-select-bodyfat'))
+    await user.click(screen.getByTestId('import-sync-xunji'))
+    await user.click(screen.getByTestId('confirm-import-btn'))
+
+    await vi.waitFor(() => {
+      const confirmCalls = postBodies.filter((p) => p.url === '/api/body-metrics/confirm-import')
+      expect(confirmCalls).toHaveLength(1)
+    })
+    const body = postBodies.find((p) => p.url === '/api/body-metrics/confirm-import').body
+    expect(body.date).toBe('2026-08-18')
+    expect(body.sync_xunji).toBe(true)
+    expect(body.metrics).toEqual([
+      { type: 'weight', value: 86.7, selected: true },
+      { type: 'bodyfat', value: 25.5, selected: false },
+      { type: 'bmi', value: 30.1, selected: true },
+    ])
+    expect(await screen.findByTestId('import-success')).toBeInTheDocument()
+  })
+
+  it('识别失败显示错误', async () => {
+    mockFetch({ metrics: [] })
+    globalThis.fetch = vi.fn((url) => {
+      if (url === '/api/body-metrics/extract-image') {
+        return Promise.resolve(mockResponse({ detail: '识别失败' }, 422))
+      }
+      if (url.startsWith('/api/body-metrics')) {
+        return Promise.resolve(mockResponse({ metrics: [] }))
+      }
+      if (url.startsWith('/api/stats/trends')) {
+        return Promise.resolve(mockResponse(EMPTY_TRENDS))
+      }
+      return Promise.resolve(mockResponse({ detail: 'not found' }, 404))
+    })
+    const user = userEvent.setup()
+    render(<BodyMetricsPage />)
+    await screen.findByTestId('metric-form')
+
+    await user.click(screen.getByTestId('open-image-import'))
+    await user.upload(
+      screen.getByTestId('scale-file-input'),
+      new File(['jpg'], 'report.jpg', { type: 'image/jpeg' }),
+    )
+    await user.click(screen.getByTestId('extract-image-btn'))
+    expect(await screen.findByTestId('import-error')).toBeInTheDocument()
   })
 })

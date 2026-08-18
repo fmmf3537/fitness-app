@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../api/client'
+import BodyImageImport from '../components/BodyImageImport'
 import TrendChart from '../components/TrendChart'
 import useIsMobile from '../hooks/useIsMobile'
 import {
   METRIC_DEFS,
+  METRIC_GROUPS,
   buildMetricTrendOption,
   buildWeightVolumeOption,
   groupByType,
@@ -42,6 +44,12 @@ export default function BodyMetricsPage() {
   const [syncPreview, setSyncPreview] = useState(null)
   const [syncing, setSyncing] = useState(false)
 
+  // V3-9 体脂秤图片导入面板
+  const [showImport, setShowImport] = useState(false)
+  const [importMsg, setImportMsg] = useState('')
+  // 指标趋势切换器：默认体重
+  const [trendType, setTrendType] = useState('weight')
+
   const load = useCallback(() => {
     return api('/api/body-metrics')
       .then((data) => setRecords(data.metrics || []))
@@ -59,6 +67,10 @@ export default function BodyMetricsPage() {
   const grouped = useMemo(() => groupByType(records), [records])
   const hasHeight = Boolean(grouped.height?.length)
   const chartOpts = { mobile: isMobile }
+  // 趋势切换器：仅展示有数据的类型；选中项无数据时回退到第一个有数据的
+  const availableTypes = METRIC_DEFS.map((d) => d.type).filter((t) => grouped[t]?.length)
+  const activeTrend = availableTypes.includes(trendType) ? trendType : availableTypes[0]
+  const activeDef = METRIC_DEFS.find((d) => d.type === activeTrend)
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -140,6 +152,35 @@ export default function BodyMetricsPage() {
 
       {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
       {message && <p className="text-sm text-green-600">{message}</p>}
+      {importMsg && (
+        <p data-testid="import-success" className="text-sm text-green-600">
+          {importMsg}
+        </p>
+      )}
+
+      <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+        <button
+          data-testid="open-image-import"
+          onClick={() => {
+            setShowImport((v) => !v)
+            setImportMsg('')
+          }}
+          className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+        >
+          {showImport ? '收起图片导入' : '体脂秤图片导入'}
+        </button>
+        {showImport && (
+          <div className="mt-3">
+            <BodyImageImport
+              onImported={(text) => {
+                setImportMsg(text)
+                setShowImport(false)
+                load()
+              }}
+            />
+          </div>
+        )}
+      </div>
 
       {records && !hasHeight && (
         <div
@@ -241,20 +282,42 @@ export default function BodyMetricsPage() {
         </section>
       )}
 
-      {METRIC_DEFS.filter((d) => grouped[d.type]?.length).map((d) => (
-        <section
-          key={d.type}
-          className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm"
-        >
-          <h2 className="mb-3 text-sm font-medium text-gray-900">
-            {d.label}趋势（{d.unit}）
-          </h2>
+      {records && activeDef && (
+        <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+          <div className="mb-3 flex items-center gap-2">
+            <h2 className="text-sm font-medium text-gray-900">指标趋势</h2>
+            <select
+              data-testid="trend-type-select"
+              value={activeTrend}
+              onChange={(e) => setTrendType(e.target.value)}
+              className="rounded-md border border-gray-300 px-2 py-1 text-sm"
+            >
+              {METRIC_GROUPS.map((g) => {
+                const types = g.types.filter((t) => grouped[t]?.length)
+                if (types.length === 0) return null
+                return (
+                  <optgroup key={g.key} label={g.label}>
+                    {types.map((t) => (
+                      <option key={t} value={t}>
+                        {metricLabel(t)}
+                      </option>
+                    ))}
+                  </optgroup>
+                )
+              })}
+            </select>
+          </div>
           <TrendChart
-            testId={`trend-chart-${d.type}`}
-            option={buildMetricTrendOption(grouped[d.type], d.label, d.unit, chartOpts)}
+            testId={`trend-chart-${activeTrend}`}
+            option={buildMetricTrendOption(
+              grouped[activeTrend],
+              activeDef.label,
+              activeDef.unit,
+              chartOpts,
+            )}
           />
         </section>
-      ))}
+      )}
 
       {records && (
         <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">

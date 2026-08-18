@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   METRIC_DEFS,
+  METRIC_GROUPS,
   buildMetricTrendOption,
   buildWeightVolumeOption,
   groupByType,
@@ -18,6 +19,41 @@ describe('METRIC_DEFS', () => {
     expect(map.blood_glucose.unit).toBe('mmol/L')
   })
 
+  it('V3-9：包含体脂秤 10 类新指标且单位正确', () => {
+    const map = Object.fromEntries(METRIC_DEFS.map((d) => [d.type, d]))
+    const expected = {
+      visceral_fat: '级',
+      bmr: 'kcal',
+      muscle_rate: '%',
+      water_rate: '%',
+      protein_rate: '%',
+      bone_mass: 'kg',
+      muscle_ability: '级',
+      bmi: 'kg/m²',
+      body_age: '岁',
+      body_score: '分',
+    }
+    for (const [type, unit] of Object.entries(expected)) {
+      expect(map[type], type).toBeTruthy()
+      expect(map[type].unit, type).toBe(unit)
+      expect(map[type].syncable, type).toBe(false)
+    }
+  })
+
+  it('V3-9：METRIC_GROUPS 分组覆盖全部指标（基础/成分/评估/日常记录）', () => {
+    const grouped = METRIC_GROUPS.flatMap((g) => g.types)
+    expect(new Set(grouped).size).toBe(METRIC_DEFS.length)
+    const labels = Object.fromEntries(METRIC_GROUPS.map((g) => [g.label, g.types]))
+    expect(labels['基础']).toEqual(['weight', 'bodyfat', 'bmi'])
+    expect(labels['成分']).toEqual(['muscle_rate', 'water_rate', 'protein_rate', 'bone_mass'])
+    expect(labels['评估']).toEqual(
+      expect.arrayContaining(['visceral_fat', 'bmr', 'body_age', 'body_score']),
+    )
+    expect(labels['日常记录']).toEqual(
+      expect.arrayContaining(['height', 'bp_systolic', 'bp_diastolic', 'blood_glucose']),
+    )
+  })
+
   it('仅 weight/bodyfat 可同步训记，其余仅本地', () => {
     expect(isSyncable('weight')).toBe(true)
     expect(isSyncable('bodyfat')).toBe(true)
@@ -25,6 +61,8 @@ describe('METRIC_DEFS', () => {
     expect(isSyncable('bp_systolic')).toBe(false)
     expect(isSyncable('bp_diastolic')).toBe(false)
     expect(isSyncable('blood_glucose')).toBe(false)
+    expect(isSyncable('bmi')).toBe(false)
+    expect(isSyncable('visceral_fat')).toBe(false)
   })
 })
 
