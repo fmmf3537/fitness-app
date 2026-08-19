@@ -105,4 +105,56 @@ describe('WorkoutDetailPage', () => {
     renderPage()
     expect(await screen.findByText('无心率数据')).toBeInTheDocument()
   })
+
+  describe('删除训练（V3-11）', () => {
+    function renderWithHome() {
+      return render(
+        <MemoryRouter initialEntries={['/workouts/1']}>
+          <Routes>
+            <Route path="/workouts/:id" element={<WorkoutDetailPage />} />
+            <Route path="/" element={<div>日历首页</div>} />
+          </Routes>
+        </MemoryRouter>,
+      )
+    }
+
+    it('确认删除后调用 DELETE 并返回日历', async () => {
+      const user = userEvent.setup()
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+      globalThis.fetch = vi.fn((url, options = {}) => {
+        if (options.method === 'DELETE') {
+          return Promise.resolve(mockResponse({ ok: true, id: 1 }))
+        }
+        return Promise.resolve(mockResponse(WORKOUT))
+      })
+      renderWithHome()
+      await screen.findByText('胸部训练')
+
+      await user.click(screen.getByTestId('delete-workout'))
+
+      // 确认文案写明 AI 点评一并删除、可在“已删除”里恢复
+      expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('AI 点评'))
+      expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('恢复'))
+      await screen.findByText('日历首页')
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/workouts/1',
+        expect.objectContaining({ method: 'DELETE' }),
+      )
+    })
+
+    it('取消确认则不发送 DELETE，停留在详情页', async () => {
+      const user = userEvent.setup()
+      vi.spyOn(window, 'confirm').mockReturnValue(false)
+      renderWithHome()
+      await screen.findByText('胸部训练')
+
+      await user.click(screen.getByTestId('delete-workout'))
+
+      expect(globalThis.fetch).not.toHaveBeenCalledWith(
+        '/api/workouts/1',
+        expect.objectContaining({ method: 'DELETE' }),
+      )
+      expect(screen.getByText('胸部训练')).toBeInTheDocument()
+    })
+  })
 })

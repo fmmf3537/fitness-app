@@ -27,6 +27,8 @@ router = APIRouter(
 
 def _serialize_report(session: Session, report: AIReport) -> dict:
     workout = session.get(Workout, report.workout_id) if report.workout_id else None
+    if workout is not None and workout.deleted_at is not None:
+        workout = None  # V3-11：已删除训练不随报告展示
     return {
         "id": report.id,
         "type": report.type,

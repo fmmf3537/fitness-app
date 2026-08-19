@@ -69,8 +69,11 @@ const USAGE = {
   ],
 }
 
-function installFetch({ putStatus = 200, settings = LLM_SETTINGS } = {}) {
+function installFetch({ putStatus = 200, settings = LLM_SETTINGS, deleted = [] } = {}) {
   globalThis.fetch = vi.fn((url, options = {}) => {
+    if (url === '/api/workouts/deleted') {
+      return Promise.resolve(mockResponse({ workouts: deleted }))
+    }
     if (url === '/api/settings/llm' && options.method === 'PUT') {
       if (putStatus >= 400) {
         return Promise.resolve(mockResponse({ detail: 'Key 验证失败' }, putStatus))
@@ -93,6 +96,50 @@ describe('SettingsPage', () => {
   beforeEach(() => {
     localStorage.setItem('fh_token', 'test-token')
     installFetch()
+  })
+
+  describe('已删除的训练（V3-11）', () => {
+    const DELETED = [
+      {
+        id: 9,
+        date: '2026-08-16',
+        title: '胸部训练',
+        match_status: 'auto_matched',
+        deleted_at: '2026-08-19T10:00:00',
+      },
+    ]
+
+    it('展示已删除列表，点击恢复后从列表消失', async () => {
+      const user = userEvent.setup()
+      let deleted = DELETED
+      installFetch({ deleted })
+      const baseFetch = globalThis.fetch
+      globalThis.fetch = vi.fn((url, options = {}) => {
+        if (url === '/api/workouts/deleted') {
+          return Promise.resolve(mockResponse({ workouts: deleted }))
+        }
+        if (url === '/api/workouts/9/restore' && options.method === 'POST') {
+          deleted = []
+          return Promise.resolve(mockResponse({ ok: true, id: 9 }))
+        }
+        return baseFetch(url, options)
+      })
+      render(<SettingsPage />)
+
+      const item = await screen.findByTestId('deleted-workout-9')
+      expect(item).toHaveTextContent('胸部训练')
+      expect(item).toHaveTextContent('2026-08-16')
+
+      await user.click(screen.getByTestId('restore-workout-9'))
+
+      expect(await screen.findByText(/暂无已删除的训练/)).toBeInTheDocument()
+      expect(screen.queryByTestId('deleted-workout-9')).not.toBeInTheDocument()
+    })
+
+    it('无已删除训练时显示空态', async () => {
+      render(<SettingsPage />)
+      expect(await screen.findByText(/暂无已删除的训练/)).toBeInTheDocument()
+    })
   })
 
   it('正常渲染 provider 列表与本月用量', async () => {

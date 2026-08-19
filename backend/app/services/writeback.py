@@ -332,7 +332,10 @@ class WritebackService:
         ).all()
         for train in trains:
             workouts = self._session.scalars(
-                select(Workout).where(Workout.xunji_train_id == train.id)
+                select(Workout).where(
+                    Workout.xunji_train_id == train.id,
+                    Workout.deleted_at.is_(None),
+                )
             ).all()
             for w in workouts:
                 w.title = train.title or w.title

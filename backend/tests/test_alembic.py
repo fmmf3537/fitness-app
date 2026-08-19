@@ -49,6 +49,27 @@ def test_upgrade_downgrade_roundtrip(tmp_path):
     assert remaining == set()
 
 
+def test_workout_soft_delete_columns_roundtrip(tmp_path):
+    """V3-11：workout.deleted_at + 两源表 excluded，升级出现、回滚消失、再升级回来。"""
+    db_url = f"sqlite:///{tmp_path}/mig.db"
+    cfg = _make_config(db_url)
+    command.upgrade(cfg, "head")
+    insp = inspect(create_engine(db_url))
+    assert "deleted_at" in {c["name"] for c in insp.get_columns("workout")}
+    assert "excluded" in {c["name"] for c in insp.get_columns("garmin_activity")}
+    assert "excluded" in {c["name"] for c in insp.get_columns("xunji_train")}
+
+    command.downgrade(cfg, "-1")
+    insp = inspect(create_engine(db_url))
+    assert "deleted_at" not in {c["name"] for c in insp.get_columns("workout")}
+    assert "excluded" not in {c["name"] for c in insp.get_columns("garmin_activity")}
+    assert "excluded" not in {c["name"] for c in insp.get_columns("xunji_train")}
+
+    command.upgrade(cfg, "head")
+    insp = inspect(create_engine(db_url))
+    assert "deleted_at" in {c["name"] for c in insp.get_columns("workout")}
+
+
 def test_ai_report_score_columns_roundtrip(tmp_path):
     """V3-4：ai_report 增加 score/one_liner/subscores_json，升级出现、回滚消失。"""
     db_url = f"sqlite:///{tmp_path}/mig.db"

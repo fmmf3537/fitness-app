@@ -229,6 +229,9 @@ class GarminClient:
         activity_id = str(act.get("activityId"))
         stmt = select(GarminActivity).where(GarminActivity.activity_id == activity_id)
         row = self._session.scalars(stmt).first()
+        if row is not None and row.excluded:
+            # V3-11 墓碑：用户已删除该活动关联的训练，同步不再更新（防复活）
+            return row
         if row is None:
             row = GarminActivity(activity_id=activity_id)
             self._session.add(row)
@@ -507,20 +510,50 @@ def _parse_tcx(path: Path) -> dict:
         except (TypeError, ValueError):
             return None
 
-    def _lap_time(lap, tag):
+    def _float(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    def _lap_hr(lap, tag):
+        # 标准结构是 <tag><Value>n</Value></tag>；小米导出为裸值 <tag>n</tag>（V3-11）
         node = lap.find(f"t:{tag}/t:Value", ns)
+        if node is None:
+            node = lap.find(f"t:{tag}", ns)
         return _int(node.text) if node is not None else None
 
-    start = _to_beijing_naive(_parse_iso_utc(laps[0].get("StartTime")))
+    # StartTime 回退链（V3-11）：Lap@StartTime → Activity/Id（小米是 ISO 时间戳）
+    # → 首个 Trackpoint/Time，三者皆无才报错
+    start_raw = laps[0].get("StartTime")
+    if not start_raw:
+        start_raw = (activity.findtext("t:Id", default="", namespaces=ns) or "").strip() or None
+    if start_raw:
+        try:
+            start = _to_beijing_naive(_parse_iso_utc(start_raw))
+        except ValueError:
+            start = None
+    else:
+        start = None
+    if start is None:
+        tp_time = activity.find(".//t:Trackpoint/t:Time", ns)
+        if tp_time is not None and tp_time.text and tp_time.text.strip():
+            start = _to_beijing_naive(_parse_iso_utc(tp_time.text))
+    if start is None:
+        raise FitImportError(
+            "TCX 文件缺少开始时间（Lap@StartTime / Activity/Id / Trackpoint/Time 均无）"
+        )
     duration = sum(_int(lap.findtext("t:TotalTimeSeconds", default="0", namespaces=ns)) or 0 for lap in laps)
     calories = sum(_int(lap.findtext("t:Calories", default="0", namespaces=ns)) or 0 for lap in laps)
-    avg_hrs = [v for v in (_lap_time(lap, "AverageHeartRateBpm") for lap in laps) if v]
-    max_hrs = [v for v in (_lap_time(lap, "MaximumHeartRateBpm") for lap in laps) if v]
+    distance = sum(_float(lap.findtext("t:DistanceMeters", default="0", namespaces=ns)) or 0.0 for lap in laps)
+    avg_hrs = [v for v in (_lap_hr(lap, "AverageHeartRateBpm") for lap in laps) if v]
+    max_hrs = [v for v in (_lap_hr(lap, "MaximumHeartRateBpm") for lap in laps) if v]
     sport_raw = (activity.get("Sport") or "").strip().lower()
     return {
         "activity_type": TCX_SPORT_MAP.get(sport_raw, sport_raw or None),
         "start_ts": start,
         "duration_s": duration or None,
+        "distance_m": round(distance, 1) if distance else None,
         "calories": calories or None,
         "avg_hr": round(sum(avg_hrs) / len(avg_hrs)) if avg_hrs else None,
         "max_hr": max(max_hrs) if max_hrs else None,
@@ -670,6 +703,14 @@ def _parse_gpx(path: Path) -> dict:
         raise FitImportError("GPX 文件不含轨迹点（trkpt）")
 
     name = (name_raw or "").strip() or None
+    if name is None:
+        # 小米 1.0 风格：<name> 挂在 gpx 根节点而非 trk 下（V3-11）
+        if ns is not None:
+            root_name = root.findtext(f"{{{ns}}}name")
+        else:
+            root_name_node = _find_by_local(root, "name")
+            root_name = root_name_node.text if root_name_node is not None else None
+        name = (root_name or "").strip() or None
     return _summarize_track(
         points, activity_name=name, activity_type=type_raw or name,
         distance_m_override=total_distance,
@@ -718,6 +759,13 @@ def _parse_kml(path: Path) -> dict:
         if pm.find(".//gx:Track", ns) is not None:
             name = (pm.findtext("k:name", default="", namespaces=ns) or "").strip() or None
             break
+    if name is None:
+        # 回退根节点名称：Document/name 优先，其次 kml/name（V3-11）
+        for candidate in ("k:Document/k:name", "k:name"):
+            text = root.findtext(candidate, default="", namespaces=ns)
+            name = (text or "").strip() or None
+            if name:
+                break
     return _summarize_track(points, activity_name=name, activity_type=None)
 
 
@@ -762,6 +810,9 @@ def import_fit_file(session: Session, path: str | Path, *, match_fn=None) -> dic
 
     stmt = select(GarminActivity).where(GarminActivity.activity_id == activity_id)
     row = session.scalars(stmt).first()
+    if row is not None and row.excluded:
+        # V3-11 墓碑：同一文件重复导入不更新、不触发重匹配（防复活）
+        return {"activity": row, "match": None}
     if row is None:
         row = GarminActivity(activity_id=activity_id)
         session.add(row)

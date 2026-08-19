@@ -9,11 +9,19 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState({})
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [deleted, setDeleted] = useState([])
 
   const loadSettings = useCallback(() => {
     return api('/api/settings/llm')
       .then((data) => setSettings(data))
       .catch((err) => setError(err.status === 401 ? '未登录' : err.message))
+  }, [])
+
+  // V3-11：已删除训练列表（加载失败静默置空，不干扰设置主流程）
+  const loadDeleted = useCallback(() => {
+    return api('/api/workouts/deleted')
+      .then((data) => setDeleted(data.workouts || []))
+      .catch(() => setDeleted([]))
   }, [])
 
   useEffect(() => {
@@ -22,7 +30,19 @@ export default function SettingsPage() {
     api('/api/settings/llm/usage')
       .then((data) => setUsage(data))
       .catch((err) => setError(err.status === 401 ? '未登录' : err.message))
-  }, [loadSettings])
+    loadDeleted()
+  }, [loadSettings, loadDeleted])
+
+  const handleRestore = (id) => {
+    setError('')
+    setMessage('')
+    api(`/api/workouts/${id}/restore`, { method: 'POST' })
+      .then(() => {
+        setMessage('已恢复，可在日历中查看')
+        loadDeleted()
+      })
+      .catch((err) => setError(err.status === 401 ? '未登录' : err.detail || err.message))
+  }
 
   // V2-1：仅切换默认模型（不重传 Key）
   const handleSwitchDefault = (name) => {
@@ -207,6 +227,34 @@ export default function SettingsPage() {
               </table>
             </div>
           </div>
+        )}
+      </section>
+
+      <section data-testid="deleted-workouts">
+        <h2 className="mb-2 text-lg font-semibold text-gray-900">已删除的训练</h2>
+        {deleted.length === 0 ? (
+          <p className="text-sm text-gray-500">暂无已删除的训练</p>
+        ) : (
+          <ul className="space-y-2">
+            {deleted.map((w) => (
+              <li
+                key={w.id}
+                data-testid={`deleted-workout-${w.id}`}
+                className="flex items-center justify-between rounded-md border border-gray-200 bg-white p-3 text-sm"
+              >
+                <span className="text-gray-700">
+                  {w.date} · {w.title || '未命名训练'}
+                </span>
+                <button
+                  data-testid={`restore-workout-${w.id}`}
+                  onClick={() => handleRestore(w.id)}
+                  className="rounded-md bg-indigo-600 px-3 py-1 text-white hover:bg-indigo-500"
+                >
+                  恢复
+                </button>
+              </li>
+            ))}
+          </ul>
         )}
       </section>
     </div>

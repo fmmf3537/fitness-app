@@ -304,6 +304,17 @@ def test_parse_gpx_lowercase_namespace_still_supported(tmp_path):
     assert parsed["duration_s"] == 900
 
 
+def test_parse_gpx_root_name_fallback(tmp_path):
+    """小米 1.0 风格：<name> 挂在 gpx 根节点，trk 下无 name 时回退读根节点（V3-11）。"""
+    from app.adapters.garmin_adapter import parse_activity_file
+
+    p = tmp_path / "mi_name.gpx"
+    p.write_text(GPX_MI_FITNESS, encoding="utf-8")
+    parsed = parse_activity_file(p)
+
+    assert parsed["activity_name"] == "20260816晨跑"
+
+
 # ---------- KML 解析 ----------
 
 
@@ -325,6 +336,22 @@ def test_parse_kml_gx_track(tmp_path):
     assert parsed["calories"] is None
     # (39.9042,116.4074) → (39.9042,116.4174) haversine ≈ 853.0m
     assert abs(parsed["distance_m"] - 853.0) / 853.0 < 0.05
+
+
+def test_parse_kml_document_name_fallback(tmp_path):
+    """Placemark 无 name 时回退读 Document/根节点 <name>（V3-11）。"""
+    from app.adapters.garmin_adapter import parse_activity_file
+
+    p = tmp_path / "docname.kml"
+    p.write_text(
+        KML_TRACK.replace("<name>骑行</name>", "").replace(
+            "<Document>", "<Document><name>傍晚骑行</name>"
+        ),
+        encoding="utf-8",
+    )
+    parsed = parse_activity_file(p)
+
+    assert parsed["activity_name"] == "傍晚骑行"
 
 
 def test_parse_kml_linestring_without_time_rejected(tmp_path):

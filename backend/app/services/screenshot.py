@@ -246,7 +246,11 @@ def confirm_import(session: Session, data: dict) -> dict:
 
     match_day(session, day)
 
-    workout = session.query(Workout).filter(Workout.xunji_train_id == train.id).first()
+    workout = (
+        session.query(Workout)
+        .filter(Workout.xunji_train_id == train.id, Workout.deleted_at.is_(None))
+        .first()
+    )
     if workout is not None:
         match_status = workout.match_status
         workout_id = workout.id

@@ -83,6 +83,30 @@ TCX_SAMPLE = """<?xml version="1.0" encoding="UTF-8"?>
 """
 
 
+# 小米运动健康 TCX 导出（V3-11 真实案例：creator="Mi Fitness"）：
+# Lap 无 StartTime 属性、Activity/Id 是 ISO 时间戳、HeartRateBpm 裸值无 Value 子节点、
+# Lap 有 DistanceMeters、无 MaximumHeartRateBpm
+TCX_MI_SAMPLE = """<?xml version="1.0" encoding="UTF-8"?>
+<TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2">
+  <Activities>
+    <Activity Sport="Running">
+      <Id>2026-08-16T07:31:03.000Z</Id>
+      <Lap>
+        <TotalTimeSeconds>2376.0</TotalTimeSeconds>
+        <DistanceMeters>5022.0</DistanceMeters>
+        <Calories>350</Calories>
+        <AverageHeartRateBpm>138</AverageHeartRateBpm>
+        <Track>
+          <Trackpoint><Time>2026-08-16T07:31:03.000Z</Time></Trackpoint>
+          <Trackpoint><Time>2026-08-16T08:10:39.000Z</Time></Trackpoint>
+        </Track>
+      </Lap>
+    </Activity>
+  </Activities>
+</TrainingCenterDatabase>
+"""
+
+
 @pytest.fixture
 def fit_file(tmp_path) -> Path:
     p = tmp_path / "morning_strength.fit"
@@ -136,6 +160,80 @@ def test_import_tcx_persists_activity(session, tcx_file):
     assert row.avg_hr == 120
     assert row.max_hr == 150
     assert json.loads(row.raw_json)["format"] == "tcx"
+
+
+# ---------- TCX 小米导出健壮性（V3-11） ----------
+
+
+def test_parse_tcx_mi_fitness_style(tmp_path):
+    """小米 TCX：StartTime 回退 Activity/Id；裸 HeartRateBpm 作 avg_hr；
+    无 MaximumHeartRateBpm → max_hr None；DistanceMeters 入 distance_m。"""
+    from app.adapters.garmin_adapter import parse_activity_file
+
+    p = tmp_path / "mi.tcx"
+    p.write_text(TCX_MI_SAMPLE, encoding="utf-8")
+    parsed = parse_activity_file(p)
+
+    assert parsed["format"] == "tcx"
+    assert parsed["activity_type"] == "running"
+    assert parsed["start_ts"] == datetime(2026, 8, 16, 15, 31, 3)  # UTC+8
+    assert parsed["duration_s"] == 2376
+    assert parsed["calories"] == 350
+    assert parsed["avg_hr"] == 138
+    assert parsed["max_hr"] is None
+    assert parsed["distance_m"] == 5022.0
+
+
+def test_parse_tcx_start_time_fallback_trackpoint(tmp_path):
+    """Lap 无 StartTime 且 Activity/Id 非时间戳 → 回退首个 Trackpoint/Time。"""
+    from app.adapters.garmin_adapter import parse_activity_file
+
+    p = tmp_path / "tp.tcx"
+    p.write_text(
+        TCX_MI_SAMPLE.replace("<Id>2026-08-16T07:31:03.000Z</Id>", "<Id>mi-fitness-export</Id>"),
+        encoding="utf-8",
+    )
+    parsed = parse_activity_file(p)
+
+    assert parsed["start_ts"] == datetime(2026, 8, 16, 15, 31, 3)
+
+
+def test_parse_tcx_without_any_start_time_rejected(tmp_path):
+    """Lap@StartTime / Activity/Id / Trackpoint/Time 三者皆无 → FitImportError（422）。"""
+    from app.adapters.garmin_adapter import FitImportError, parse_activity_file
+
+    p = tmp_path / "notime.tcx"
+    p.write_text(
+        TCX_MI_SAMPLE.replace("<Id>2026-08-16T07:31:03.000Z</Id>", "")
+        .replace("<Trackpoint><Time>2026-08-16T07:31:03.000Z</Time></Trackpoint>", "")
+        .replace("<Trackpoint><Time>2026-08-16T08:10:39.000Z</Time></Trackpoint>", ""),
+        encoding="utf-8",
+    )
+    with pytest.raises(FitImportError, match="开始时间"):
+        parse_activity_file(p)
+
+
+def test_parse_tcx_distance_meters_summed(tmp_path):
+    """多个 Lap 的 DistanceMeters 求和为 distance_m；无则 None。"""
+    from app.adapters.garmin_adapter import parse_activity_file
+
+    p = tmp_path / "laps.tcx"
+    p.write_text(
+        TCX_MI_SAMPLE.replace(
+            "</Lap>",
+            "</Lap><Lap><TotalTimeSeconds>600.0</TotalTimeSeconds>"
+            "<DistanceMeters>1000.5</DistanceMeters></Lap>",
+        ),
+        encoding="utf-8",
+    )
+    parsed = parse_activity_file(p)
+    assert parsed["distance_m"] == 6022.5
+    assert parsed["duration_s"] == 2976
+
+    q = tmp_path / "nodist.tcx"
+    q.write_text(TCX_SAMPLE, encoding="utf-8")
+    parsed_q = parse_activity_file(q)
+    assert parsed_q["distance_m"] is None
 
 
 def test_import_is_idempotent(session, fit_file):

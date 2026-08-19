@@ -113,6 +113,7 @@ def query_movement_history(
             Workout.date >= start,
             Workout.date <= end,
             Workout.movements_json.isnot(None),
+            Workout.deleted_at.is_(None),
         )
         .order_by(Workout.date.desc())
         .all()
@@ -389,7 +390,7 @@ def generate_session_review(
     chat_fn 用于测试注入；默认调用 adapters.llm.chat。
     """
     workout = session.get(Workout, workout_id)
-    if workout is None:
+    if workout is None or workout.deleted_at is not None:
         raise ValueError(f"workout {workout_id} 不存在")
 
     movements = _parse_movements(workout)
@@ -484,7 +485,7 @@ def run_daily_reviews(
     day_date = date.fromisoformat(day) if isinstance(day, str) else day
     workouts = (
         session.query(Workout)
-        .filter(Workout.date == day_date)
+        .filter(Workout.date == day_date, Workout.deleted_at.is_(None))
         .order_by(Workout.id)
         .all()
     )
@@ -800,7 +801,7 @@ def generate_next_advice(
     AI 输出未通过结构化校验（含非法动作名）时抛 NextAdviceParseError，不落库。
     """
     workout = session.get(Workout, workout_id)
-    if workout is None:
+    if workout is None or workout.deleted_at is not None:
         raise ValueError(f"workout {workout_id} 不存在")
 
     plan_day = query_next_plan_day(session, workout.date)
@@ -890,7 +891,7 @@ def run_daily_next_advices(
     day_date = date.fromisoformat(day) if isinstance(day, str) else day
     workouts = (
         session.query(Workout)
-        .filter(Workout.date == day_date)
+        .filter(Workout.date == day_date, Workout.deleted_at.is_(None))
         .order_by(Workout.id)
         .all()
     )
@@ -988,7 +989,11 @@ def query_last_similar_workout(
     """最近一次同类型 workout：标题与计划日标题一致优先，否则动作名重叠兜底。"""
     rows = (
         session.query(Workout)
-        .filter(Workout.date < target_date, Workout.movements_json.isnot(None))
+        .filter(
+            Workout.date < target_date,
+            Workout.movements_json.isnot(None),
+            Workout.deleted_at.is_(None),
+        )
         .order_by(Workout.date.desc(), Workout.id.desc())
         .all()
     )
@@ -1253,7 +1258,11 @@ def query_period_training_summary(
 
     rows = (
         session.query(Workout)
-        .filter(Workout.date >= start, Workout.date <= end)
+        .filter(
+            Workout.date >= start,
+            Workout.date <= end,
+            Workout.deleted_at.is_(None),
+        )
         .order_by(Workout.date, Workout.id)
         .all()
     )
@@ -1313,7 +1322,8 @@ def query_pr_events(session: Session, start: date, end: date) -> list[dict]:
         rows = (
             session.query(Workout)
             .filter(Workout.date >= s, Workout.date <= e,
-                    Workout.movements_json.isnot(None))
+                    Workout.movements_json.isnot(None),
+                    Workout.deleted_at.is_(None))
             .order_by(Workout.date)
             .all()
         )
@@ -1386,7 +1396,11 @@ def query_plan_completion(session: Session, start: date, end: date) -> dict:
     actual_dates = {
         w.date.isoformat()
         for w in session.query(Workout)
-        .filter(Workout.date >= start, Workout.date <= end)
+        .filter(
+            Workout.date >= start,
+            Workout.date <= end,
+            Workout.deleted_at.is_(None),
+        )
         .all()
     }
     completed = planned_dates & actual_dates

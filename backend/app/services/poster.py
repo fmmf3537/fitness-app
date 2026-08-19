@@ -196,7 +196,11 @@ def week_training_count(session: Session, day: date) -> int:
     monday = week_monday(day)
     return (
         session.query(Workout)
-        .filter(Workout.date >= monday, Workout.date <= day)
+        .filter(
+            Workout.date >= monday,
+            Workout.date <= day,
+            Workout.deleted_at.is_(None),
+        )
         .count()
     )
 

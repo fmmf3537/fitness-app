@@ -181,6 +181,9 @@ class XunjiClient:
             XunjiTrain.datestr == datestr, XunjiTrain.localid == localid
         )
         row = self._session.scalars(stmt).first()
+        if row is not None and row.excluded:
+            # V3-11 墓碑：用户已删除该训练关联的 workout，缓存重拉不再更新（防复活）
+            return row
         if row is None:
             row = XunjiTrain(datestr=datestr, localid=localid)
             self._session.add(row)

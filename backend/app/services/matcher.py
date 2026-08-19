@@ -59,7 +59,11 @@ def _garmin_interval(activity: GarminActivity) -> tuple[datetime, datetime] | No
 
 
 def _processed_ids(session: Session) -> tuple[set, set]:
-    """已被 workout 或 pending 候选引用的原始记录 id（保证重复运行幂等）。"""
+    """已被 workout 或 pending 候选引用的原始记录 id（保证重复运行幂等）。
+
+    注意：不过滤 deleted_at——已软删除 workout 的源 id 仍算“已处理”，
+    与 excluded 墓碑共同保证删除后不被重建（V3-11）。
+    """
     done_x = {r[0] for r in session.query(Workout.xunji_train_id).filter(Workout.xunji_train_id.isnot(None))}
     done_g = {r[0] for r in session.query(Workout.garmin_activity_id).filter(Workout.garmin_activity_id.isnot(None))}
     pending = session.query(MatchCandidate).filter(MatchCandidate.status == "pending").all()
@@ -76,12 +80,21 @@ def match_day(session: Session, day: date, *, chat_fn=None) -> dict:
     chat_fn 透传给 AI 重生成（测试注入）；为 None 时走 adapters.llm.chat。
     """
     datestr = day.isoformat()
-    trains = session.query(XunjiTrain).filter(XunjiTrain.datestr == datestr).all()
+    # excluded=True 为删除墓碑（V3-11）：不参与匹配
+    trains = (
+        session.query(XunjiTrain)
+        .filter(XunjiTrain.datestr == datestr, XunjiTrain.excluded.is_(False))
+        .all()
+    )
     day_start = datetime.combine(day, time.min)
     day_end = day_start + timedelta(days=1)
     activities = (
         session.query(GarminActivity)
-        .filter(GarminActivity.start_ts >= day_start, GarminActivity.start_ts < day_end)
+        .filter(
+            GarminActivity.start_ts >= day_start,
+            GarminActivity.start_ts < day_end,
+            GarminActivity.excluded.is_(False),
+        )
         .all()
     )
 
@@ -168,7 +181,11 @@ def _refresh_stale_workouts(session: Session, day: date, *, chat_fn=None) -> lis
 
     workouts = (
         session.query(Workout)
-        .filter(Workout.date == day, Workout.xunji_train_id.isnot(None))
+        .filter(
+            Workout.date == day,
+            Workout.xunji_train_id.isnot(None),
+            Workout.deleted_at.is_(None),
+        )
         .order_by(Workout.id)
         .all()
     )

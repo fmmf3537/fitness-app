@@ -49,6 +49,8 @@ class XunjiTrain(Base):
     note_json: Mapped[str | None] = mapped_column(Text)
     raw_json: Mapped[str | None] = mapped_column(Text)
     fetched_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    # V3-11 墓碑：用户删除关联 workout 后置 True，同步 upsert 跳过更新、不参与匹配
+    excluded: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
 
 
 class GarminActivity(Base):
@@ -68,6 +70,8 @@ class GarminActivity(Base):
     max_hr: Mapped[int | None] = mapped_column(Integer)
     raw_json: Mapped[str | None] = mapped_column(Text)
     fetched_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    # V3-11 墓碑：用户删除关联 workout 后置 True，同步 upsert 跳过更新、不参与匹配
+    excluded: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
 
 
 class GarminDaily(Base):
@@ -123,6 +127,8 @@ class Workout(Base):
     avg_hr: Mapped[int | None] = mapped_column(Integer)
     max_hr: Mapped[int | None] = mapped_column(Integer)
     movements_json: Mapped[str | None] = mapped_column(Text)  # 以训记为准
+    # V3-11 软删除标记：非空即已删除，所有查询过滤 deleted_at IS NULL
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 

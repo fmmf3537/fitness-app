@@ -29,7 +29,11 @@ def stats_trends(
 
     workout_rows = (
         session.query(Workout)
-        .filter(Workout.date >= start, Workout.date <= end)
+        .filter(
+            Workout.date >= start,
+            Workout.date <= end,
+            Workout.deleted_at.is_(None),
+        )
         .all()
     )
     workouts = [

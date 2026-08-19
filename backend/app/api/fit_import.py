@@ -50,7 +50,10 @@ async def import_fit(file: UploadFile = File(...),
 
     activity = result["activity"]
     workout = session.scalars(
-        select(Workout).where(Workout.garmin_activity_id == activity.id)
+        select(Workout).where(
+            Workout.garmin_activity_id == activity.id,
+            Workout.deleted_at.is_(None),
+        )
     ).first()
     return {
         "ok": True,

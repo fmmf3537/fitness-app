@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.api.auth import require_auth
 from app.db import get_session
 from app.models import GarminActivity, Workout, XunjiTrain
+from app.services.workouts import delete_workout, list_deleted_workouts, restore_workout
 
 router = APIRouter(
     prefix="/api/workouts", tags=["workouts"],
@@ -90,7 +91,11 @@ def workout_calendar(
     last = date(year, mon, _cal.monthrange(year, mon)[1])
     rows = (
         session.query(Workout)
-        .filter(Workout.date >= first, Workout.date <= last)
+        .filter(
+            Workout.date >= first,
+            Workout.date <= last,
+            Workout.deleted_at.is_(None),
+        )
         .order_by(Workout.date, Workout.id)
         .all()
     )
@@ -103,11 +108,28 @@ def workout_calendar(
     return {"month": month, "days": list(days.values())}
 
 
+@router.get("/deleted")
+def workout_deleted_list(session: Session = Depends(get_session)) -> dict:
+    """已删除训练列表（V3-11，供设置页恢复操作）。"""
+    return {
+        "workouts": [
+            {
+                "id": w.id,
+                "date": w.date.isoformat(),
+                "title": w.title,
+                "match_status": w.match_status,
+                "deleted_at": w.deleted_at.isoformat() if w.deleted_at else None,
+            }
+            for w in list_deleted_workouts(session)
+        ]
+    }
+
+
 @router.get("/{workout_id}")
 def workout_detail(workout_id: int, session: Session = Depends(get_session)) -> dict:
     """训练详情：融合视图 + 训记原始 + 佳明原始（PRD US-3 AC3 / US-4 AC2）。"""
     w = session.get(Workout, workout_id)
-    if w is None:
+    if w is None or w.deleted_at is not None:
         raise HTTPException(status_code=404, detail="workout 不存在")
     train = session.get(XunjiTrain, w.xunji_train_id) if w.xunji_train_id else None
     activity = (
@@ -129,3 +151,21 @@ def workout_detail(workout_id: int, session: Session = Depends(get_session)) -> 
         "xunji_raw": _parse_json(train.raw_json if train else None),
         "garmin_raw": garmin_raw,
     }
+
+
+@router.delete("/{workout_id}")
+def workout_delete(workout_id: int, session: Session = Depends(get_session)) -> dict:
+    """软删除一次训练（V3-11）：幂等，重复删除返回 200。"""
+    w = delete_workout(session, workout_id)
+    if w is None:
+        raise HTTPException(status_code=404, detail="workout 不存在")
+    return {"ok": True, "id": workout_id}
+
+
+@router.post("/{workout_id}/restore")
+def workout_restore(workout_id: int, session: Session = Depends(get_session)) -> dict:
+    """恢复已删除的训练（V3-11）：不重建 AI 报告。"""
+    w = restore_workout(session, workout_id)
+    if w is None:
+        raise HTTPException(status_code=404, detail="workout 不存在或未删除")
+    return {"ok": True, "id": workout_id}
