@@ -12,6 +12,12 @@ const STATUS_LABEL = {
 
 const ALLOWED_EXT = ['.fit', '.tcx', '.gpx', '.kml']
 const ALLOWED_EXT_LABEL = '.fit / .tcx / .gpx / .kml'
+// V3-10b：accept 只是体验层（扩展名校验 + 服务端 422 双层把关）。
+// 安卓选择器按 MIME 过滤，微信/QQ 下载到 Download/WeiXin 的文件未被 MediaStore
+// 索引对应 MIME（多标为 application/octet-stream），纯扩展名 accept 会导致文件不可见，
+// 故混入常见 MIME 兑底。
+const ACCEPT =
+  '.fit,.tcx,.gpx,.kml,application/gpx+xml,application/octet-stream,text/xml,application/xml'
 
 export default function FitImportPage() {
   const [file, setFile] = useState(null)
@@ -60,6 +66,7 @@ export default function FitImportPage() {
         佳明接口不可用时的降级通道，也支持 Strava/华为/咕咚/两步路等平台导出的通用格式：
         上传 FIT / TCX / GPX / KML 文件（KML 需含 gx:Track 时间戳轨迹）。
         系统会解析并写入训练档案，自动触发当日匹配融合。
+        选择器里看不到文件时，可先把文件移到 Download 根目录再选。
       </p>
 
       <div
@@ -77,7 +84,7 @@ export default function FitImportPage() {
           data-testid="file-input"
           ref={inputRef}
           type="file"
-          accept=".fit,.tcx,.gpx,.kml"
+          accept={ACCEPT}
           className="hidden"
           onChange={(e) => pickFile(e.target.files)}
         />

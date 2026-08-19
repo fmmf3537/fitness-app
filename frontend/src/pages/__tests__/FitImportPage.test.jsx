@@ -30,6 +30,21 @@ describe('FitImportPage', () => {
     localStorage.setItem('fh_token', 'test-token')
   })
 
+  it('accept 为扩展名 + MIME 兜底混合（V3-10b：覆盖微信/QQ 下载的未索引文件）', () => {
+    globalThis.fetch = vi.fn()
+    renderPage()
+    expect(screen.getByTestId('file-input')).toHaveAttribute(
+      'accept',
+      '.fit,.tcx,.gpx,.kml,application/gpx+xml,application/octet-stream,text/xml,application/xml',
+    )
+  })
+
+  it('提示文案含“看不到文件时移到 Download 根目录”指引（V3-10b）', () => {
+    globalThis.fetch = vi.fn()
+    renderPage()
+    expect(screen.getByText(/看不到文件/)).toHaveTextContent(/Download 根目录/)
+  })
+
   it('初始渲染上传控件，未选文件时导入按钮禁用', () => {
     globalThis.fetch = vi.fn()
     renderPage()
