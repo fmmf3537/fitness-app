@@ -523,6 +523,14 @@ def _parse_tcx(path: Path) -> dict:
             node = lap.find(f"t:{tag}", ns)
         return _int(node.text) if node is not None else None
 
+    def _lap_avg_hr(lap):
+        # avg 回退链（V3-11b）：AverageHeartRateBpm/Value → AverageHeartRateBpm 裸值
+        # → HeartRateBpm/Value → HeartRateBpm 裸值（小米 Lap 级无 Average 前缀）
+        v = _lap_hr(lap, "AverageHeartRateBpm")
+        if v is None:
+            v = _lap_hr(lap, "HeartRateBpm")
+        return v
+
     # StartTime 回退链（V3-11）：Lap@StartTime → Activity/Id（小米是 ISO 时间戳）
     # → 首个 Trackpoint/Time，三者皆无才报错
     start_raw = laps[0].get("StartTime")
@@ -546,7 +554,7 @@ def _parse_tcx(path: Path) -> dict:
     duration = sum(_int(lap.findtext("t:TotalTimeSeconds", default="0", namespaces=ns)) or 0 for lap in laps)
     calories = sum(_int(lap.findtext("t:Calories", default="0", namespaces=ns)) or 0 for lap in laps)
     distance = sum(_float(lap.findtext("t:DistanceMeters", default="0", namespaces=ns)) or 0.0 for lap in laps)
-    avg_hrs = [v for v in (_lap_hr(lap, "AverageHeartRateBpm") for lap in laps) if v]
+    avg_hrs = [v for v in (_lap_avg_hr(lap) for lap in laps) if v]
     max_hrs = [v for v in (_lap_hr(lap, "MaximumHeartRateBpm") for lap in laps) if v]
     sport_raw = (activity.get("Sport") or "").strip().lower()
     return {

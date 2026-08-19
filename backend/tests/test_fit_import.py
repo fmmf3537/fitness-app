@@ -184,6 +184,25 @@ def test_parse_tcx_mi_fitness_style(tmp_path):
     assert parsed["distance_m"] == 5022.0
 
 
+def test_parse_tcx_mi_bare_heart_rate_bpm(tmp_path):
+    """V3-11b 真实小米文件结构：Lap 级 <HeartRateBpm> 裸值（无 Average 前缀、
+    无 Value 子节点）→ 识别为 avg_hr；max_hr 无数据源维持 None。"""
+    from app.adapters.garmin_adapter import parse_activity_file
+
+    p = tmp_path / "mi_hr.tcx"
+    p.write_text(
+        TCX_MI_SAMPLE.replace(
+            "<AverageHeartRateBpm>138</AverageHeartRateBpm>",
+            "<HeartRateBpm>122</HeartRateBpm>",
+        ),
+        encoding="utf-8",
+    )
+    parsed = parse_activity_file(p)
+
+    assert parsed["avg_hr"] == 122
+    assert parsed["max_hr"] is None
+
+
 def test_parse_tcx_start_time_fallback_trackpoint(tmp_path):
     """Lap 无 StartTime 且 Activity/Id 非时间戳 → 回退首个 Trackpoint/Time。"""
     from app.adapters.garmin_adapter import parse_activity_file
