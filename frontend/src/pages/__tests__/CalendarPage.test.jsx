@@ -74,4 +74,46 @@ describe('CalendarPage', () => {
     })
     expect(screen.getByTestId('current-month')).toHaveTextContent('2026-09')
   })
+
+  describe('头部响应式布局（V3-10）', () => {
+    async function renderHeader() {
+      render(
+        <MemoryRouter>
+          <CalendarPage initialMonth="2026-08" />
+        </MemoryRouter>,
+      )
+      await screen.findByTestId('day-2026-08-03')
+      return screen.getByTestId('calendar-header')
+    }
+
+    it('月份标题禁止折行（whitespace-nowrap + shrink-0）', async () => {
+      await renderHeader()
+      const title = screen.getByTestId('current-month')
+      expect(title).toHaveClass('whitespace-nowrap')
+      expect(title).toHaveClass('shrink-0')
+    })
+
+    it('SyncButton 移动端独占一行（basis-full 强制换行 + 排在翻月按钮之后）', async () => {
+      await renderHeader()
+      const syncRow = screen.getByTestId('sync-row')
+      expect(syncRow).toHaveClass('max-md:basis-full')
+      expect(syncRow).toHaveClass('max-md:order-2')
+      // 下个月按钮移动端排在 SyncButton 之前（第一行：上个月/月份/下个月）
+      expect(screen.getByRole('button', { name: '下个月' })).toHaveClass('max-md:order-1')
+    })
+
+    it('桌面端单行布局 class 不变（flex + items-center + justify-between + md:nowrap）', async () => {
+      const header = await renderHeader()
+      expect(header).toHaveClass('flex')
+      expect(header).toHaveClass('items-center')
+      expect(header).toHaveClass('justify-between')
+      expect(header).toHaveClass('md:flex-nowrap')
+      // 右侧分组容器：桌面端恢复为普通 flex（SyncButton + 下个月 同行）
+      const rightGroup = screen.getByTestId('sync-row').parentElement
+      expect(rightGroup).toHaveClass('flex')
+      expect(rightGroup).toHaveClass('items-center')
+      expect(rightGroup).toHaveClass('gap-2')
+      expect(rightGroup).toHaveClass('max-md:contents')
+    })
+  })
 })

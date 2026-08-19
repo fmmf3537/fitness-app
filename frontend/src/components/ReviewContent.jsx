@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react'
 import * as echarts from 'echarts'
 import SimpleMarkdown from './SimpleMarkdown'
+import useIsMobile from '../hooks/useIsMobile'
+import { mergeMobileOption } from '../utils/echartsMobile'
 
 // 拆分 content_md 中的 ```echarts 围栏块，其余按轻量 Markdown 渲染
 const ECHARTS_RE = /```echarts\s*\n([\s\S]*?)```/g
@@ -22,6 +24,7 @@ function splitReviewBlocks(text) {
 
 function EChartBlock({ optionText }) {
   const ref = useRef(null)
+  const isMobile = useIsMobile()
 
   useEffect(() => {
     let option = null
@@ -31,9 +34,10 @@ function EChartBlock({ optionText }) {
       return undefined
     }
     const chart = echarts.init(ref.current)
-    chart.setOption(option)
+    // 移动端仅在渲染层合并覆盖（LLM 原文不动）；桌面端原样渲染
+    chart.setOption(isMobile ? mergeMobileOption(option) : option)
     return () => chart.dispose()
-  }, [optionText])
+  }, [optionText, isMobile])
 
   let valid = true
   try {

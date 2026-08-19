@@ -59,7 +59,12 @@ export default function CalendarPage({ initialMonth }) {
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between">
+      {/* 移动端两行：第一行 上个月/月份/下个月，第二行 SyncButton 独占一行；
+          桌面端（md: 起）经 md:flex-nowrap + 右侧组恢复普通 flex，保持原单行布局 */}
+      <div
+        data-testid="calendar-header"
+        className="mb-4 flex flex-wrap items-center justify-between gap-y-2 md:flex-nowrap"
+      >
         <button
           aria-label="上个月"
           onClick={() => setMonth((m) => shiftMonth(m, -1))}
@@ -67,15 +72,20 @@ export default function CalendarPage({ initialMonth }) {
         >
           ← 上个月
         </button>
-        <h2 data-testid="current-month" className="text-lg font-bold text-gray-900">
+        <h2
+          data-testid="current-month"
+          className="shrink-0 whitespace-nowrap text-lg font-bold text-gray-900"
+        >
           {month}
         </h2>
-        <div className="flex items-center gap-2">
-          <SyncButton onSynced={load} />
+        <div className="flex items-center gap-2 max-md:contents">
+          <div data-testid="sync-row" className="flex items-center gap-2 max-md:order-2 max-md:basis-full">
+            <SyncButton onSynced={load} />
+          </div>
           <button
             aria-label="下个月"
             onClick={() => setMonth((m) => shiftMonth(m, 1))}
-            className="rounded-md bg-white px-3 py-1.5 shadow hover:bg-gray-100"
+            className="rounded-md bg-white px-3 py-1.5 shadow hover:bg-gray-100 max-md:order-1"
           >
             下个月 →
           </button>
