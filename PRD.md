@@ -250,6 +250,7 @@ POST https://api.xunjiapp.cn/open/body/upsert_gzip
 - 凭据从环境变量 `GARMIN_EMAIL` / `GARMIN_PASSWORD` 读取；token 缓存于 `~/.garminconnect`；
 - 失效降级：保留文件手动导入入口（`/import/fit`），支持 FIT/TCX/GPX/KML 四种格式（V3-7 扩展）：
   - GPX 兼容 1.1/1.0 命名空间，心率取 `gpxtpx:TrackPointExtension/gpxtpx:hr`，距离无原始字段时按 haversine 逐点累加；
+  - **GPX 命名空间陷阱（V3-10c 踩实）**：XML 命名空间是大小写敏感的 URI，官方为大写 `http://www.topografix.com/GPX/1/1`（小写形式仅作兜底）；命名空间全不匹配时按 local-name 匹配；`trk/extensions/totalDistance` 存在时直接采用为距离（小米运动健康导出特征：version="1.0" 属性但 xmlns 用 1/1 命名空间）；
   - KML 仅支持含 `gx:Track`（`<when>` 时间戳 + `<gx:coord>`）的轨迹导出；仅 LineString（无时间戳）的 KML 无法确定运动日期，直接拒绝并提示导出含 gx:Track 的版本；
   - 全部用标准库 `xml.etree.ElementTree` 解析（零新依赖），落库/去重/重匹配复用 FIT/TCX 既有管线。
 

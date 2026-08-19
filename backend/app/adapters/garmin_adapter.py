@@ -529,8 +529,11 @@ def _parse_tcx(path: Path) -> dict:
 
 # ---------- GPX/KML 解析（V3-7，stdlib ElementTree，零新依赖） ----------
 
-# GPX 命名空间：兼容 1.1 与 1.0
+# GPX 命名空间：兼容 1.1 与 1.0。XML 命名空间是大小写敏感的 URI，官方为大写 GPX；
+# 小写形式是非官方写法，仅作兜底候选（V3-10c：曾误写成小写导致真实文件 422）。
 GPX_NAMESPACES = (
+    "http://www.topografix.com/GPX/1/1",
+    "http://www.topografix.com/GPX/1/0",
     "http://www.topografix.com/gpx/1/1",
     "http://www.topografix.com/gpx/1/0",
 )
@@ -541,10 +544,13 @@ KML_NS = "http://www.opengis.net/kml/2.2"
 GX_NS = "http://www.google.com/kml/ext/2.2"
 
 
-def _summarize_track(points: list[tuple], *, activity_name, activity_type) -> dict:
+def _summarize_track(
+    points: list[tuple], *, activity_name, activity_type, distance_m_override=None
+) -> dict:
     """轨迹点列表 [(lat, lon, dt, hr|None)] → 与 _parse_tcx 同构的归一化 dict。
 
-    缺失字段一律给 None；distance_m 无原始字段时用 haversine 逐点累加。
+    缺失字段一律给 None；distance_m 优先取 distance_m_override（如 GPX totalDistance），
+    无则用 haversine 逐点累加。
     """
     times = [p[2] for p in points if p[2] is not None]
     if not times:
@@ -552,7 +558,9 @@ def _summarize_track(points: list[tuple], *, activity_name, activity_type) -> di
     hrs = [p[3] for p in points if isinstance(p[3], (int, float))]
     coords = [(p[0], p[1]) for p in points if p[0] is not None and p[1] is not None]
     distance_m = None
-    if len(coords) >= 2:
+    if distance_m_override is not None:
+        distance_m = round(distance_m_override, 1)
+    elif len(coords) >= 2:
         distance_m = round(
             sum(_haversine_m(a[0], a[1], b[0], b[1]) for a, b in zip(coords, coords[1:])),
             1,
@@ -570,11 +578,26 @@ def _summarize_track(points: list[tuple], *, activity_name, activity_type) -> di
     }
 
 
+def _local_name(tag: str) -> str:
+    """XML tag 的 local-name（去掉 {namespace} 前缀），用于命名空间兜底的野路子导出器。"""
+    return tag.rsplit("}", 1)[-1]
+
+
+def _find_by_local(scope, name: str):
+    """在 scope 子树（含自身）按 local-name 找第一个匹配元素，无则 None。"""
+    for el in scope.iter():
+        if _local_name(el.tag) == name:
+            return el
+    return None
+
+
 def _parse_gpx(path: Path) -> dict:
     """用标准库 XML 解析 GPX（兼容 1.1/1.0 命名空间），聚合所有 trkpt。
 
     心率取 gpxtpx:TrackPointExtension/gpxtpx:hr，无则 None；
-    运动类型取 trk 下 type/name，无则 'other'。
+    运动类型取 trk 下 type/name，无则 'other'；
+    trk/extensions/totalDistance 存在时直接采用为 distance_m（小米导出带此字段），
+    无则 haversine 逐点累加；命名空间全不匹配时按 local-name 兜底匹配。
     """
     import xml.etree.ElementTree as ET
 
@@ -590,6 +613,9 @@ def _parse_gpx(path: Path) -> dict:
             ns = candidate
             break
     if trk is None:
+        # 命名空间全不匹配（野路子导出器自定义 URI）→ 按 local-name 兜底
+        trk = _find_by_local(root, "trk")
+    if trk is None:
         raise FitImportError("GPX 文件不含轨迹（trk）")
 
     def _int(v):
@@ -604,9 +630,34 @@ def _parse_gpx(path: Path) -> dict:
         except (TypeError, ValueError):
             return None
 
+    if ns is not None:
+        pt_nodes = trk.findall(f".//{{{ns}}}trkpt")
+
+        def _find_time(pt):
+            return pt.find(f"{{{ns}}}time")
+
+        name_raw = trk.findtext(f"{{{ns}}}name")
+        type_raw = (trk.findtext(f"{{{ns}}}type") or "").strip()
+        dist_node = trk.find(f".//{{{ns}}}totalDistance")
+    else:
+        pt_nodes = [el for el in trk.iter() if _local_name(el.tag) == "trkpt"]
+
+        def _find_time(pt):
+            return _find_by_local(pt, "time")
+
+        name_node = _find_by_local(trk, "name")
+        name_raw = name_node.text if name_node is not None else None
+        type_node = _find_by_local(trk, "type")
+        type_raw = ((type_node.text if type_node is not None else None) or "").strip()
+        dist_node = None
+    if dist_node is None:
+        # totalDistance 可能挂在 trk/extensions 且命名空间不一致，统一再兜底一次
+        dist_node = _find_by_local(trk, "totalDistance")
+    total_distance = _float(dist_node.text) if dist_node is not None else None
+
     points = []
-    for pt in trk.findall(f".//{{{ns}}}trkpt"):
-        time_node = pt.find(f"{{{ns}}}time")
+    for pt in pt_nodes:
+        time_node = _find_time(pt)
         dt = _parse_iso_utc(time_node.text) if time_node is not None and time_node.text else None
         hr_node = pt.find(f".//{{{GPXTPX_NS}}}hr")
         points.append((
@@ -618,10 +669,10 @@ def _parse_gpx(path: Path) -> dict:
     if not points:
         raise FitImportError("GPX 文件不含轨迹点（trkpt）")
 
-    name = (trk.findtext(f"{{{ns}}}name") or "").strip() or None
-    type_raw = (trk.findtext(f"{{{ns}}}type") or "").strip()
+    name = (name_raw or "").strip() or None
     return _summarize_track(
-        points, activity_name=name, activity_type=type_raw or name
+        points, activity_name=name, activity_type=type_raw or name,
+        distance_m_override=total_distance,
     )
 
 

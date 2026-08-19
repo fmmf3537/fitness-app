@@ -19,7 +19,7 @@ from app.models import GarminActivity
 # GPX 1.1：两点轨迹，北京 18:00-18:15（UTC 10:00-10:15），带 gpxtpx 心率 120/150
 GPX_WITH_HR = """<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" creator="test"
-     xmlns="http://www.topografix.com/gpx/1/1"
+     xmlns="http://www.topografix.com/GPX/1/1"
      xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v1">
   <trk>
     <name>晨跑</name>
@@ -50,7 +50,7 @@ GPX_WITH_HR = """<?xml version="1.0" encoding="UTF-8"?>
 
 # GPX 1.1 无心率扩展
 GPX_NO_HR = """<?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.1" creator="test" xmlns="http://www.topografix.com/gpx/1/1">
+<gpx version="1.1" creator="test" xmlns="http://www.topografix.com/GPX/1/1">
   <trk>
     <name>徒步</name>
     <type>hiking</type>
@@ -68,7 +68,7 @@ GPX_NO_HR = """<?xml version="1.0" encoding="UTF-8"?>
 
 # GPX 1.0 命名空间，无 type/name → activity_type 默认 'other'
 GPX_V10 = """<?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.0" creator="test" xmlns="http://www.topografix.com/gpx/1/0">
+<gpx version="1.0" creator="test" xmlns="http://www.topografix.com/GPX/1/0">
   <trk>
     <trkseg>
       <trkpt lat="39.9042" lon="116.4074">
@@ -81,6 +81,54 @@ GPX_V10 = """<?xml version="1.0" encoding="UTF-8"?>
   </trk>
 </gpx>
 """
+
+# 小米运动健康风格（V3-10c，截取真实文件头部结构）：version="1.0" 属性但 xmlns 用
+# 官方 1/1 命名空间（大小写敏感 URI）、无 ele/心率、trk/extensions 含 totalDistance
+GPX_MI_FITNESS = """<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>
+<gpx version="1.0" xmlns="http://www.topografix.com/GPX/1/1"
+     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+     xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">
+  <name>20260816晨跑</name>
+  <desc>Export from Mi Fitness</desc>
+  <trk>
+    <extensions>
+      <totalDistance>5022</totalDistance>
+      <cumulativeClimb>0.0</cumulativeClimb>
+      <cumulativeDecrease>0.0</cumulativeDecrease>
+    </extensions>
+    <trkseg>
+      <trkpt lat="32.89023208618164" lon="108.50475311279297">
+        <time>2026-08-16T07:31:03.000Z</time>
+      </trkpt>
+      <trkpt lat="32.89022575835793" lon="108.5047657684404">
+        <time>2026-08-16T07:31:04.000Z</time>
+      </trkpt>
+    </trkseg>
+  </trk>
+</gpx>
+"""
+
+# 野路子导出器：完全自定义命名空间 URI（非 topografix），走 local-name 兜底
+GPX_CUSTOM_NS = """<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="wild-exporter" xmlns="https://example.com/my-own-gpx/ns">
+  <trk>
+    <name>野路跑</name>
+    <trkseg>
+      <trkpt lat="39.9042" lon="116.4074">
+        <time>2026-08-05T10:00:00Z</time>
+      </trkpt>
+      <trkpt lat="39.9052" lon="116.4084">
+        <time>2026-08-05T10:15:00Z</time>
+      </trkpt>
+    </trkseg>
+  </trk>
+</gpx>
+"""
+
+# 非官方小写命名空间（历史错误写法），作为兜底候选仍须兼容
+GPX_LOWERCASE_NS = GPX_CUSTOM_NS.replace(
+    "https://example.com/my-own-gpx/ns", "http://www.topografix.com/gpx/1/1"
+)
 
 # KML 2.2 + gx:Track：北京 18:00-18:30（UTC 10:00-10:30）
 KML_TRACK = """<?xml version="1.0" encoding="UTF-8"?>
@@ -116,7 +164,7 @@ KML_LINESTRING = """<?xml version="1.0" encoding="UTF-8"?>
 # 带 DOCTYPE 外部实体的恶意样本：stdlib ET 不解析外部实体，必须报错且不泄露内容
 GPX_XXE = """<?xml version="1.0"?>
 <!DOCTYPE gpx [<!ENTITY xxe SYSTEM "file:///etc/hostname-XXE-SENTINEL">]>
-<gpx xmlns="http://www.topografix.com/gpx/1/1">
+<gpx xmlns="http://www.topografix.com/GPX/1/1">
   <trk>
     <name>&xxe;</name>
     <trkseg>
@@ -198,6 +246,62 @@ def test_parse_gpx_normalized_keys(tmp_path):
     for key in ("activity_name", "activity_type", "start_ts", "duration_s",
                 "distance_m", "calories", "avg_hr", "max_hr"):
         assert key in parsed
+
+
+def test_parse_gpx_mi_fitness_style(tmp_path):
+    """小米运动健康导出（V3-10c 真实样本回归）：version 属性与 xmlns 不一致、
+    无 ele/心率、trk/extensions/totalDistance 直接采用为 distance_m。"""
+    from app.adapters.garmin_adapter import parse_activity_file
+
+    p = tmp_path / "mi.gpx"
+    p.write_text(GPX_MI_FITNESS, encoding="utf-8")
+    parsed = parse_activity_file(p)
+
+    assert parsed["format"] == "gpx"
+    assert parsed["start_ts"] == datetime(2026, 8, 16, 15, 31, 3)  # UTC+8
+    assert parsed["duration_s"] == 1
+    # totalDistance=5022 优先采用；haversine 两点仅约 1.5m，可明确区分
+    assert parsed["distance_m"] == 5022.0
+    assert parsed["avg_hr"] is None
+    assert parsed["max_hr"] is None
+
+
+def test_parse_gpx_total_distance_fallback_haversine(tmp_path):
+    """无 totalDistance 时维持 haversine 逐点累加（既有行为不回归）。"""
+    from app.adapters.garmin_adapter import parse_activity_file
+
+    p = tmp_path / "hike.gpx"
+    p.write_text(GPX_NO_HR, encoding="utf-8")
+    parsed = parse_activity_file(p)
+
+    assert abs(parsed["distance_m"] - 140.1) / 140.1 < 0.05
+
+
+def test_parse_gpx_custom_namespace_local_name_fallback(tmp_path):
+    """命名空间全不匹配时按 local-name 兜底匹配 trk/trkpt/time。"""
+    from app.adapters.garmin_adapter import parse_activity_file
+
+    p = tmp_path / "wild.gpx"
+    p.write_text(GPX_CUSTOM_NS, encoding="utf-8")
+    parsed = parse_activity_file(p)
+
+    assert parsed["format"] == "gpx"
+    assert parsed["activity_name"] == "野路跑"
+    assert parsed["start_ts"] == datetime(2026, 8, 5, 18, 0, 0)
+    assert parsed["duration_s"] == 900
+    assert parsed["distance_m"] is not None
+
+
+def test_parse_gpx_lowercase_namespace_still_supported(tmp_path):
+    """非官方小写 topografix 命名空间作为兜底候选继续兼容。"""
+    from app.adapters.garmin_adapter import parse_activity_file
+
+    p = tmp_path / "lower.gpx"
+    p.write_text(GPX_LOWERCASE_NS, encoding="utf-8")
+    parsed = parse_activity_file(p)
+
+    assert parsed["format"] == "gpx"
+    assert parsed["duration_s"] == 900
 
 
 # ---------- KML 解析 ----------
@@ -309,7 +413,7 @@ def test_parse_gpx_without_trk_rejected(tmp_path):
 
     p = tmp_path / "empty.gpx"
     p.write_text(
-        '<gpx xmlns="http://www.topografix.com/gpx/1/1"><wpt lat="1" lon="1"/></gpx>',
+        '<gpx xmlns="http://www.topografix.com/GPX/1/1"><wpt lat="1" lon="1"/></gpx>',
         encoding="utf-8",
     )
     with pytest.raises(FitImportError, match="不含轨迹"):
@@ -322,7 +426,7 @@ def test_parse_gpx_trkpt_without_time_rejected(tmp_path):
 
     p = tmp_path / "notime.gpx"
     p.write_text(
-        '<gpx xmlns="http://www.topografix.com/gpx/1/1"><trk><trkseg>'
+        '<gpx xmlns="http://www.topografix.com/GPX/1/1"><trk><trkseg>'
         '<trkpt lat="39.9042" lon="116.4074"/>'
         '<trkpt lat="39.9052" lon="116.4084"/>'
         "</trkseg></trk></gpx>",
@@ -338,7 +442,7 @@ def test_parse_gpx_invalid_hr_ignored(tmp_path):
 
     p = tmp_path / "badhr.gpx"
     p.write_text(
-        '<gpx xmlns="http://www.topografix.com/gpx/1/1" '
+        '<gpx xmlns="http://www.topografix.com/GPX/1/1" '
         'xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v1">'
         "<trk><trkseg>"
         '<trkpt lat="39.9042" lon="116.4074"><time>2026-08-05T10:00:00Z</time>'

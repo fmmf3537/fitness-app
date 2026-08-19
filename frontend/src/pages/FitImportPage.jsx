@@ -53,7 +53,8 @@ export default function FitImportPage() {
       const resp = await apiForm('/api/import/fit', fd)
       setResult(resp)
     } catch (err) {
-      setError(`导入失败：${err.message}`)
+      // 优先展示服务端 detail 友好文案（如“GPX 文件不含轨迹（trk）”），其次裸 message
+      setError(`导入失败：${err.detail || err.message}`)
     } finally {
       setImporting(false)
     }

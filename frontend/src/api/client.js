@@ -13,9 +13,21 @@ export function clearToken() {
 }
 
 export class ApiError extends Error {
-  constructor(status, message) {
+  constructor(status, message, detail = null) {
     super(message)
     this.status = status
+    // 服务端返回的友好错误文案（FastAPI 的 {detail: ...}），无则 null
+    this.detail = detail
+  }
+}
+
+/** 从错误响应体中提取 FastAPI detail 文案（非 JSON / 无 detail 时返回 null）。 */
+async function extractDetail(res) {
+  try {
+    const data = await res.json()
+    return typeof data?.detail === 'string' && data.detail ? data.detail : null
+  } catch {
+    return null
   }
 }
 
@@ -55,7 +67,8 @@ export async function apiForm(path, formData) {
     throw new ApiError(401, 'unauthorized')
   }
   if (!res.ok) {
-    throw new ApiError(res.status, `request failed: ${res.status}`)
+    // V3-10c：把服务端 detail 带上，页面可展示友好文案而非裸状态码
+    throw new ApiError(res.status, `request failed: ${res.status}`, await extractDetail(res))
   }
   return res.json()
 }

@@ -87,6 +87,22 @@ describe('FitImportPage', () => {
     expect(error).toHaveTextContent('导入失败')
   })
 
+  it('导入失败优先展示服务端 detail 文案（V3-10c），不再丢成 request failed: 422', async () => {
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(mockResponse({ detail: 'GPX 文件不含轨迹（trk）' }, 422)),
+    )
+    const user = userEvent.setup()
+    renderPage()
+
+    const file = new File(['bad'], 'track.gpx', { type: 'application/gpx+xml' })
+    await user.upload(screen.getByTestId('file-input'), file)
+    await user.click(screen.getByTestId('import-btn'))
+
+    const error = await screen.findByTestId('import-error')
+    expect(error).toHaveTextContent('GPX 文件不含轨迹（trk）')
+    expect(error).not.toHaveTextContent('request failed')
+  })
+
   it('接受 .gpx / .kml 扩展名文件', async () => {
     globalThis.fetch = vi.fn()
     renderPage()
