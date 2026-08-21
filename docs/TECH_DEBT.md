@@ -7,6 +7,7 @@
 > Sprint 5（V2-1 Kimi 与多模型 / V2-2 周期复盘 / V2-3 截图识别）复盘 · 2026-08-10（见第八节）
 > Sprint 7（V2-7 手动同步与首日缺陷修复 / V2-8 训练计划页 / V2-9+V2-9b 移动端抽屉）复盘 · 2026-08-11（见第九节）
 > Sprint 8（V3-1 Capacitor 打包 / V3-2 安卓原生手感 / V3-3 趋势图移动端 / V3-4 报告渲染与评分 / V3-5 分享海报 / V3-6 海报丰富化）复盘 · 2026-08-15（见第十节）
+> Sprint 9（V3-7 GPX/KML 导入 / V3-8 报告追问 / V3-8b 追问发送修复 / V3-9 体脂秤图导入 / V3-10~V3-10c 移动端与导入修复 / V3-11 删除训练 / V3-11b TCX 心率回退）复盘 · 2026-08-21（见第十一节）
 > 每条注明：来源任务 / 影响 / 建议处理时机。
 
 ## 一、实现与 PRD 的偏差
@@ -356,3 +357,61 @@
 | 构建时间 | 2026-08-13 17:14（V3-1 产出，V3-2~V3-6 均为 Web 层改动，走 docker 重建生效，未重发 APK） |
 | 冷启动耗时 | 真机验收（2026-08-15）反馈秒开、无白屏等待感；**未留精确计时**——后续可用 `adb shell am start -W <package>/.MainActivity` 补录精确值 |
 | 安装方式 | 微信文件传输助手 / `adb install -r`（详见 docs/ANDROID.md） |
+
+---
+
+## 十一、Sprint 9（V3-7 GPX/KML 导入 / V3-8 报告追问 / V3-8b 追问发送修复 / V3-9 体脂秤图导入 / V3-10~V3-10c 移动端与导入修复 / V3-11 删除训练 / V3-11b TCX 心率回退）评审与复盘 · 2026-08-21
+
+### 11.1 测试与覆盖率
+
+- 后端：`784 passed / 6 skipped`（2 条 PG testcontainers 环境跳过 + 4 条显式门禁真实 API 集成测试），总覆盖率 **93.28%**（≥85% 达标），与真机验收基线一致；注：2 个 PG testcontainers 用例随 Docker 环境在 passed/skipped 间波动（基线 784-786），属预期；
+- 前端：Vitest `289 passed`（36 个测试文件）；oxlint **0 warning / 0 error**；`npm run build` 通过；`npm run test:capacitor` 通过；
+- 全量回归无失败；HEAD fd97cff 与工作区干净，九个任务提交逐项在库（见 11.2）。
+
+### 11.2 九个任务完成度逐项（真机验收 2026-08-19~21 全过）
+
+| 任务 | 提交 | 完成度 | 验收要点 |
+|------|------|--------|----------|
+| V3-7 文件导入扩展 GPX/KML | d331298 | ✅ | stdlib ET 解析零新依赖，复用 import_fit_file 既有链路；真机 GPX+TCX 导入验收通过 |
+| V3-8 报告追问对话 | 2207915 | ✅ | report_chat_message 表 + 追问服务/API + 前端对话组件 |
+| V3-8b 追问发送按钮修复 | b7fac9a | ✅ | crypto.randomUUID 安全上下文限定 → uuid.js 三级降级链；真机追问发送验收通过（T31 闭环复核） |
+| V3-9 体脂秤身体测量报告图片导入 | dd0b624 | ✅ | 视觉识别→确认→批量入库；真机体脂秤图导入验收通过 |
+| V3-10 日历头部与报告图表移动端重叠修复 | 14e8b48 | ✅ | 真机日历头部 / 周报图表验收通过 |
+| V3-10b 文件导入页 accept MIME 兜底 | 19b0a53 | ✅ | 安卓选不到微信下载文件修复 |
+| V3-10c GPX 命名空间大小写修复 | 8b7c971 | ✅ | 真实小米 GPX 导入 422 修复（命名空间大小写敏感陷阱） |
+| V3-11 训练手动删除（软删除+墓碑） | 18ca0d3 | ✅ | 真机删除与恢复验收通过；含文件导入标题回退与小米 TCX 500 修复 |
+| V3-11b TCX 心率回退链补全 | 5b3552b | ✅ | 识别小米 Lap 级裸 HeartRateBpm |
+
+### 11.3 T29 flake 定位与修复（专项，已关闭）
+
+- **复现路径**：`npx vitest run --sequence.shuffle` 全量循环，两次独立复现（一轮锁定「移动端断点」用例、一轮锁定「桌面断点」用例），均在 `src/pages/__tests__/BodyMetricsPage.test.jsx` 的 chart option 断言；单文件隔离连跑 12 轮不复现；完整错误与根因归档 `logs/t29_flake_repro.log`（gitignored，本地留档）。
+- **根因**：`findByTestId` 只保证 DOM 已提交（commit 阶段）；`TrendChart` 的 `echarts.init/setOption` 在 passive effect（useEffect）中由 React 18 Scheduler 异步刷新。并行高负载时 waitFor 的 MutationObserver 回调（微任务）先于 effect 刷新（宏任务）触发，`renderedOptions()` 读到空的 `echarts.init.mock.results` → `find` 返回 undefined → `TypeError: Cannot read properties of undefined (reading 'grid')`。与用例顺序无关（同 seed 复跑不复现），纯时序竞态，与 V3-6 / V3-10c 的两次观察一致。
+- **修复**：BodyMetricsPage / TrendsPage 两个文件共 4 个 chart option 断言用例，断言包进 `vi.waitFor` 轮询（等待 passive effect 完成再判定）；ReviewContent 用例走同步 render+act（effect 同步刷新），无此风险，未动。单独 commit（[Sprint 9] 前缀）。
+- **关闭标准达成**：修复后连续 5 轮标准 + 3 轮 shuffle 全绿（8/8）。
+
+### 11.4 技术债销项
+
+| 事项 | 闭环任务 / 证据 |
+|------|----------------|
+| T29 全量 vitest 偶发 flake | 本节 11.3（[Sprint 9] 修复 commit，8/8 轮全绿） |
+| T31 追问发送按钮安卓 APP 内无反应 | V3-8b 已闭环，本轮真机复核通过 |
+| T28 `FitImportPage.test.jsx` 未使用变量 oxlint warning | V3-10c 触碰该文件时已顺手修复，本轮 oxlint 0 warning 证实 |
+| 日历头部重叠 / 报告内嵌图表移动端重叠 | V3-10，真机验收通过 |
+| accept MIME 过滤（安卓选不到微信下载文件） | V3-10b |
+| GPX 命名空间大小写（真实文件导入 422） | V3-10c |
+| TCX 缺 StartTime 500 / Lap 级裸心率值 | V3-11 / V3-11b |
+
+### 11.5 保留项（继续跟踪，维持原判）
+
+- **T23 保留**：截图确认入库未做服务端幂等，前端按钮置灰兜底；
+- **T24 保留**：PDF 导出中 echarts 围栏块不渲染图表；
+- **T25 保留**：DeepSeek 涨价/峰谷定价待校准（`LLM_PRICES_JSON`）；
+- **T30 保留**：无 PR/无亮点的有氧海报，点评卡与水印间空白略大，下次触碰海报布局时微调。
+
+### 11.6 经验登记（Sprint 9）
+
+1. **小米运动健康导出为"半标准"实现**（GPX 命名空间大小写错乱 / 根节点 name 异常，TCX 缺 StartTime / Lap 级裸心率值）：接入第三方导出格式**必须拿真实文件验证**，自造 fixture 会"错误自我印证"（V3-10c / V3-11 / V3-11b 三连踩实）。
+2. **删除类功能在 upsert 型同步架构下必须软删除 + 墓碑**：否则下次同步会把已删记录"复活"（V3-11）。
+3. **findBy\* 只保证 DOM 提交**：effect 副作用（如 echarts.setOption、轮询类状态更新）必须用 `waitFor` 轮询断言，禁止 findBy 后立即同步读 mock 状态（T29）。
+
+**评审结论**：Sprint 9 九个任务全部完成，真机验收六项（追问发送 / 体脂秤图导入 / GPX+TCX 导入 / 日历头部 / 周报图表 / 删除与恢复）全过；测试基线（后端 784+6 / 93.28%，前端 289 / 36 文件，oxlint 0/0，build + capacitor 通过）逐项一致无回归；T29 flake 定位到根因并修复，8/8 轮全绿关闭。**Sprint 9 目标达成，打 tag `sprint-9`。**
