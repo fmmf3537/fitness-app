@@ -253,32 +253,39 @@ describe('BodyMetricsPage', () => {
     mockFetch({ metrics: [WEIGHT_ROW] })
     render(<BodyMetricsPage />)
     await screen.findByTestId('trend-chart-weight')
-    const options = renderedOptions()
-    const dual = options.find((o) => o?.xAxis?.type === 'time')
-    const trend = options.find(
-      (o) => o?.xAxis?.type === 'category' && o?.series?.[0]?.name === '体重',
-    )
-    expect(dual.xAxis.axisLabel).toEqual({ rotate: 45, fontSize: 10, formatter: '{MM}-{dd}' })
-    expect(dual.legend.type).toBe('scroll')
-    expect(trend.grid).toEqual({ left: 40, right: 12, top: 56, bottom: 48 })
-    expect(trend.xAxis.axisLabel.rotate).toBe(45)
-    expect(trend.xAxis.axisLabel.formatter('2026-08-03')).toBe('08-03')
-    expect(trend.yAxis.name).toBeUndefined()
+    // T29：findBy 只保证 DOM 已提交，echarts.init/setOption 在 passive effect 中异步执行，
+    // 须轮询等待 effect 刷新后再读 option，否则高负载时读到空 mock.results 偶发 TypeError
+    await vi.waitFor(() => {
+      const options = renderedOptions()
+      const dual = options.find((o) => o?.xAxis?.type === 'time')
+      const trend = options.find(
+        (o) => o?.xAxis?.type === 'category' && o?.series?.[0]?.name === '体重',
+      )
+      expect(dual?.xAxis.axisLabel).toEqual({ rotate: 45, fontSize: 10, formatter: '{MM}-{dd}' })
+      expect(dual?.legend?.type).toBe('scroll')
+      expect(trend?.grid).toEqual({ left: 40, right: 12, top: 56, bottom: 48 })
+      expect(trend?.xAxis.axisLabel.rotate).toBe(45)
+      expect(trend?.xAxis.axisLabel.formatter('2026-08-03')).toBe('08-03')
+      expect(trend?.yAxis.name).toBeUndefined()
+    })
   })
 
   it('桌面断点：option 保持基线布局（无移动端改造）', async () => {
     mockFetch({ metrics: [WEIGHT_ROW] })
     render(<BodyMetricsPage />)
     await screen.findByTestId('trend-chart-weight')
-    const options = renderedOptions()
-    const dual = options.find((o) => o?.xAxis?.type === 'time')
-    const trend = options.find(
-      (o) => o?.xAxis?.type === 'category' && o?.series?.[0]?.name === '体重',
-    )
-    expect(trend.grid).toEqual({ left: 50, right: 20, top: 40, bottom: 30 })
-    expect(trend.xAxis.axisLabel).toBeUndefined()
-    expect(dual.grid).toEqual({ left: 50, right: 50, top: 40, bottom: 30 })
-    expect(dual.xAxis.axisLabel).toBeUndefined()
+    // 同上（T29）：轮询等待 passive effect 完成 setOption
+    await vi.waitFor(() => {
+      const options = renderedOptions()
+      const dual = options.find((o) => o?.xAxis?.type === 'time')
+      const trend = options.find(
+        (o) => o?.xAxis?.type === 'category' && o?.series?.[0]?.name === '体重',
+      )
+      expect(trend?.grid).toEqual({ left: 50, right: 20, top: 40, bottom: 30 })
+      expect(trend?.xAxis.axisLabel).toBeUndefined()
+      expect(dual?.grid).toEqual({ left: 50, right: 50, top: 40, bottom: 30 })
+      expect(dual?.xAxis.axisLabel).toBeUndefined()
+    })
   })
 })
 

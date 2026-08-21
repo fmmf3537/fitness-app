@@ -112,21 +112,28 @@ describe('TrendsPage', () => {
     installMatchMedia(true)
     render(<TrendsPage />)
     await screen.findByTestId('trend-chart-volume')
-    const [volume, bodypart] = lastOptions(4)
-    expect(volume.grid).toEqual({ left: 40, right: 12, top: 56, bottom: 48 })
-    expect(volume.xAxis.axisLabel.rotate).toBe(45)
-    expect(volume.xAxis.axisLabel.fontSize).toBe(10)
-    expect(volume.xAxis.axisLabel.formatter('2026-07-13')).toBe('07-13')
-    expect(volume.yAxis.name).toBeUndefined()
-    expect(bodypart.legend.type).toBe('scroll')
+    // T29：findBy 只保证 DOM 已提交，echarts.init/setOption 在 passive effect 中异步执行，
+    // 须轮询等待 effect 刷新后再读 option，否则高负载时读到空 mock.results 偶发 TypeError
+    await vi.waitFor(() => {
+      const [volume, bodypart] = lastOptions(4)
+      expect(volume?.grid).toEqual({ left: 40, right: 12, top: 56, bottom: 48 })
+      expect(volume?.xAxis.axisLabel.rotate).toBe(45)
+      expect(volume?.xAxis.axisLabel.fontSize).toBe(10)
+      expect(volume?.xAxis.axisLabel.formatter('2026-07-13')).toBe('07-13')
+      expect(volume?.yAxis.name).toBeUndefined()
+      expect(bodypart?.legend?.type).toBe('scroll')
+    })
   })
 
   it('桌面断点：option 保持基线布局（无移动端改造）', async () => {
     render(<TrendsPage />)
     await screen.findByTestId('trend-chart-volume')
-    const [volume, bodypart] = lastOptions(4)
-    expect(volume.grid).toEqual({ left: 50, right: 20, top: 40, bottom: 30 })
-    expect(volume.xAxis.axisLabel).toBeUndefined()
-    expect(bodypart.legend).toEqual({ top: 0 })
+    // 同上（T29）：轮询等待 passive effect 完成 setOption
+    await vi.waitFor(() => {
+      const [volume, bodypart] = lastOptions(4)
+      expect(volume?.grid).toEqual({ left: 50, right: 20, top: 40, bottom: 30 })
+      expect(volume?.xAxis.axisLabel).toBeUndefined()
+      expect(bodypart?.legend).toEqual({ top: 0 })
+    })
   })
 })
