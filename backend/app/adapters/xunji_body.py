@@ -6,6 +6,8 @@
 - 写接口三段式：dry_run=True 预览取 res.summary → 用户确认 →
   dry_run=False + confirmed=True 执行；未确认的 dry_run=False 直接拒绝；
 - 训记类型仅 weight/bodyfat/围度；注意腰围字段固定拼写 weist（勿"修正"）。
+
+M3-2：构造函数收 user_id，按 user_id 从 settings.xunji_body_api_key_enc 读 Key。
 """
 from __future__ import annotations
 
@@ -14,24 +16,35 @@ from typing import Any, Sequence
 
 from sqlalchemy.orm import Session
 
-from app.adapters.xunji import XunjiClient
-from app.config import get_settings
+from app.adapters.xunji import XunjiClient, XunjiKeyNotConfiguredError, _resolve_xunji_api_key
 
 BODY_QUERY_URL = "https://api.xunjiapp.cn/open/body/query_gzip"
 BODY_UPSERT_URL = "https://api.xunjiapp.cn/open/body/upsert_gzip"
 
 
 class XunjiBodyClient(XunjiClient):
-    """训记身体数据客户端：复用 XunjiClient 的限频/gzip/too-frequent 重试。"""
+    """训记身体数据客户端：复用 XunjiClient 的限频/gzip/too-frequent 重试。
 
-    def __init__(self, session: Session, api_key: str | None = None, **kwargs: Any) -> None:
+    M3-2：构造函数收 user_id，按 user_id 从 settings.xunji_body_api_key_enc 读 Key。
+    限频状态在实例级自动按 client 隔离。
+    """
+
+    def __init__(
+        self,
+        session: Session,
+        api_key: str | None = None,
+        *,
+        user_id: int | None = None,
+        **kwargs: Any,
+    ) -> None:
         if api_key is None:
-            api_key = get_settings().xunji_body_api_key
+            api_key = _resolve_xunji_api_key(session, user_id, body_key=True)
             if not api_key:
-                raise RuntimeError(
-                    "XUNJI_BODY_API_KEY 未配置：请在环境变量或 .env 中设置"
+                scope = f"用户 {user_id} " if user_id is not None else ""
+                raise XunjiKeyNotConfiguredError(
+                    f"{scope}XUNJI_BODY_API_KEY 未配置（settings 表与环境变量都没有）"
                 )
-        super().__init__(session, api_key=api_key, **kwargs)
+        super().__init__(session, api_key=api_key, user_id=user_id, **kwargs)
 
     # ---------- 查询身体数据（只读） ----------
 

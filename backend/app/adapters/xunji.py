@@ -42,6 +42,14 @@ class XunjiRateLimitError(XunjiAPIError):
     """too frequent 重试 3 次后仍失败。"""
 
 
+class XunjiKeyNotConfiguredError(XunjiAPIError):
+    """M3-2：某用户/全局训记 API Key 未配置（settings 表与环境变量都没有）。
+
+    区别于 XunjiAPIError（运行时调用失败）：这是**配置缺失**，应让上层明确提示
+    用户去 settings 页面绑定 Key。
+    """
+
+
 def rate_limited(func: Callable) -> Callable:
     """统一限频装饰器：训记的所有 HTTP 调用必须经此装饰器。
 
@@ -58,25 +66,69 @@ def rate_limited(func: Callable) -> Callable:
     return wrapper
 
 
+# ---------- Key 解析（M3-2 多用户按 user_id 隔离） ----------
+
+def _resolve_xunji_api_key(
+    session: Session | None,
+    user_id: int | None,
+    *,
+    body_key: bool = False,
+) -> str:
+    """训记 API Key 解析优先级：api_key 显式参数 > settings 表（按 user_id）> 环境变量。
+
+    body_key=True 时读 xunji_body_api_key_enc / XUNJI_BODY_API_KEY；否则读训练 Key。
+    返回空串表示未配置。"""
+    if session is not None and user_id is not None:
+        from app.config import decrypt_value
+        from app.models import Setting
+        row = session.scalars(
+            select(Setting).where(Setting.user_id == user_id)
+        ).first()
+        if row is not None:
+            enc = row.xunji_body_api_key_enc if body_key else row.xunji_api_key_enc
+            if enc:
+                try:
+                    return decrypt_value(enc)
+                except Exception:
+                    pass  # 解密失败时回退到环境变量
+    settings = get_settings()
+    return settings.xunji_body_api_key if body_key else settings.xunji_api_key
+
+
 class XunjiClient:
-    """训记 API 客户端。clock/sleep 可注入以便测试限频行为。"""
+    """训记 API 客户端。clock/sleep 可注入以便测试限频行为。
+
+    M3-2：构造函数收 user_id（kw-only），按 user_id 从 settings 表读 Key。
+    限频状态 (`_last_call`) 在实例级自动按 client 隔离；
+    调度时为每个 user 创建独立 XunjiClient 即可保证限频按用户隔离。
+    """
 
     def __init__(
         self,
         session: Session,
         api_key: str | None = None,
         *,
+        user_id: int | None = None,
         sleep: Callable[[float], None] = time.sleep,
         time_fn: Callable[[], float] = time.monotonic,
         http: httpx.Client | None = None,
     ) -> None:
         self._session = session
-        self._api_key = api_key if api_key is not None else get_settings().xunji_api_key
+        self._user_id = user_id
+        if api_key is not None:
+            self._api_key = api_key
+        else:
+            self._api_key = _resolve_xunji_api_key(session, user_id)
         if not self._api_key:
-            raise RuntimeError("XUNJI_API_KEY 未配置：请在环境变量或 .env 中设置")
+            scope = f"用户 {user_id} " if user_id is not None else ""
+            raise XunjiKeyNotConfiguredError(
+                f"{scope}XUNJI_API_KEY 未配置（settings 表与环境变量都没有）"
+            )
         self._sleep = sleep
         self._time = time_fn
         self._http = http or httpx.Client(timeout=30.0)
+        # 限频状态：实例级 dict，每个 client 自己的 _last_call
+        # 不同 user_id 的 client 不会共享 → 限频按用户自动隔离
         self._last_call: dict[tuple[str, str], float] = {}
 
     # ---------- 底层：限频 + 请求 ----------

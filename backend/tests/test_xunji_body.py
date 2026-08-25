@@ -60,12 +60,14 @@ class TestKeyConfig:
 
     def test_missing_key_raises(self, session, monkeypatch):
         from app.adapters.xunji_body import XunjiBodyClient
+        from app.adapters.xunji import XunjiKeyNotConfiguredError
 
         monkeypatch.delenv("XUNJI_BODY_API_KEY", raising=False)
         from app.config import get_settings
 
         get_settings.cache_clear()
-        with pytest.raises(RuntimeError, match="XUNJI_BODY_API_KEY"):
+        # M3-2: 改为抛专用异常 XunjiKeyNotConfiguredError(继承 XunjiAPIError)
+        with pytest.raises(XunjiKeyNotConfiguredError, match="XUNJI_BODY_API_KEY"):
             XunjiBodyClient(session)
 
 

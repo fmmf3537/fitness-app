@@ -12,8 +12,9 @@ from pathlib import Path
 import httpx
 import pytest
 import respx
+from sqlalchemy import select
 
-from app.models import XunjiPlan, XunjiTrain
+from app.models import Setting, XunjiPlan, XunjiTrain
 
 TRAINS_URL = "https://trains.xunjiapp.cn/api_trains_for_llm_v2"
 UPSERT_URL = "https://trains.xunjiapp.cn/api_upsert_trains_for_llm_v2"
@@ -446,14 +447,174 @@ def test_api_key_from_env_not_hardcoded(session, monkeypatch):
 
 
 def test_missing_api_key_raises(session, monkeypatch):
-    from app.adapters.xunji import XunjiClient
+    from app.adapters.xunji import XunjiClient, XunjiKeyNotConfiguredError
 
     monkeypatch.delenv("XUNJI_API_KEY", raising=False)
     from app.config import get_settings
 
     get_settings.cache_clear()
-    with pytest.raises(RuntimeError):
+    # M3-2: 改为抛专用异常 XunjiKeyNotConfiguredError(继承 XunjiAPIError 而非 RuntimeError)
+    with pytest.raises(XunjiKeyNotConfiguredError):
         XunjiClient(session)
+
+
+# =====================================================================
+# M3-2: 训记 Key 按用户隔离 + 限频按实例隔离
+# =====================================================================
+
+
+def test_resolve_xunji_api_key_priority(session, monkeypatch):
+    """M3-2: 优先级 api_key 参数 > settings 表(按 user_id) > 环境变量。"""
+    from app.adapters.xunji import _resolve_xunji_api_key
+    from app.config import encrypt_value, get_settings
+    from app.models import Setting
+    from app.services import users as user_service
+
+    # 清环境变量做基线
+    monkeypatch.delenv("XUNJI_API_KEY", raising=False)
+    get_settings.cache_clear()
+
+    # 1) 既无 settings 也无 env → 返回空串
+    assert _resolve_xunji_api_key(session=None, user_id=1) == ""
+
+    # 2) 只有 env → 走 env
+    monkeypatch.setenv("XUNJI_API_KEY", "sk-env-default")
+    get_settings.cache_clear()
+    assert _resolve_xunji_api_key(session=None, user_id=1) == "sk-env-default"
+
+    # 3) settings 有 + env 有 → 按 user_id 走 settings
+    monkeypatch.setenv("FERNET_KEY", "duSxKxijSRKCJt8e6DZzSS4uJioWEDnGsSehiBisE_k=")
+    get_settings.cache_clear()
+    get_settings.cache_clear()
+    # 预建用户 2
+    try:
+        user_service.create_user(session, username="bob", password="test-pass", role="user")
+    except ValueError:
+        session.rollback()
+    user_b = user_service.get_user_by_username(session, "bob")
+    # 用户 2 存自己的 key
+    row = session.scalars(select(Setting).where(Setting.user_id == user_b.id)).first()
+    if row is None:
+        row = Setting(user_id=user_b.id)
+        session.add(row)
+        session.flush()
+    row.xunji_api_key_enc = encrypt_value("sk-user-2")
+    session.commit()
+
+    # 用户 2 拿自己的 key
+    assert _resolve_xunji_api_key(session, user_id=user_b.id) == "sk-user-2"
+    # 用户 1 没存，回退到 env
+    assert _resolve_xunji_api_key(session, user_id=1) == "sk-env-default"
+
+    get_settings.cache_clear()
+
+
+def test_xunji_client_user_specific_key_in_request(session, monkeypatch):
+    """M3-2: 不同 user_id 构造的 XunjiClient 发请求时用各自的 Key。"""
+    from app.adapters.xunji import XunjiClient
+    from app.config import encrypt_value, get_settings
+    from app.models import Setting
+    from app.services import users as user_service
+
+    # 清环境
+    monkeypatch.delenv("XUNJI_API_KEY", raising=False)
+    get_settings.cache_clear()
+
+    # 给 alice (user_id=1) 存 key
+    monkeypatch.setenv("FERNET_KEY", "duSxKxijSRKCJt8e6DZzSS4uJioWEDnGsSehiBisE_k=")
+    get_settings.cache_clear()
+    # alice 由 conftest 预建
+    row = session.scalars(select(Setting).where(Setting.user_id == 1)).first()
+    if row is None:
+        row = Setting(user_id=1)
+        session.add(row)
+        session.flush()
+    row.xunji_api_key_enc = encrypt_value("sk-alice")
+    # 给 bob 存 key
+    try:
+        user_service.create_user(session, username="bob", password="test-pass", role="user")
+    except ValueError:
+        session.rollback()
+    user_b = user_service.get_user_by_username(session, "bob")
+    row_b = session.scalars(select(Setting).where(Setting.user_id == user_b.id)).first()
+    if row_b is None:
+        row_b = Setting(user_id=user_b.id)
+        session.add(row_b)
+        session.flush()
+    row_b.xunji_api_key_enc = encrypt_value("sk-bob")
+    session.commit()
+
+    # 用 mock httpx 抓请求头
+    import httpx
+    captured: dict = {}
+
+    def fake_post(url, **kwargs):
+        captured.setdefault("headers", []).append(kwargs.get("headers", {}))
+        return httpx.Response(200, json={"res": {"trains": []}})
+
+    fake_http = httpx.Client(timeout=30.0)
+    fake_http.post = fake_post  # 拦截
+
+    # alice 的 client
+    client_alice = XunjiClient(session, user_id=1, http=fake_http)
+    client_alice._post("http://x", {}, kind="read", rl_key="2026-08-01")
+
+    # bob 的 client
+    client_bob = XunjiClient(session, user_id=user_b.id, http=fake_http)
+    client_bob._post("http://x", {}, kind="read", rl_key="2026-08-01")
+
+    # 各自用各自的 key
+    headers = captured["headers"]
+    assert headers[0].get("Authorization") == "Bearer sk-alice"
+    assert headers[1].get("Authorization") == "Bearer sk-bob"
+    # 关键：alice 拿不到 bob 的 key
+    assert "sk-bob" not in headers[0].get("Authorization", "")
+    assert "sk-alice" not in headers[1].get("Authorization", "")
+
+    get_settings.cache_clear()
+
+
+def test_xunji_client_rate_limit_isolated_per_instance(session, monkeypatch):
+    """M3-2: 不同 XunjiClient 实例的限频状态独立（按 user 自动隔离）。"""
+    from app.adapters.xunji import XunjiClient
+
+    monkeypatch.setenv("XUNJI_API_KEY", "sk-test")
+    from app.config import get_settings
+    get_settings.cache_clear()
+
+    # 两个 client，分别属于 user 1 和 user 2
+    client_a = XunjiClient(session, user_id=1)
+    client_b = XunjiClient(session, user_id=2)
+
+    # 关键：_last_call dict 是不同对象（实例级隔离）
+    assert client_a._last_call is not client_b._last_call
+    assert id(client_a._last_call) != id(client_b._last_call)
+
+    # 模拟 alice 调用一次
+    client_a._last_call[("read", "2026-08-01")] = 0.0
+    # bob 完全独立：它的 dict 里不应该有 alice 的项
+    assert ("read", "2026-08-01") not in client_b._last_call
+    # 反之亦然
+    client_b._last_call[("read", "2026-08-02")] = 0.0
+    assert ("read", "2026-08-02") not in client_a._last_call
+
+    # 即使两个 client 共用 session 也不共享 _last_call
+    # 关键：限频按 client 实例隔离 → 不同 user 的 client 不会互相阻塞
+    get_settings.cache_clear()
+
+
+def test_xunji_key_not_configured_error_message_includes_user(session, monkeypatch):
+    """M3-2: 无 Key 抛 XunjiKeyNotConfiguredError，消息含用户上下文。"""
+    from app.adapters.xunji import XunjiClient, XunjiKeyNotConfiguredError
+    monkeypatch.delenv("XUNJI_API_KEY", raising=False)
+    from app.config import get_settings
+    get_settings.cache_clear()
+
+    with pytest.raises(XunjiKeyNotConfiguredError) as exc:
+        XunjiClient(session, user_id=42)
+    assert "用户 42" in str(exc.value)
+    assert "XUNJI_API_KEY" in str(exc.value)
+    get_settings.cache_clear()
 
 
 # ---------- 集成测试（真实外呼，默认跳过） ----------

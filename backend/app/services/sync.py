@@ -67,7 +67,9 @@ def daily_sync(day, *, session: Session | None = None, xunji=None, garmin=None,
     try:
         if xunji is None:
             from app.adapters.xunji import XunjiClient
-            xunji = XunjiClient(session)
+            # M3-2：传入 user_id 让 XunjiClient 按用户从 settings 表取 Key
+            # 限频状态在 XunjiClient 实例级自动隔离，每个 user_id 独立计数
+            xunji = XunjiClient(session, user_id=user_id)
         if garmin is None:
             from app.adapters.garmin_adapter import GarminClient
             garmin = GarminClient(session)
