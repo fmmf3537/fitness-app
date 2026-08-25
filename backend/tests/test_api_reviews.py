@@ -30,15 +30,22 @@ def client(session, monkeypatch):
 
 
 @pytest.fixture
-def auth(client):
-    token = client.post("/api/auth/login", json={"password": "test-pass"}).json()["token"]
-    return {"Authorization": f"Bearer {token}"}
+def auth(client, session):
+    from app.services import users as _us
+    try:
+        _us.create_user(session, username="alice", password="test-pass", role="user")
+    except ValueError:
+        pass  # alice 已由 conftest session 预建（id=1）
+    _b = client.post("/api/auth/login", json={"username": "alice", "password": "test-pass"}).json()
+    return {"Authorization": f"Bearer {_b['token']}"}
 
 
 def make_weekly_report(session, period_start=date(2026, 8, 3),
-                       period_end=date(2026, 8, 9), content="# 本周概览\n本周训练 3 次。"):
+                       period_end=date(2026, 8, 9), content="# 本周概览\n本周训练 3 次。",
+                       user_id=1):
     r = AIReport(
         type="weekly", period_start=period_start, period_end=period_end,
+        user_id=user_id,
         model="deepseek-chat", prompt_tokens=100, completion_tokens=50,
         cost_estimate=0.001, content_md=content,
     )
@@ -55,7 +62,7 @@ class SyncManager:
         self.running = set(running)
         self.calls = []
 
-    def start(self, rtype, day_str=None):
+    def start(self, rtype, day_str=None, user_id=None):
         if rtype in self.running:
             return False
         self.calls.append((rtype, day_str))
@@ -63,9 +70,9 @@ class SyncManager:
             "content": "## 概览\n假报告", "prompt_tokens": 1,
             "completion_tokens": 1, "model": "deepseek-chat"})
         if rtype == "weekly":
-            ai_service.run_weekly_review(day_str, session=self.session, chat_fn=chat_fn)
+            ai_service.run_weekly_review(day_str, session=self.session, chat_fn=chat_fn, user_id=user_id)
         else:
-            ai_service.run_monthly_review(day_str, session=self.session, chat_fn=chat_fn)
+            ai_service.run_monthly_review(day_str, session=self.session, chat_fn=chat_fn, user_id=user_id)
         return True
 
     def is_running(self, rtype):

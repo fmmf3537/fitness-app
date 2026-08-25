@@ -15,16 +15,15 @@ from typing import Callable
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.api.auth import require_auth
+from app.api.auth import get_current_user, get_current_user_id, resolve_viewer
 from app.db import get_session
-from app.models import AIReport
+from app.models import AIReport, User
 from app.services import ai as ai_service
 from app.services import plans as plan_service
 
 router = APIRouter(
     prefix="/api/plans",
     tags=["plans"],
-    dependencies=[Depends(require_auth)],
 )
 
 
@@ -32,13 +31,15 @@ router = APIRouter(
 def upcoming_plans(
     days: int = Query(default=30, ge=1, le=90),
     session: Session = Depends(get_session),
+    principal: User = Depends(get_current_user),
+    override_user_id: int | None = Query(default=None, alias="user_id"),
 ) -> dict:
-    """未来 N 天计划日程（含休息日标记），只读本地计划缓存。"""
+    """未来 N 天计划日程（含休息日标记），只读本地计划缓存（当前用户）。"""
     start = date.today()
     return {
         "from": start.isoformat(),
         "to": (start + timedelta(days=days - 1)).isoformat(),
-        "days": plan_service.query_plan_days(session, start, days=days),
+        "days": plan_service.query_plan_days(session, start, days=days, user_id=resolve_viewer(principal, override_user_id)),
     }
 
 
@@ -127,6 +128,7 @@ def get_plan_refresh_manager() -> PlanRefreshManager:
 @router.post("/refresh", status_code=202)
 def refresh_plans(
     manager: PlanRefreshManager = Depends(get_plan_refresh_manager),
+    current_user_id: int = Depends(get_current_user_id),
 ) -> dict:
     """手动触发计划缓存刷新（后台线程执行 sync_plan_cache，立即返回 202）。"""
     try:
@@ -138,6 +140,7 @@ def refresh_plans(
 @router.get("/refresh/status")
 def refresh_status(
     manager: PlanRefreshManager = Depends(get_plan_refresh_manager),
+    current_user_id: int = Depends(get_current_user_id),
 ) -> dict:
     """当前/最近一次计划缓存刷新状态。"""
     return manager.status()
@@ -158,16 +161,16 @@ class PlanReviewManager:
         self._errors: dict[str, str] = {}
 
     @staticmethod
-    def _default_runner(date_str: str) -> None:
+    def _default_runner(date_str: str, user_id: int | None = None) -> None:
         from app.db import SessionLocal
 
         session = SessionLocal()
         try:
-            ai_service.generate_plan_review(session, date_str)
+            ai_service.generate_plan_review(session, date_str, user_id=user_id)
         finally:
             session.close()
 
-    def start(self, date_str: str) -> bool:
+    def start(self, date_str: str, user_id: int | None = None) -> bool:
         """启动后台生成；该日期已在运行返回 False。"""
         with self._lock:
             if date_str in self._running:
@@ -175,15 +178,15 @@ class PlanReviewManager:
             self._running.add(date_str)
             self._errors.pop(date_str, None)
         thread = threading.Thread(
-            target=self._run, args=(date_str,), daemon=True, name=f"plan-review-{date_str}",
+            target=self._run, args=(date_str, user_id), daemon=True, name=f"plan-review-{date_str}",
         )
         thread.start()
         return True
 
-    def _run(self, date_str: str) -> None:
+    def _run(self, date_str: str, user_id: int | None = None) -> None:
         try:
             runner = self._runner or self._default_runner
-            runner(date_str)
+            runner(date_str, user_id)
         except Exception as exc:  # noqa: BLE001 - 后台线程异常只落状态
             with self._lock:
                 self._errors[date_str] = f"{type(exc).__name__}: {exc}"
@@ -227,11 +230,12 @@ def start_plan_review(
     day: date,
     session: Session = Depends(get_session),
     manager: PlanReviewManager = Depends(get_plan_review_manager),
+    current_user_id: int = Depends(get_current_user_id),
 ) -> dict:
     """手动触发某日计划点评（后台线程异步执行；无计划日 404 并给可读原因）。"""
-    if plan_service.query_plan_day(session, day) is None:
+    if plan_service.query_plan_day(session, day, user_id=current_user_id) is None:
         raise HTTPException(404, plan_service.plan_day_skip_reason(session, day))
-    if not manager.start(day.isoformat()):
+    if not manager.start(day.isoformat(), user_id=current_user_id):
         raise HTTPException(409, "该日期的计划点评正在生成中")
     return {"status": "started", "date": day.isoformat()}
 
@@ -240,6 +244,7 @@ def start_plan_review(
 def plan_review_status(
     day: date,
     manager: PlanReviewManager = Depends(get_plan_review_manager),
+    current_user_id: int = Depends(get_current_user_id),
 ) -> dict:
     """轮询某日计划点评生成状态。"""
     return manager.status(day.isoformat())
@@ -249,11 +254,13 @@ def plan_review_status(
 def get_plan_review(
     day: date,
     session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id),
 ) -> dict:
-    """取某日最新一条 plan_review 报告，无则 404。"""
+    """取某日最新一条 plan_review 报告，无则 404（当前用户）。"""
     report = (
         session.query(AIReport)
-        .filter(AIReport.type == "plan_review", AIReport.period_start == day)
+        .filter(AIReport.type == "plan_review", AIReport.period_start == day,
+                AIReport.user_id == current_user_id)
         .order_by(AIReport.created_at.desc(), AIReport.id.desc())
         .first()
     )

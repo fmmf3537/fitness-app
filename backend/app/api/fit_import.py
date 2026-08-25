@@ -10,13 +10,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.adapters.garmin_adapter import FitImportError, import_fit_file
-from app.api.auth import require_auth
+from app.api.auth import get_current_user_id
 from app.db import get_session
 from app.models import Workout
 
 router = APIRouter(
     prefix="/api/import", tags=["import"],
-    dependencies=[Depends(require_auth)],
 )
 
 ALLOWED_SUFFIXES = {".fit", ".tcx", ".gpx", ".kml"}
@@ -24,8 +23,11 @@ MAX_FILE_BYTES = 50 * 1024 * 1024  # 50MB
 
 
 @router.post("/fit")
-async def import_fit(file: UploadFile = File(...),
-                     session: Session = Depends(get_session)) -> dict:
+async def import_fit(
+    file: UploadFile = File(...),
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id),
+) -> dict:
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in ALLOWED_SUFFIXES:
         raise HTTPException(status_code=422,
@@ -41,7 +43,7 @@ async def import_fit(file: UploadFile = File(...),
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
             tmp.write(content)
             tmp_path = tmp.name
-        result = import_fit_file(session, tmp_path)
+        result = import_fit_file(session, tmp_path, user_id=current_user_id)
     except FitImportError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     finally:
@@ -49,9 +51,11 @@ async def import_fit(file: UploadFile = File(...),
             Path(tmp_path).unlink(missing_ok=True)
 
     activity = result["activity"]
+    # 跨用户隔离：仅当导入的活动属于当前用户时才关联其 workout
     workout = session.scalars(
         select(Workout).where(
             Workout.garmin_activity_id == activity.id,
+            Workout.user_id == current_user_id,
             Workout.deleted_at.is_(None),
         )
     ).first()

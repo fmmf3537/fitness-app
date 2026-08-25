@@ -34,9 +34,14 @@ def client(session, monkeypatch):
 
 
 @pytest.fixture
-def auth(client):
-    token = client.post("/api/auth/login", json={"password": "test-pass"}).json()["token"]
-    return {"Authorization": f"Bearer {token}"}
+def auth(client, session):
+    from app.services import users as _us
+    try:
+        _us.create_user(session, username="alice", password="test-pass", role="user")
+    except ValueError:
+        pass  # alice 已由 conftest session 预建（id=1）
+    _b = client.post("/api/auth/login", json={"username": "alice", "password": "test-pass"}).json()
+    return {"Authorization": f"Bearer {_b['token']}"}
 
 
 def test_upload_fit_file(client, auth, session):

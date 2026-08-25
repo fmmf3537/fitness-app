@@ -28,7 +28,7 @@ def _insert_day(session, day_dir: Path) -> dict:
         session.add(XunjiTrain(
             datestr=t["datestr"], localid=t["localid"], title=t["title"],
             start_ms=t["start_ms"], end_ms=t["end_ms"], note_json=t["note_json"],
-            raw_json=t["raw_json"],
+            raw_json=t["raw_json"], user_id=1,
         ))
     id_map = {}
     for a in activities:
@@ -38,6 +38,7 @@ def _insert_day(session, day_dir: Path) -> dict:
             end_ts=datetime.fromisoformat(a["end_ts"]) if a["end_ts"] else None,
             duration_s=a["duration_s"], calories=a["calories"],
             avg_hr=a["avg_hr"], max_hr=a["max_hr"], raw_json=a["raw_json"],
+            user_id=1,
         )
         session.add(row)
         session.flush()
@@ -48,7 +49,7 @@ def _insert_day(session, day_dir: Path) -> dict:
 
 def _actual_result(session, day: date) -> dict:
     """运行匹配引擎并收集与 expected.json 同构的实际结果。"""
-    match_day(session, day)
+    match_day(session, day, user_id=1)
     workouts = session.query(Workout).filter(Workout.date == day).order_by(Workout.id).all()
     localid_of = {
         t.id: t.localid

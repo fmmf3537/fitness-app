@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.adapters.xunji import XunjiAPIError
-from app.api.auth import require_auth
+from app.api.auth import get_current_user_id
 from app.db import get_session
 from app.services.writeback import (
     WritebackNotFoundError,
@@ -16,7 +16,6 @@ from app.services.writeback import (
 
 router = APIRouter(
     prefix="/api/writeback", tags=["writeback"],
-    dependencies=[Depends(require_auth)],
 )
 
 
@@ -28,9 +27,12 @@ class WritebackRequest(BaseModel):
     changes: dict[str, Any]
 
 
-def get_writeback_service(session: Session = Depends(get_session)) -> WritebackService:
+def get_writeback_service(
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id),
+) -> WritebackService:
     """依赖注入点：测试可 override 替换写回服务。"""
-    return WritebackService(session)
+    return WritebackService(session, user_id=current_user_id)
 
 
 def _handle_errors(exc: Exception) -> HTTPException:

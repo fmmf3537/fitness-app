@@ -28,9 +28,14 @@ def client(session, monkeypatch):
 
 
 @pytest.fixture
-def auth(client):
-    token = client.post("/api/auth/login", json={"password": "test-pass"}).json()["token"]
-    return {"Authorization": f"Bearer {token}"}
+def auth(client, session):
+    from app.services import users as _us
+    try:
+        _us.create_user(session, username="alice", password="test-pass", role="user")
+    except ValueError:
+        pass  # alice 已由 conftest session 预建（id=1）
+    _b = client.post("/api/auth/login", json={"username": "alice", "password": "test-pass"}).json()
+    return {"Authorization": f"Bearer {_b['token']}"}
 
 
 def _week_start(d: date) -> str:
@@ -79,11 +84,11 @@ class TestStatsTrends:
         movements_last_week = [
             {"name": "杠铃深蹲", "sets": [{"weight": 100, "unit": "kg", "reps": 5, "done": True}]},
         ]
-        session.add(Workout(date=today, title="胸", movements_json=json.dumps(movements_today, ensure_ascii=False)))
-        session.add(Workout(date=last_week, title="腿", movements_json=json.dumps(movements_last_week, ensure_ascii=False)))
-        session.add(BodyMetric(date=today, type="weight", value=72.4, unit="kg"))
-        session.add(BodyMetric(date=today, type="bodyfat", value=18.2, unit="%"))
-        session.add(GarminDaily(date=today, sleep_json=json.dumps({"sleepTimeSeconds": 25920})))
+        session.add(Workout(date=today, title="胸", user_id=1, movements_json=json.dumps(movements_today, ensure_ascii=False)))
+        session.add(Workout(date=last_week, title="腿", user_id=1, movements_json=json.dumps(movements_last_week, ensure_ascii=False)))
+        session.add(BodyMetric(date=today, type="weight", value=72.4, unit="kg", user_id=1))
+        session.add(BodyMetric(date=today, type="bodyfat", value=18.2, unit="%", user_id=1))
+        session.add(GarminDaily(date=today, user_id=1, sleep_json=json.dumps({"sleepTimeSeconds": 25920})))
         session.commit()
 
         resp = client.get("/api/stats/trends?weeks=4", headers=auth)
@@ -113,10 +118,10 @@ class TestStatsTrends:
         today = date.today()
         old_day = today - timedelta(days=29)  # 超出 4 周窗口
         session.add(Workout(
-            date=old_day, title="旧训练",
+            date=old_day, title="旧训练", user_id=1,
             movements_json=json.dumps([{"name": "卧推", "sets": [{"weight": 100, "reps": 10, "done": True}]}]),
         ))
-        session.add(BodyMetric(date=old_day, type="weight", value=99.9, unit="kg"))
+        session.add(BodyMetric(date=old_day, type="weight", value=99.9, unit="kg", user_id=1))
         session.commit()
 
         resp = client.get("/api/stats/trends?weeks=4", headers=auth)

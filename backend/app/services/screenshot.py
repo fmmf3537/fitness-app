@@ -213,7 +213,7 @@ def _to_ms(day: date, hhmm: str | None) -> int | None:
     return int(datetime.combine(day, time(hh, mm), tzinfo=XUNJI_TZ).timestamp() * 1000)
 
 
-def confirm_import(session: Session, data: dict) -> dict:
+def confirm_import(session: Session, data: dict, *, user_id: int | None = None) -> dict:
     """用户确认后入库：写 xunji_train（source=screenshot），重跑当日匹配，返回结果摘要。"""
     errors = validate_extraction(data)
     if errors:
@@ -239,12 +239,13 @@ def confirm_import(session: Session, data: dict) -> dict:
         title=raw["title"],
         start_ms=start_ms,
         end_ms=end_ms,
+        user_id=user_id,
         raw_json=json.dumps(raw, ensure_ascii=False),
     )
     session.add(train)
     session.commit()
 
-    match_day(session, day)
+    match_day(session, day, user_id=user_id)
 
     workout = (
         session.query(Workout)

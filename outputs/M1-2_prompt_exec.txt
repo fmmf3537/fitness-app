@@ -1,0 +1,68 @@
+你正在参与一个健身数据整合分析 APP 的多用户化改造项目。项目技术栈：
+- 后端：Python 3.11 + FastAPI + SQLAlchemy + PostgreSQL + APScheduler
+- 前端：React 19 + Vite + Tailwind CSS 4 + ECharts
+- 测试：pytest（后端）+ Vitest（前端）+ oxlint（前端 lint）
+- 部署：Docker Compose + Caddy HTTPS
+
+项目已有完善的单用户版本，现在需要改造为多用户版本（2~10 人小圈子）。
+
+【铁律 - 必须遵守】
+1. 只修改任务描述中明确列出的文件，不要动其他文件
+2. 所有数据库查询必须显式包含 user_id 过滤（WHERE user_id = :current_user_id）
+3. 新增代码必须有对应测试用例，特别是权限测试（用户 A 不能访问用户 B 的数据）
+4. 完成后运行 pytest 和 oxlint，确保 0 error、0 warning
+5. 密码使用 bcrypt 哈希，cost=12，禁止明文或可逆加密存储
+6. 发现 PRD 未覆盖的场景，不要擅自实现，记录下来
+
+【项目结构】
+backend/
+  app/
+    models.py          # SQLAlchemy 模型
+    config.py          # 环境变量与加密
+    db.py              # 数据库引擎与 Session
+    main.py            # FastAPI 入口
+    scheduler.py       # APScheduler 任务
+    adapters/          # 外部服务适配器（garmin/xunji/llm）
+    services/          # 业务逻辑层
+    api/               # REST 路由层
+  tests/               # pytest 测试
+  alembic/             # 数据库迁移
+
+【当前任务】
+改造 backend/app/models.py 中的 Setting 模型，使其从「单用户单行表」变为「每用户一行」。
+
+当前 Setting 模型（需改造，来自 Sprint 9）：
+- id: Integer, PK
+- garmin_token_store: Text, nullable      # 注意：当前为明文存储
+- xunji_api_key_enc: Text, nullable
+- default_llm: String(50), nullable
+- llm_keys_json_enc: Text, nullable
+- created_at: DateTime
+
+新 Setting 模型（每用户一行）：
+- id: Integer, PK
+- user_id: Integer, ForeignKey("users.id"), unique=True, nullable=True
+- garmin_token_store_enc: Text, nullable      # 由原 garmin_token_store 改名（保留已有数据）
+- garmin_email_enc: String(255), nullable
+- garmin_password_enc: String(255), nullable
+- xunji_api_key_enc: Text, nullable           # 保留
+- xunji_body_api_key_enc: String(255), nullable
+- default_llm: String(50), nullable           # 保留
+- llm_keys_json_enc: Text, nullable           # 保留
+- leaderboard_opt_out_json: Text, nullable    # JSON 字符串，如 {"frequency": false, "volume": true}
+- created_at: DateTime, server_default=func.now()    # 保留
+- updated_at: DateTime, server_default=func.now(), onupdate=func.now()  # 新增
+
+【要求】
+1. user_id 设为 nullable + unique（不要 not null）：M1-2 仅改模型与迁移，不创建管理员用户（创建默认管理员并关联存量数据是 M1-4 的职责）。这样可保证现有 dev 库那一行 settings 在 user_id=NULL 下平滑升级，且 pytest 仍可通过。
+2. 仅修改 backend/app/models.py，并新增一个 Alembic 迁移文件；不要改其他文件、不要改业务逻辑。
+3. 迁移脚本用 op.alter_column 把列 garmin_token_store 改名为 garmin_token_store_enc（保留已有数据，禁止 drop+add 造成数据丢失）；新增列：user_id、garmin_email_enc、garmin_password_enc、xunji_body_api_key_enc、leaderboard_opt_out_json、updated_at；为 user_id 加唯一索引（ix_settings_user_id）。
+4. 迁移需在本地 SQLite 上 alembic upgrade head 验证通过（后续会切 PG）。
+5. 完成后运行 pytest，确保 models 相关测试通过（0 error）。
+6. 注意：现有业务代码仍按「单行 Setting」读写，改完模型后可能有业务代码报错——这属于预期（M2 阶段统一修复），M1-2 不要求修业务代码，只要求 pytest 中 models 相关用例通过。
+
+【验收标准】
+1. Setting 模型含 user_id（unique）及全部 _enc 字段，字段命名规范（加密字段带 _enc 后缀）。
+2. 迁移脚本生成且可在本地 SQLite 执行（alembic upgrade head 成功），已有 settings 行数据不丢失。
+3. pytest 中 models 相关测试通过（0 error）。
+4. 未改动 models.py 与迁移文件以外的任何文件。

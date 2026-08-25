@@ -32,9 +32,14 @@ def client(session, monkeypatch):
 
 
 @pytest.fixture
-def auth(client):
-    token = client.post("/api/auth/login", json={"password": "test-pass"}).json()["token"]
-    return {"Authorization": f"Bearer {token}"}
+def auth(client, session):
+    from app.services import users as _us
+    try:
+        _us.create_user(session, username="alice", password="test-pass", role="user")
+    except ValueError:
+        pass  # alice 已由 conftest session 预建（id=1）
+    _b = client.post("/api/auth/login", json={"username": "alice", "password": "test-pass"}).json()
+    return {"Authorization": f"Bearer {_b['token']}"}
 
 
 def _make_time_close_candidate(session):
@@ -44,6 +49,7 @@ def _make_time_close_candidate(session):
     activity = make_garmin_activity(session, DAY, activity_id="gc1",
                                     start=time(10, 20), end=time(11, 20))
     candidate = MatchCandidate(
+        user_id=1,
         xunji_train_id=train.id, garmin_activity_id=activity.id,
         reason="time_close", status="pending",
     )
@@ -128,6 +134,7 @@ def test_resolve_split_on_garmin_only_strength_keeps_existing_workout(client, au
     activity = make_garmin_activity(session, DAY, activity_id="gs1")
     workout = fuse_workout(session, DAY, garmin=activity, match_status="garmin_only")
     candidate = MatchCandidate(
+        user_id=1,
         workout_id=workout.id, garmin_activity_id=activity.id,
         reason="garmin_only_strength", status="pending",
     )

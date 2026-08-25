@@ -34,11 +34,18 @@ def fuse_workout(
     xunji: XunjiTrain | None = None,
     garmin: GarminActivity | None = None,
     match_status: str,
+    user_id: int | None = None,
 ) -> Workout:
-    """按 PRD §5.2 融合两侧原始记录，产出 workout 行（保留两侧外键）。"""
+    """按 PRD §5.2 融合两侧原始记录，产出 workout 行（保留两侧外键）。
+
+    user_id 缺省时从 xunji/garmin 源行透传（多用户隔离，M2-4）。
+    """
     if xunji is None and garmin is None:
         raise ValueError("xunji 与 garmin 至少提供一个")
+    if user_id is None:
+        user_id = (xunji.user_id if xunji else None) or (garmin.user_id if garmin else None)
     workout = Workout(
+        user_id=user_id,
         date=day,
         title=(xunji.title if xunji else None) or (garmin.name if garmin else None),
         xunji_train_id=xunji.id if xunji else None,

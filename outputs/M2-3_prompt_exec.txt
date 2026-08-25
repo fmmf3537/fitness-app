@@ -1,0 +1,66 @@
+你正在参与一个健身数据整合分析 APP 的多用户化改造项目（WorkBuddy 协作开发）。
+
+通用铁律（必须遵守）：
+1. 只修改任务中明确列出的文件，不要动业务 api/*.py、services/users.py 以外的逻辑（M2-4 才做 API 权限注入）。
+2. 密码必须使用 app.utils.password.verify_password（bcrypt），禁止明文比较。
+3. 新增代码必须有对应测试用例。
+4. 完成后运行 pytest 与 oxlint，确保 0 error。
+5. 发现 PRD 未覆盖的场景，不要擅自实现，记录在 docs/TECH_DEBT.md。
+
+## 依赖
+- M2-1 已完成：app/utils/password.py 提供 verify_password(plain, hashed)->bool。
+- M2-2 已完成：app/services/users.py 提供 verify_user_password(session, username, password) -> User | None（账号不存在/密码错误/已停用均返回 None）。
+- 已存在：backend/app/models.py 的 User、AuditLog；backend/app/db.py 的 SessionLocal。
+
+## 当前任务：把单用户口令认证改为多用户 token 认证
+
+### 1. 新建模型：backend/app/models.py 新增 AuthToken
+class AuthToken(Base):
+    __tablename__ = "auth_token"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    token = Column(String(64), unique=True, index=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+- token 用 secrets.token_urlsafe(32) 生成（64 字符以内）。
+- 过期时间 = created_at + 有效期（建议 7 天 / timedelta(days=7)）；不在 token 里硬编码过期年（用 datetime.utcnow()）。
+- 在 User 与 AuthToken 之间按需加 relationship（可不强制，按现有 models 风格）。
+
+### 2. 新增 Alembic 迁移：backend/alembic/versions/
+- 生成 auth_token 表迁移（downgrade 删除表）。
+- 保持迁移链线性：基于 M1-4 之后的 head。在 backend 目录运行 alembic revision --autogenerate -m "add auth_token" 后核对生成的脚本，确保只含 auth_token 表，不要误改其他表。
+
+### 3. 改造 backend/app/api/auth.py
+- 保留 APIRouter(prefix="/api/auth", tags=["auth"])。
+- 新增 Pydantic 模型 LoginRequest { username: str, password: str }（替换原仅口令模型）。
+- POST /api/auth/login：用 verify_user_password 校验；成功后在 AuthToken 插入一行（user_id, token, expires_at），返回 {"token": token, "user_id": user.id, "role": user.role}。校验失败时返回 401（不区分「用户不存在」与「密码错」，统一提示以避免枚举）。
+- 新增 POST /api/auth/logout：校验 Bearer token 有效后，将该 AuthToken 置 is_active=False（软失效），返回 200。
+- 新增依赖 get_current_user_id(authorization: str | None = Header(default=None)) -> int：
+  - 解析 Bearer <token>；查询 AuthToken（is_active=True 且 expires_at > now）。
+  - 命中 -> 返回 user_id；未命中（缺头/格式错/不存在/过期/失效）-> 401「未登录或会话已过期」。
+  - 注意：这是 M2-4 注入到业务 API 的依赖基础，本次只在 auth.py 定义并测试，不在业务路由使用。
+- 保留原 require_auth（若后续无引用可保留不删，避免影响其他文件）。
+
+### 4. 新建测试：backend/tests/test_auth.py
+- 用 pytest + conftest 的 session fixture 或自建临时 SQLite + SessionLocal。
+- 覆盖：
+  - 登录成功返回 token 且 AuthToken 表写入一行；
+  - 错误密码 / 不存在用户 -> 401 且无 token 写入；
+  - 已停用用户登录 -> 401；
+  - get_current_user_id 对有效 token 返回正确 user_id；对无效/过期/缺失 token -> 401；
+  - 登出后该 token 再次调用受保护接口失效（或 get_current_user_id 直接返回 401）。
+- AuthToken 过期测试可用一个已过期 expires_at 的手动构造行验证。
+
+### 5. 要求
+- 仅修改 backend/app/models.py、backend/app/api/auth.py，新增迁移文件与 backend/tests/test_auth.py。
+- 运行以下命令（务必 --no-cov 避免 safe-delete 拦截）：
+  - cd backend && .venv/Scripts/python.exe -m pytest tests/test_auth.py tests/test_users_service.py -q --no-cov
+  - alembic：cd backend && .venv/Scripts/python.exe -m alembic upgrade head（验证迁移可在 SQLite 跑通）
+- 不自行 commit，仅留工作区待审核。
+
+### 验收标准
+1. 登录用 username+password，token 落库且可过期/可登出失效。
+2. get_current_user_id 正确返回 user_id 或 401。
+3. 不破坏现有 services/users.py、业务 api。
+4. 测试覆盖上述场景且全部 passed（exit 0）。

@@ -9,7 +9,7 @@ from datetime import date, datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.api.auth import require_auth
+from app.api.auth import get_current_user_id
 from app.db import get_session
 from app.models import LLMCall
 
@@ -30,16 +30,18 @@ def _month_range(month: str | None) -> tuple[int, int, datetime, datetime]:
     return year, mon, start, end
 
 
-@router.get("/monthly-usage", dependencies=[Depends(require_auth)])
+@router.get("/monthly-usage")
 def get_monthly_usage(
     month: str | None = Query(default=None),
     session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id),
 ) -> dict:
     """月度成本汇总：按 provider 分组返回 token 与估算成本（默认当月）。"""
     year, mon, start, end = _month_range(month)
     rows = (
         session.query(LLMCall)
-        .filter(LLMCall.created_at >= start, LLMCall.created_at < end)
+        .filter(LLMCall.created_at >= start, LLMCall.created_at < end,
+                LLMCall.user_id == current_user_id)
         .all()
     )
     groups: dict[str, dict] = {}

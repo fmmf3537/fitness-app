@@ -272,7 +272,7 @@ def test_import_triggers_rematch(session, fit_file):
 
     train = make_xunji_train(session, DAY, localid="x1",
                              start=time(18, 0), end=time(19, 0))
-    result = import_fit_file(session, fit_file)
+    result = import_fit_file(session, fit_file, user_id=1)
 
     workout = session.query(Workout).filter(
         Workout.garmin_activity_id == result["activity"].id
@@ -288,7 +288,7 @@ def test_import_match_fn_injectable(session, fit_file):
 
     fake_match = Mock(return_value={"workouts": [], "candidates": []})
     import_fit_file(session, fit_file, match_fn=fake_match)
-    fake_match.assert_called_once_with(session, DAY)
+    fake_match.assert_called_once_with(session, DAY, user_id=None)
 
 
 # ---------- 异常路径 ----------

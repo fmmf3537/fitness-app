@@ -4,15 +4,14 @@ from datetime import date, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.api.auth import require_auth
+from app.api.auth import get_current_user, resolve_viewer
 from app.db import get_session
-from app.models import BodyMetric, GarminDaily, Workout
+from app.models import BodyMetric, GarminDaily, User, Workout
 from app.services import stats as stats_service
 
 router = APIRouter(
     prefix="/api/stats",
     tags=["stats"],
-    dependencies=[Depends(require_auth)],
 )
 
 
@@ -20,6 +19,8 @@ router = APIRouter(
 def stats_trends(
     weeks: int = Query(default=4),
     session: Session = Depends(get_session),
+    principal: User = Depends(get_current_user),
+    override_user_id: int | None = Query(default=None, alias="user_id"),
 ) -> dict:
     """近 N 周趋势：周容量 / 部位频率 / 体重体脂 / 睡眠×容量。weeks 仅支持 4 或 12。"""
     if weeks not in (4, 12):
@@ -33,6 +34,7 @@ def stats_trends(
             Workout.date >= start,
             Workout.date <= end,
             Workout.deleted_at.is_(None),
+            Workout.user_id == resolve_viewer(principal, override_user_id),
         )
         .all()
     )
@@ -48,6 +50,7 @@ def stats_trends(
             BodyMetric.date >= start,
             BodyMetric.date <= end,
             BodyMetric.type.in_(["weight", "bodyfat"]),
+            BodyMetric.user_id == resolve_viewer(principal, override_user_id),
         )
         .order_by(BodyMetric.date)
         .all()
@@ -58,6 +61,7 @@ def stats_trends(
             GarminDaily.date >= start,
             GarminDaily.date <= end,
             GarminDaily.sleep_json.isnot(None),
+            GarminDaily.user_id == resolve_viewer(principal, override_user_id),
         )
         .order_by(GarminDaily.date)
         .all()

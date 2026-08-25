@@ -1,0 +1,34 @@
+你是资深后端工程师，在 WorkBuddy 的多用户改造项目里完成 M1-4 任务。分支 multiuser-v2 已完成 M1-1（users/audit_log）、M1-2（settings 每用户一行）、M1-3（11 张业务表加 user_id，全部 nullable）。本任务仅新建一个脚本及其单元测试，不要修改其他任何文件（包括 models.py、迁移文件、业务代码）。
+
+任务：新建 `backend/scripts/migrate_to_multiuser.py` 与 `backend/tests/test_migrate_to_multiuser.py`。
+
+背景：所有目标表的 user_id 当前为 NULL，脚本把存量记录归属到「默认管理员」用户。这是破坏性回填脚本，默认 --dry-run，必须显式 --apply 才真实写入；--apply 前打印醒目警告并要求确认。
+
+功能要求：
+1. 默认管理员创建：检查 users 表，若为空则创建默认管理员——用户名从环境变量 ADMIN_USERNAME 读取（默认 "admin"），密码从 ADMIN_PASSWORD 读取，若为空则随机生成 16 位（大小写字母+数字）密码并仅打印一次到控制台提示保存，role="admin"、is_active=True；若 users 非空则跳过创建，取第一个 role='admin' 的用户作为归属用户。返回管理员 user_id。
+2. 存量回填：为以下表所有 user_id IS NULL 的记录设置 user_id=管理员 id：settings、xunji_train、garmin_activity、garmin_daily、body_metric、workout、match_candidate、xunji_plan、ai_report、llm_call、job_run、report_chat_message。其中 settings 表若已有多行 NULL，需先去重/合并到一行再赋值（避免违反 UNIQUE(user_id)），无法自动合并则打印警告并跳过 settings 赋值、记入报告；job_run 的 user_id 业务上可 NULL，仅回填当前 NULL 的行即可。
+3. 迁移报告：每张表输出「待处理行数 → 实际更新行数」，最后打印汇总（总表名、总行数、耗时）。
+4. --dry-run（默认）：仅输出「计划：每张表 X 行将被更新」，不执行任何 UPDATE；必须显式 --apply 才真实写入。
+
+技术约束（非常重要）：
+- 不要 import app.models / app.db，直接用 sqlalchemy 读 DATABASE_URL（优先 os.environ["DATABASE_URL"]，否则读 .env），建立原生 Engine 与 Connection/Session，避免循环导入。
+- 数据库连不上、表不存在等情况要有明确报错，不静默吞异常。
+- 使用参数化 UPDATE（text("UPDATE <table> SET user_id=:uid WHERE user_id IS NULL")），禁止字符串拼接 id 值。
+- 脚本顶部写清楚用法：python scripts/migrate_to_multiuser.py --dry-run（默认）、python scripts/migrate_to_multiuser.py --apply（真实写入；执行前必须先备份数据库）。
+
+测试要求：
+- 新建 backend/tests/test_migrate_to_multiuser.py，用临时 SQLite 库（建最小表结构：users + 上面 11 张表的 user_id 列）：
+  1. dry-run 不修改任何行，但报告正确的待处理行数；
+  2. 空 users 表时 --apply 创建管理员并回填，所有表 user_id 均等于管理员 id；
+  3. 已存在管理员时，不重复创建，仍正确回填。
+- 运行 pytest tests/test_migrate_to_multiuser.py 通过。
+
+验收：
+1. 脚本可运行，--dry-run 输出正确迁移计划；
+2. --apply 真实执行后所有目标表 user_id 正确赋值，数据行数不变（仅改 user_id，无增删）；
+3. pytest 通过；
+4. 不修改 models.py、迁移文件、业务代码——仅新增脚本与测试。
+
+红线：绝不删除/清空任何表，仅 UPDATE user_id；不改动除新增文件之外的任何文件；--apply 前打印醒目警告并要求 --apply 显式确认。
+
+完成后请用中文简要汇报：新增了哪些文件、测试是否通过、dry-run 与 apply 各自的行为、是否符合验收。

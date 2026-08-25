@@ -23,10 +23,11 @@ from app.models import (
 _DELETE_REPORT_TYPES = ("session_review", "next_advice")
 
 
-def delete_workout(session: Session, workout_id: int) -> Workout | None:
-    """软删除一次训练。幂等：已删除时直接返回现状；不存在返回 None。"""
+def delete_workout(session: Session, workout_id: int, *,
+                   user_id: int | None = None) -> Workout | None:
+    """软删除一次训练。幂等：已删除时直接返回现状；不存在或不属于该用户返回 None。"""
     w = session.get(Workout, workout_id)
-    if w is None:
+    if w is None or w.user_id != user_id:
         return None
     if w.deleted_at is not None:
         return w
@@ -64,10 +65,11 @@ def delete_workout(session: Session, workout_id: int) -> Workout | None:
     return w
 
 
-def restore_workout(session: Session, workout_id: int) -> Workout | None:
-    """恢复已删除的训练：清 deleted_at 与两侧墓碑。不存在或未删除返回 None。"""
+def restore_workout(session: Session, workout_id: int, *,
+                    user_id: int | None = None) -> Workout | None:
+    """恢复已删除的训练：清 deleted_at 与两侧墓碑。不存在/未删除/不属于该用户返回 None。"""
     w = session.get(Workout, workout_id)
-    if w is None or w.deleted_at is None:
+    if w is None or w.user_id != user_id or w.deleted_at is None:
         return None
 
     w.deleted_at = None
@@ -83,11 +85,11 @@ def restore_workout(session: Session, workout_id: int) -> Workout | None:
     return w
 
 
-def list_deleted_workouts(session: Session) -> list[Workout]:
+def list_deleted_workouts(session: Session, *, user_id: int | None = None) -> list[Workout]:
     """已删除训练列表（删除时间倒序），供「已删除的训练」页恢复操作。"""
     return (
         session.query(Workout)
-        .filter(Workout.deleted_at.isnot(None))
+        .filter(Workout.deleted_at.isnot(None), Workout.user_id == user_id)
         .order_by(Workout.deleted_at.desc(), Workout.id.desc())
         .all()
     )

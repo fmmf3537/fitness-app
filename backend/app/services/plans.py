@@ -84,16 +84,20 @@ def extract_plan_days(data: Any) -> list[dict]:
     return days
 
 
-def _candidate_rows(session: Session, start: date, end: date) -> list[XunjiPlan]:
+def _candidate_rows(session: Session, start: date, end: date,
+                     user_id: int | None = None) -> list[XunjiPlan]:
+    filters = [
+        XunjiPlan.plan_json.isnot(None),
+        XunjiPlan.date_from.isnot(None),
+        XunjiPlan.date_to.isnot(None),
+        XunjiPlan.date_from <= end,
+        XunjiPlan.date_to >= start,
+    ]
+    if user_id is not None:
+        filters.append(XunjiPlan.user_id == user_id)
     return (
         session.query(XunjiPlan)
-        .filter(
-            XunjiPlan.plan_json.isnot(None),
-            XunjiPlan.date_from.isnot(None),
-            XunjiPlan.date_to.isnot(None),
-            XunjiPlan.date_from <= end,
-            XunjiPlan.date_to >= start,
-        )
+        .filter(*filters)
         .all()
     )
 
@@ -103,6 +107,7 @@ def query_plan_days(
     start: date,
     *,
     days: int = 30,
+    user_id: int | None = None,
 ) -> list[dict]:
     """从 start 起逐日计划视图（API 输出形态）：训练日带动作清单，无计划日 is_rest=True。
 
@@ -111,7 +116,7 @@ def query_plan_days(
     """
     end = start + timedelta(days=days - 1)
     by_date: dict[date, dict] = {}
-    for row in _candidate_rows(session, start, end):
+    for row in _candidate_rows(session, start, end, user_id=user_id):
         data = parse_json(row.plan_json)
         if not isinstance(data, dict):
             continue
@@ -152,12 +157,13 @@ def query_plan_days(
     return result
 
 
-def query_plan_day(session: Session, target_date: date) -> dict | None:
+def query_plan_day(session: Session, target_date: date, *,
+                     user_id: int | None = None) -> dict | None:
     """取某日的计划训练日（内部形态，movements 归一化 sets，供 prompt 组装）。
 
     休息日 / 缓存缺失 / 计划已结束均返回 None。
     """
-    for row in _candidate_rows(session, target_date, target_date):
+    for row in _candidate_rows(session, target_date, target_date, user_id=user_id):
         data = parse_json(row.plan_json)
         if not isinstance(data, dict) or plan_status(data) == PLAN_ENDED:
             continue

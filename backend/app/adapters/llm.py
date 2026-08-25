@@ -126,18 +126,18 @@ def compute_cost(provider: str, prompt_tokens: int, completion_tokens: int) -> f
 
 # ---------- settings 表 Key 存取（Fernet 加密） ----------
 
-def _get_or_create_settings(session: Session) -> Setting:
-    row = session.scalars(select(Setting)).first()
+def _get_or_create_settings(session: Session, user_id: int | None = None) -> Setting:
+    row = session.scalars(select(Setting).where(Setting.user_id == user_id)).first()
     if row is None:
-        row = Setting()
+        row = Setting(user_id=user_id)
         session.add(row)
         session.flush()
     return row
 
 
-def get_stored_keys(session: Session) -> dict[str, str]:
-    """从 settings 表读取并解密全部 LLM Key。"""
-    row = session.scalars(select(Setting)).first()
+def get_stored_keys(session: Session, user_id: int | None = None) -> dict[str, str]:
+    """从 settings 表读取并解密某用户的全部 LLM Key。"""
+    row = session.scalars(select(Setting).where(Setting.user_id == user_id)).first()
     if row is None or not row.llm_keys_json_enc:
         return {}
     try:
@@ -147,34 +147,34 @@ def get_stored_keys(session: Session) -> dict[str, str]:
     return {k: v for k, v in data.items() if isinstance(v, str) and v}
 
 
-def save_api_key(session: Session, provider: str, api_key: str) -> None:
-    """加密保存某厂商 Key 到 settings 表。"""
-    keys = get_stored_keys(session)
+def save_api_key(session: Session, provider: str, api_key: str, *, user_id: int | None = None) -> None:
+    """加密保存某厂商 Key 到 settings 表（按用户隔离）。"""
+    keys = get_stored_keys(session, user_id)
     keys[provider] = api_key
-    row = _get_or_create_settings(session)
+    row = _get_or_create_settings(session, user_id)
     row.llm_keys_json_enc = encrypt_value(json.dumps(keys, ensure_ascii=False))
     session.commit()
 
 
-def get_default_provider(session: Session) -> str:
-    row = session.scalars(select(Setting)).first()
+def get_default_provider(session: Session, user_id: int | None = None) -> str:
+    row = session.scalars(select(Setting).where(Setting.user_id == user_id)).first()
     if row is not None and row.default_llm in PROVIDERS:
         return row.default_llm
     return DEFAULT_PROVIDER
 
 
-def set_default_provider(session: Session, provider: str) -> None:
+def set_default_provider(session: Session, provider: str, *, user_id: int | None = None) -> None:
     if provider not in PROVIDERS:
         raise LLMError(f"未知 provider：{provider}")
-    row = _get_or_create_settings(session)
+    row = _get_or_create_settings(session, user_id)
     row.default_llm = provider
     session.commit()
 
 
-def resolve_api_key(session: Session | None, provider: str) -> str:
-    """Key 解析优先级：settings 表（加密存储）→ 环境变量。找不到返回空串。"""
+def resolve_api_key(session: Session | None, provider: str, *, user_id: int | None = None) -> str:
+    """Key 解析优先级：settings 表（加密存储，按用户）→ 环境变量。找不到返回空串。"""
     if session is not None:
-        key = get_stored_keys(session).get(provider)
+        key = get_stored_keys(session, user_id).get(provider)
         if key:
             return key
     settings = get_settings()

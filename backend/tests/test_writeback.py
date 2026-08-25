@@ -551,14 +551,19 @@ def test_confirm_rejects_nonstandard_movement_name(service, session):
 
 
 @pytest.fixture
-def api_client(env_vars, monkeypatch):
+def api_client(env_vars, monkeypatch, session):
     monkeypatch.setenv("APP_PASSWORD", "test-pass")
     from app.config import get_settings
+    from app.db import get_session
 
     get_settings.cache_clear()
     from app.api.writeback import get_writeback_service
 
+    def override_session():
+        yield session
+
     app.dependency_overrides[get_writeback_service] = lambda: _FakeService()
+    app.dependency_overrides[get_session] = override_session
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
@@ -583,25 +588,42 @@ class _FakeService:
 
 
 @pytest.fixture
-def auth(api_client):
-    token = api_client.post("/api/auth/login", json={"password": "test-pass"}).json()["token"]
-    return {"Authorization": f"Bearer {token}"}
+def auth(api_client, session):
+    from app.services import users as _us
+    try:
+        _us.create_user(session, username="alice", password="test-pass", role="user")
+    except ValueError:
+        pass  # alice 已由 conftest session 预建（id=1）
+    _b = api_client.post("/api/auth/login", json={"username": "alice", "password": "test-pass"}).json()
+    return {"Authorization": f"Bearer {_b['token']}"}
 
 
 def test_api_preview_requires_auth(api_client):
-    resp = api_client.post(
-        "/api/writeback/preview",
-        json={"datestr": DATESTR, "localid": 111, "changes": CHANGES},
-    )
-    assert resp.status_code == 401
+    from app.api.writeback import get_writeback_service
+    # 取消 service override，让真实鉴权依赖链（get_current_user_id）生效，
+    # 验证无 token 时被 401 拦截（不会触达真实 service）。
+    app.dependency_overrides.pop(get_writeback_service, None)
+    try:
+        resp = api_client.post(
+            "/api/writeback/preview",
+            json={"datestr": DATESTR, "localid": 111, "changes": CHANGES},
+        )
+        assert resp.status_code == 401
+    finally:
+        app.dependency_overrides[get_writeback_service] = lambda: _FakeService()
 
 
 def test_api_confirm_requires_auth(api_client):
-    resp = api_client.post(
-        "/api/writeback/confirm",
-        json={"datestr": DATESTR, "localid": 111, "changes": CHANGES},
-    )
-    assert resp.status_code == 401
+    from app.api.writeback import get_writeback_service
+    app.dependency_overrides.pop(get_writeback_service, None)
+    try:
+        resp = api_client.post(
+            "/api/writeback/confirm",
+            json={"datestr": DATESTR, "localid": 111, "changes": CHANGES},
+        )
+        assert resp.status_code == 401
+    finally:
+        app.dependency_overrides[get_writeback_service] = lambda: _FakeService()
 
 
 def test_api_preview_returns_diff(api_client, auth):

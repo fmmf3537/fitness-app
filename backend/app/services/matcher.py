@@ -58,32 +58,41 @@ def _garmin_interval(activity: GarminActivity) -> tuple[datetime, datetime] | No
     return (activity.start_ts, activity.end_ts)
 
 
-def _processed_ids(session: Session) -> tuple[set, set]:
+def _processed_ids(session: Session, user_id: int | None = None) -> tuple[set, set]:
     """已被 workout 或 pending 候选引用的原始记录 id（保证重复运行幂等）。
 
     注意：不过滤 deleted_at——已软删除 workout 的源 id 仍算“已处理”，
     与 excluded 墓碑共同保证删除后不被重建（V3-11）。
+    user_id 限定命名空间（多用户隔离，M2-4；None 对应存量 NULL 行）。
     """
-    done_x = {r[0] for r in session.query(Workout.xunji_train_id).filter(Workout.xunji_train_id.isnot(None))}
-    done_g = {r[0] for r in session.query(Workout.garmin_activity_id).filter(Workout.garmin_activity_id.isnot(None))}
-    pending = session.query(MatchCandidate).filter(MatchCandidate.status == "pending").all()
+    done_x = {r[0] for r in session.query(Workout.xunji_train_id).filter(
+        Workout.xunji_train_id.isnot(None), Workout.user_id == user_id)}
+    done_g = {r[0] for r in session.query(Workout.garmin_activity_id).filter(
+        Workout.garmin_activity_id.isnot(None), Workout.user_id == user_id)}
+    pending = session.query(MatchCandidate).filter(
+        MatchCandidate.status == "pending", MatchCandidate.user_id == user_id).all()
     for c in pending:
         done_x.add(c.xunji_train_id)
         done_g.add(c.garmin_activity_id)
     return done_x, done_g
 
 
-def match_day(session: Session, day: date, *, chat_fn=None) -> dict:
+def match_day(session: Session, day: date, *, chat_fn=None, user_id: int | None = None) -> dict:
     """对某一天执行训记×佳明匹配与融合。
 
     返回 {"workouts": [...], "candidates": [...], "refreshed": [workout_id, ...]}。
     chat_fn 透传给 AI 重生成（测试注入）；为 None 时走 adapters.llm.chat。
+    user_id 限定参与匹配的原始记录与产出行归属（多用户隔离，M2-4）。
     """
     datestr = day.isoformat()
     # excluded=True 为删除墓碑（V3-11）：不参与匹配
     trains = (
         session.query(XunjiTrain)
-        .filter(XunjiTrain.datestr == datestr, XunjiTrain.excluded.is_(False))
+        .filter(
+            XunjiTrain.datestr == datestr,
+            XunjiTrain.excluded.is_(False),
+            XunjiTrain.user_id == user_id,
+        )
         .all()
     )
     day_start = datetime.combine(day, time.min)
@@ -94,11 +103,12 @@ def match_day(session: Session, day: date, *, chat_fn=None) -> dict:
             GarminActivity.start_ts >= day_start,
             GarminActivity.start_ts < day_end,
             GarminActivity.excluded.is_(False),
+            GarminActivity.user_id == user_id,
         )
         .all()
     )
 
-    done_x, done_g = _processed_ids(session)
+    done_x, done_g = _processed_ids(session, user_id)
     unmatched_x = [t for t in trains if t.id not in done_x]
     unmatched_g = [a for a in activities if a.id not in done_g]
 
@@ -132,6 +142,7 @@ def match_day(session: Session, day: date, *, chat_fn=None) -> dict:
                 continue
             if abs(xi[0] - gi[0]) <= CLOSE_DELTA or abs(xi[1] - gi[1]) <= CLOSE_DELTA:
                 candidates.append(MatchCandidate(
+                    user_id=user_id,
                     xunji_train_id=x.id,
                     garmin_activity_id=g.id,
                     reason="time_close",
@@ -143,18 +154,19 @@ def match_day(session: Session, day: date, *, chat_fn=None) -> dict:
 
     # 自动匹配对 → 融合
     for x, g in pairs:
-        workouts.append(fuse_workout(session, day, xunji=x, garmin=g, match_status="auto_matched"))
+        workouts.append(fuse_workout(session, day, xunji=x, garmin=g, match_status="auto_matched", user_id=user_id))
 
     # 剩余训记单边
     for x in unmatched_x:
-        workouts.append(fuse_workout(session, day, xunji=x, match_status="xunji_only"))
+        workouts.append(fuse_workout(session, day, xunji=x, match_status="xunji_only", user_id=user_id))
 
     # 剩余佳明单边（力量类型提示可生成训记草稿）
     for g in unmatched_g:
-        w = fuse_workout(session, day, garmin=g, match_status="garmin_only")
+        w = fuse_workout(session, day, garmin=g, match_status="garmin_only", user_id=user_id)
         workouts.append(w)
         if (g.activity_type or "").lower() in STRENGTH_TYPES:
             candidates.append(MatchCandidate(
+                user_id=user_id,
                 workout_id=w.id,
                 garmin_activity_id=g.id,
                 reason="garmin_only_strength",
@@ -163,11 +175,12 @@ def match_day(session: Session, day: date, *, chat_fn=None) -> dict:
 
     session.add_all(candidates)
     session.commit()
-    refreshed = _refresh_stale_workouts(session, day, chat_fn=chat_fn)
+    refreshed = _refresh_stale_workouts(session, day, chat_fn=chat_fn, user_id=user_id)
     return {"workouts": workouts, "candidates": candidates, "refreshed": refreshed}
 
 
-def _refresh_stale_workouts(session: Session, day: date, *, chat_fn=None) -> list[int]:
+def _refresh_stale_workouts(session: Session, day: date, *, chat_fn=None,
+                            user_id: int | None = None) -> list[int]:
     """V2-7b 缺陷3：已配对 workout 的训记原始记录若在 workout.updated_at 之后
     重新拉取过（fetched_at 更新），就地用 fuse._extract_movements 重算
     movements_json（不新建 workout 行、不动匹配关系），并删除该 workout 当日
@@ -185,6 +198,7 @@ def _refresh_stale_workouts(session: Session, day: date, *, chat_fn=None) -> lis
             Workout.date == day,
             Workout.xunji_train_id.isnot(None),
             Workout.deleted_at.is_(None),
+            Workout.user_id == user_id,
         )
         .order_by(Workout.id)
         .all()
@@ -203,11 +217,14 @@ def _refresh_stale_workouts(session: Session, day: date, *, chat_fn=None) -> lis
         return []
 
     # 删除当日旧 AI 报告（两种类型），提交后重生成
+    # synchronize_session="fetch"：使删除行从 session 身份映射中失效，
+    # 否则 run_daily_reviews/run_daily_next_advices 的"已存在则跳过"幂等检查
+    # 会看到被缓存的旧报告而跳过重生成。
     session.query(AIReport).filter(
         AIReport.workout_id.in_(refreshed),
         AIReport.type.in_(("session_review", "next_advice")),
         AIReport.period_start == day,
-    ).delete(synchronize_session=False)
+    ).delete(synchronize_session="fetch")
     session.commit()
 
     try:

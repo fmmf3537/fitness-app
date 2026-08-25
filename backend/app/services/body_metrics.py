@@ -90,13 +90,16 @@ def upsert_body_metric(
     *,
     unit: str | None = None,
     note: str | None = None,
+    user_id: int | None = None,
 ) -> BodyMetric:
-    """按 (date, type) upsert：同日同类型覆盖旧值（幂等）。"""
+    """按 (date, type, user_id) upsert：同日同类型覆盖旧值（幂等，按用户隔离）。"""
     default_unit = validate_metric(type_, value)
-    stmt = select(BodyMetric).where(BodyMetric.date == day, BodyMetric.type == type_)
+    stmt = select(BodyMetric).where(
+        BodyMetric.date == day, BodyMetric.type == type_, BodyMetric.user_id == user_id
+    )
     row = session.scalars(stmt).first()
     if row is None:
-        row = BodyMetric(date=day, type=type_)
+        row = BodyMetric(date=day, type=type_, user_id=user_id)
         session.add(row)
     row.value = float(value)
     row.unit = unit or default_unit
@@ -110,9 +113,12 @@ def query_body_metrics(
     type_: str | None = None,
     from_: date | None = None,
     to: date | None = None,
+    user_id: int | None = None,
 ) -> list[BodyMetric]:
-    """趋势查询：按类型/日期区间过滤，日期升序。"""
-    stmt = select(BodyMetric).order_by(BodyMetric.date, BodyMetric.id)
+    """趋势查询：按类型/日期区间过滤，日期升序（按 user_id 隔离）。"""
+    stmt = select(BodyMetric).where(BodyMetric.user_id == user_id).order_by(
+        BodyMetric.date, BodyMetric.id
+    )
     if type_ is not None:
         stmt = stmt.where(BodyMetric.type == type_)
     if from_ is not None:

@@ -12,7 +12,8 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.adapters import llm
-from app.api.auth import require_auth
+from app.api.auth import get_current_user_id
+from app.config import get_settings
 from app.db import get_session
 from app.models import LLMCall
 
@@ -25,26 +26,36 @@ class LLMSettingsPut(BaseModel):
     set_default: bool = False
 
 
-@router.get("/llm", dependencies=[Depends(require_auth)])
-def get_llm_settings(session: Session = Depends(get_session)) -> dict:
-    stored = llm.get_stored_keys(session)
+@router.get("/llm")
+def get_llm_settings(
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id),
+) -> dict:
+    stored = llm.get_stored_keys(session, current_user_id)
+    # 该用户可用 Key：已存 Key ∪ 环境变量全局 Key（仅用于「是否有可用 Key」判定）
+    env_keys = {
+        "deepseek": get_settings().deepseek_api_key,
+        "minimax": get_settings().minimax_api_key,
+        "kimi": get_settings().kimi_api_key,
+    }
+    usable = {name: bool(stored.get(name)) or bool(env_keys.get(name)) for name in llm.PROVIDERS}
     providers = [
         {
             "name": name,
             "base_url": cfg["base_url"],
             "default_model": cfg["default_model"],
             "implemented": cfg["implemented"],
-            "has_key": bool(stored.get(name) or llm.resolve_api_key(None, name)),
+            "has_key": bool(stored.get(name)),  # 设置页只展示「本用户已配置」Key
             "consecutive_failures": llm.get_consecutive_failures(session, name),
         }
         for name, cfg in llm.PROVIDERS.items()
     ]
-    default = llm.get_default_provider(session)
+    default = llm.get_default_provider(session, current_user_id)
     suggested_fallback = None
     if any(p["name"] == default and p["consecutive_failures"] >= 2 for p in providers):
-        # 默认模型连续失败 ≥2 次：建议切到第一个其他已配置 Key 的 provider
+        # 默认模型连续失败 ≥2 次：建议切到第一个其他「可用」的 provider（含环境变量 Key）
         suggested_fallback = next(
-            (p["name"] for p in providers if p["name"] != default and p["implemented"] and p["has_key"]),
+            (p["name"] for p in providers if p["name"] != default and p["implemented"] and usable.get(p["name"])),
             None,
         )
     return {
@@ -54,10 +65,11 @@ def get_llm_settings(session: Session = Depends(get_session)) -> dict:
     }
 
 
-@router.get("/llm/usage", dependencies=[Depends(require_auth)])
+@router.get("/llm/usage")
 def get_llm_usage(
     month: str | None = Query(default=None),
     session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id),
 ) -> dict:
     """LLM 调用月度用量统计（默认当月），按 (provider, model) 分组聚合。"""
     if month is None:
@@ -76,7 +88,8 @@ def get_llm_usage(
 
     rows = (
         session.query(LLMCall)
-        .filter(LLMCall.created_at >= start, LLMCall.created_at < end)
+        .filter(LLMCall.created_at >= start, LLMCall.created_at < end,
+                LLMCall.user_id == current_user_id)
         .all()
     )
     groups: dict[tuple, dict] = {}
@@ -103,8 +116,12 @@ def get_llm_usage(
     }
 
 
-@router.put("/llm", dependencies=[Depends(require_auth)])
-def put_llm_settings(req: LLMSettingsPut, session: Session = Depends(get_session)) -> dict:
+@router.put("/llm")
+def put_llm_settings(
+    req: LLMSettingsPut,
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id),
+) -> dict:
     if req.provider not in llm.PROVIDERS:
         raise HTTPException(status_code=400, detail=f"未知 provider：{req.provider}")
     if not llm.PROVIDERS[req.provider]["implemented"]:
@@ -113,13 +130,13 @@ def put_llm_settings(req: LLMSettingsPut, session: Session = Depends(get_session
         # V2-1：仅切换默认模型（要求该 provider 已配置 Key）
         if not req.set_default:
             raise HTTPException(status_code=400, detail="api_key 不能为空")
-        if not llm.resolve_api_key(session, req.provider):
+        if not llm.resolve_api_key(session, req.provider, user_id=current_user_id):
             raise HTTPException(status_code=400, detail=f"provider {req.provider} 未配置 Key，无法设为默认")
-        llm.set_default_provider(session, req.provider)
-        return {"ok": True, "provider": req.provider, "default_llm": llm.get_default_provider(session)}
+        llm.set_default_provider(session, req.provider, user_id=current_user_id)
+        return {"ok": True, "provider": req.provider, "default_llm": llm.get_default_provider(session, current_user_id)}
     if not llm.verify_api_key(req.provider, req.api_key):
         raise HTTPException(status_code=400, detail="Key 验证失败（厂商接口返回非 200），未保存")
-    llm.save_api_key(session, req.provider, req.api_key)
+    llm.save_api_key(session, req.provider, req.api_key, user_id=current_user_id)
     if req.set_default:
-        llm.set_default_provider(session, req.provider)
-    return {"ok": True, "provider": req.provider, "default_llm": llm.get_default_provider(session)}
+        llm.set_default_provider(session, req.provider, user_id=current_user_id)
+    return {"ok": True, "provider": req.provider, "default_llm": llm.get_default_provider(session, current_user_id)}

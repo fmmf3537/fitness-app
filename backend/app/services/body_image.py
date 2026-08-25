@@ -200,6 +200,7 @@ def confirm_import(
     *,
     sync_xunji: bool = False,
     body_client: Any = None,
+    user_id: int | None = None,
 ) -> dict:
     """用户确认后批量入库：selected=true 的指标按 (date, type) upsert（幂等）。
 
@@ -213,7 +214,7 @@ def confirm_import(
             continue
         type_ = item.get("type")
         value = item.get("value")
-        row = upsert_body_metric(session, day, type_, value)  # 非法类型/数值抛 BodyMetricValidationError
+        row = upsert_body_metric(session, day, type_, value, user_id=user_id)  # 非法类型/数值抛 BodyMetricValidationError
         warning = range_warning(row.type, row.value)
         if warning:
             warnings.append(warning)

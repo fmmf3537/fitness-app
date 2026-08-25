@@ -1,0 +1,97 @@
+你正在参与一个健身数据整合分析 APP 的多用户化改造项目。项目技术栈：
+- 后端：Python 3.11 + FastAPI + SQLAlchemy + PostgreSQL + APScheduler
+- 前端：React 19 + Vite + Tailwind CSS 4 + ECharts
+- 测试：pytest（后端）+ Vitest（前端）+ oxlint（前端 lint）
+- 部署：Docker Compose + Caddy HTTPS
+
+项目已有完善的单用户版本，现在需要改造为多用户版本（2~10 人小圈子）。
+
+【铁律 - 必须遵守】
+1. 只修改任务描述中明确列出的文件，不要动其他文件
+2. 所有数据库查询必须显式包含 user_id 过滤（WHERE user_id = :current_user_id）
+3. 新增代码必须有对应测试用例，特别是权限测试（用户 A 不能访问用户 B 的数据）
+4. 完成后运行 pytest 和 oxlint，确保 0 error、0 warning
+5. 密码使用 bcrypt 哈希，cost=12，禁止明文或可逆加密存储
+6. 发现 PRD 未覆盖的场景，不要擅自实现，记录下来
+
+【项目结构】
+backend/
+  app/
+    models.py          # SQLAlchemy 模型
+    config.py          # 环境变量与加密
+    db.py              # 数据库引擎与 Session
+    main.py            # FastAPI 入口
+    scheduler.py       # APScheduler 任务
+    adapters/          # 外部服务适配器（garmin/xunji/llm）
+    services/          # 业务逻辑层
+    api/               # REST 路由层
+  tests/               # pytest 测试
+  alembic/             # 数据库迁移
+
+【当前任务】
+为以下 11 张业务模型新增 user_id 字段（外键指向 users.id），并调整 UNIQUE 约束使其包含 user_id，实现"每用户一份数据"的多租户隔离地基。所有 user_id 设为 nullable（M1-4 才回填存量，详见下方【要求】第 1 条）。不要改业务逻辑，不要改 api/ 与 services/ 下的文件。
+
+基于 backend/app/models.py 当前真实结构，各表变更如下：
+
+1. XunjiTrain（现有 __table_args__ = UniqueConstraint("datestr","localid", name="uq_xunji_train_datestr_localid")）
+   - 新增：user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+   - 将 __table_args__ 改为 UniqueConstraint("user_id","datestr","localid", name="uq_xunji_train_user_datestr_localid")
+   - 迁移中需 drop 旧约束 uq_xunji_train_datestr_localid，create 新约束
+
+2. GarminActivity（现有 activity_id: mapped_column(String(64), unique=True) 列级唯一）
+   - 新增：user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+   - 将 activity_id 的列级 unique 改为复合唯一 UNIQUE(user_id, activity_id)
+   - 迁移中需去掉 activity_id 上原有列级 unique 约束（找出其约束名并 drop），再 create_unique_constraint("uq_garmin_activity_user_activity_id", ["user_id","activity_id"])
+
+3. GarminDaily（现有 date: mapped_column(Date, unique=True) 列级唯一）
+   - 新增：user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+   - 将 date 的列级 unique 改为复合唯一 UNIQUE(user_id, date)
+   - 迁移中需去掉 date 上原有列级 unique 约束，再 create_unique_constraint("uq_garmin_daily_user_date", ["user_id","date"])
+
+4. BodyMetric（现有 __table_args__ = UniqueConstraint("date","type", name="uq_body_metric_date_type")）
+   - 新增：user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+   - 将 __table_args__ 改为 UniqueConstraint("user_id","date","type", name="uq_body_metric_user_date_type")
+   - 迁移中需 drop 旧约束 uq_body_metric_date_type，create 新约束
+
+5. Workout（无 UNIQUE 约束）
+   - 新增：user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+   - 为 user_id 建索引 ix_workout_user_id（index=True 即可）
+   - 无 UNIQUE 变更
+
+6. MatchCandidate（无 UNIQUE 约束）
+   - 新增：user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+
+7. XunjiPlan（现有 plan_ref: mapped_column(String(100))，注意：当前无显式 UNIQUE 约束）
+   - 新增：user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+   - 新建复合唯一约束 UniqueConstraint("user_id","plan_ref", name="uq_xunji_plan_user_plan_ref")，加入 __table_args__
+   - 迁移中 create_unique_constraint("uq_xunji_plan_user_plan_ref", ["user_id","plan_ref"])
+
+8. AIReport（无 UNIQUE 约束）
+   - 新增：user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+   - 为 (user_id, type, period_start) 建复合索引，命名 ix_ai_report_user_type_period
+
+9. LLMCall（无 UNIQUE 约束）
+   - 新增：user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+
+10. JobRun（无 UNIQUE 约束）
+    - 新增：user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    - 说明：user_id 为 NULL 表示系统级任务（不归属于具体用户）
+
+11. ReportChatMessage（现有 __table_args__ = UniqueConstraint("client_request_id", name="uq_report_chat_message_client_request_id")）
+    - 新增：user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    - 不动现有 uq_report_chat_message_client_request_id 约束，仅加 user_id 列
+
+【要求】
+1. user_id 全部设为 nullable（Mapped[int | None]，含 XunjiTrain）：理由——M1-3 提交时 M1-4（创建默认管理员并回填所有存量 user_id）尚未执行，现有 dev 库各业务表已有数据但无 user_id，nullable 可保证存量行以 user_id=NULL 平滑升级，alembic upgrade head 不失败。M1-4 回填后再由该任务决定是否收紧为 not null。
+2. 仅修改 backend/app/models.py，并新增一个 Alembic 迁移文件；不要改其他文件、不要改业务逻辑。
+3. 迁移优先用 `alembic revision --autogenerate -m "add user_id to business tables (M1-3)"` 生成基线，然后逐表人工核对（使用 op.batch_alter_table 兼容 SQLite）：每个表正确 add_column user_id（含外键 fk_<table>_user_id_users）；复合 UNIQUE 的 drop 旧约束 + create 新约束名称正确（见上表）；列级 unique（activity_id / date）的 drop 旧约束 + create 新复合约束；Workout、AIReport 的索引创建；不要在迁移中填存量 user_id（那是 M1-4 的职责）。
+4. 迁移需在本地 SQLite 上 `alembic upgrade head` 验证通过（后续会切 PG）。
+5. 完成后运行 pytest：允许涉及业务数据隔离的测试失败（因为业务查询还没带 user_id，属预期，M2 阶段统一修复），但 models.py 本身相关的测试（如 test_models.py 中构造各模型的用例）必须通过（0 error）。
+6. 注意：现有业务代码仍按"无 user_id"读写，改完模型后可能有业务代码/测试因缺 user_id 报错——这属于预期，M1-3 不要求修业务代码，只要求：模型字段正确 + 迁移可逆可升级 + models 相关测试通过。
+
+【验收标准】
+1. 11 张业务表（xunji_train, garmin_activity, garmin_daily, body_metric, workout, match_candidate, xunji_plan, ai_report, llm_call, job_run, report_chat_message）均新增 user_id 字段（FK→users.id, nullable）。
+2. 复合 UNIQUE 约束调整正确：xunji_train / garmin_activity / garmin_daily / body_metric / xunji_plan 的唯一约束均包含 user_id；workout / ai_report 加了 user_id 索引；其余表仅加列。
+3. 生成 Alembic 迁移脚本，本地 SQLite `alembic upgrade head` 成功，存量数据不丢失、不报错。
+4. pytest 中 models.py 相关测试通过（0 error）；业务代码因缺 user_id 过滤导致的失败属预期。
+5. 严格遵守铁律：未改动 models.py 与迁移文件以外的任何文件。

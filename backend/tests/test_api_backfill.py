@@ -12,7 +12,7 @@ class FakeManager:
         self.start_calls = 0
         self._running = False
 
-    def start(self):
+    def start(self, user_id=None):
         self.start_calls += 1
         if self._running:
             return {"started": False, "message": "backfill 已在运行中"}
@@ -30,16 +30,21 @@ class FakeManager:
 
 
 @pytest.fixture
-def client(env_vars, monkeypatch):
+def client(env_vars, monkeypatch, session):
     monkeypatch.setenv("APP_PASSWORD", "test-pass")
     from app.config import get_settings
+    from app.db import get_session
 
     get_settings.cache_clear()
 
     from app.api.backfill import get_backfill_manager
 
+    def override_session():
+        yield session
+
     manager = FakeManager()
     app.dependency_overrides[get_backfill_manager] = lambda: manager
+    app.dependency_overrides[get_session] = override_session
     with TestClient(app) as c:
         c.manager = manager
         yield c
@@ -48,9 +53,14 @@ def client(env_vars, monkeypatch):
 
 
 @pytest.fixture
-def auth(client):
-    token = client.post("/api/auth/login", json={"password": "test-pass"}).json()["token"]
-    return {"Authorization": f"Bearer {token}"}
+def auth(client, session):
+    from app.services import users as _us
+    try:
+        _us.create_user(session, username="alice", password="test-pass", role="user")
+    except ValueError:
+        pass  # alice 已由 conftest session 预建（id=1）
+    _b = client.post("/api/auth/login", json={"username": "alice", "password": "test-pass"}).json()
+    return {"Authorization": f"Bearer {_b['token']}"}
 
 
 def test_start_requires_auth(client):

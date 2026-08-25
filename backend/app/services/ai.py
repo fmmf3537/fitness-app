@@ -91,6 +91,7 @@ def query_movement_history(
     *,
     weeks: int = 4,
     limit: int = 3,
+    user_id: int | None = None,
 ) -> dict:
     """查询近 N 周某动作的历史摘要（最近几次 + PR）。
 
@@ -107,14 +108,17 @@ def query_movement_history(
     """
     start = current_date - timedelta(weeks=weeks)
     end = current_date - timedelta(days=1)
+    filters = [
+        Workout.date >= start,
+        Workout.date <= end,
+        Workout.movements_json.isnot(None),
+        Workout.deleted_at.is_(None),
+    ]
+    if user_id is not None:
+        filters.append(Workout.user_id == user_id)
     rows = (
         session.query(Workout)
-        .filter(
-            Workout.date >= start,
-            Workout.date <= end,
-            Workout.movements_json.isnot(None),
-            Workout.deleted_at.is_(None),
-        )
+        .filter(*filters)
         .order_by(Workout.date.desc())
         .all()
     )
@@ -172,15 +176,22 @@ def query_recovery_summary(
     current_date: date,
     *,
     days: int = 7,
+    user_id: int | None = None,
 ) -> dict:
     """汇总近 N 天睡眠/HRV/身体电量/压力/静息心率/体重趋势。
 
     训练准备度当前未接入，故在返回中显式标注为 None，prompt 中说明缺失。
     """
     start = current_date - timedelta(days=days - 1)
+    garmin_filters = [
+        GarminDaily.date >= start,
+        GarminDaily.date <= current_date,
+    ]
+    if user_id is not None:
+        garmin_filters.append(GarminDaily.user_id == user_id)
     rows = (
         session.query(GarminDaily)
-        .filter(GarminDaily.date >= start, GarminDaily.date <= current_date)
+        .filter(*garmin_filters)
         .order_by(GarminDaily.date.desc())
         .all()
     )
@@ -213,13 +224,16 @@ def query_recovery_summary(
 
     # 近 4 周体重趋势（纳入 AI 上下文，US-12 AC6）
     weight_start = current_date - timedelta(weeks=4)
+    weight_filters = [
+        BodyMetric.date >= weight_start,
+        BodyMetric.date <= current_date,
+        BodyMetric.type == "weight",
+    ]
+    if user_id is not None:
+        weight_filters.append(BodyMetric.user_id == user_id)
     weight_rows = (
         session.query(BodyMetric)
-        .filter(
-            BodyMetric.date >= weight_start,
-            BodyMetric.date <= current_date,
-            BodyMetric.type == "weight",
-        )
+        .filter(*weight_filters)
         .order_by(BodyMetric.date.desc())
         .limit(7)
         .all()
@@ -384,6 +398,7 @@ def generate_session_review(
     workout_id: int,
     *,
     chat_fn: Callable[[list[dict]], dict] | None = None,
+    user_id: int | None = None,
 ) -> AIReport:
     """为单个 workout 生成单次点评并落库 ai_report。
 
@@ -399,9 +414,11 @@ def generate_session_review(
         name = (mv.get("name") or "").strip()
         if not name:
             continue
-        history[name] = query_movement_history(session, name, workout.date)
+        history[name] = query_movement_history(
+            session, name, workout.date, user_id=workout.user_id
+        )
 
-    recovery = query_recovery_summary(session, workout.date)
+    recovery = query_recovery_summary(session, workout.date, user_id=workout.user_id)
 
     workout_dict = {
         "date": workout.date.isoformat(),
@@ -454,6 +471,7 @@ def generate_session_review(
     report = AIReport(
         type="session_review",
         workout_id=workout.id,
+        user_id=workout.user_id,
         period_start=workout.date,
         period_end=workout.date,
         model=model,
@@ -504,7 +522,7 @@ def run_daily_reviews(
         if existing:
             skipped += 1
             continue
-        report = generate_session_review(session, w.id, chat_fn=chat_fn)
+        report = generate_session_review(session, w.id, chat_fn=chat_fn, user_id=w.user_id)
         reports.append(report.id)
 
     return {
@@ -662,6 +680,7 @@ def query_next_plan_day(
     current_date: date,
     *,
     days_ahead: int = 30,
+    user_id: int | None = None,
 ) -> dict | None:
     """从训记官方计划缓存中找下一次训练日（未来 days_ahead 天内、movements 非空）。
 
@@ -669,15 +688,18 @@ def query_next_plan_day(
     返回 {"plan_ref", "plan_name", "date", "movements"} 或 None。
     """
     horizon = current_date + timedelta(days=days_ahead)
+    plan_filters = [
+        XunjiPlan.plan_json.isnot(None),
+        XunjiPlan.date_from.isnot(None),
+        XunjiPlan.date_to.isnot(None),
+        XunjiPlan.date_from <= horizon,
+        XunjiPlan.date_to >= current_date,
+    ]
+    if user_id is not None:
+        plan_filters.append(XunjiPlan.user_id == user_id)
     rows = (
         session.query(XunjiPlan)
-        .filter(
-            XunjiPlan.plan_json.isnot(None),
-            XunjiPlan.date_from.isnot(None),
-            XunjiPlan.date_to.isnot(None),
-            XunjiPlan.date_from <= horizon,
-            XunjiPlan.date_to >= current_date,
-        )
+        .filter(*plan_filters)
         .all()
     )
     best: dict | None = None
@@ -794,6 +816,7 @@ def generate_next_advice(
     workout_id: int,
     *,
     chat_fn: Callable[[list[dict]], dict] | None = None,
+    user_id: int | None = None,
 ) -> AIReport | None:
     """为单个 workout 生成下次训练建议并落库（type='next_advice'）。
 
@@ -804,12 +827,12 @@ def generate_next_advice(
     if workout is None or workout.deleted_at is not None:
         raise ValueError(f"workout {workout_id} 不存在")
 
-    plan_day = query_next_plan_day(session, workout.date)
+    plan_day = query_next_plan_day(session, workout.date, user_id=workout.user_id)
     if plan_day is None:
         return None
 
     movements = _parse_movements(workout)
-    recovery = query_recovery_summary(session, workout.date)
+    recovery = query_recovery_summary(session, workout.date, user_id=workout.user_id)
     workout_dict = {
         "date": workout.date.isoformat(),
         "title": workout.title,
@@ -844,6 +867,7 @@ def generate_next_advice(
     report = AIReport(
         type="next_advice",
         workout_id=workout.id,
+        user_id=workout.user_id,
         period_start=workout.date,
         period_end=plan_date,
         model=model,
@@ -910,7 +934,7 @@ def run_daily_next_advices(
         if existing:
             skipped += 1
             continue
-        report = generate_next_advice(session, w.id, chat_fn=chat_fn)
+        report = generate_next_advice(session, w.id, chat_fn=chat_fn, user_id=w.user_id)
         if report is None:
             no_plan += 1
         else:
@@ -985,15 +1009,20 @@ def query_last_similar_workout(
     session: Session,
     plan_day: dict,
     target_date: date,
+    *,
+    user_id: int | None = None,
 ) -> dict | None:
     """最近一次同类型 workout：标题与计划日标题一致优先，否则动作名重叠兜底。"""
+    last_filters = [
+        Workout.date < target_date,
+        Workout.movements_json.isnot(None),
+        Workout.deleted_at.is_(None),
+    ]
+    if user_id is not None:
+        last_filters.append(Workout.user_id == user_id)
     rows = (
         session.query(Workout)
-        .filter(
-            Workout.date < target_date,
-            Workout.movements_json.isnot(None),
-            Workout.deleted_at.is_(None),
-        )
+        .filter(*last_filters)
         .order_by(Workout.date.desc(), Workout.id.desc())
         .all()
     )
@@ -1032,6 +1061,7 @@ def query_part_volume_trend(
     target_date: date,
     *,
     weeks: int = 4,
+    user_id: int | None = None,
 ) -> list[dict]:
     """近 N 周计划涉及部位的容量趋势（复用周期汇总 + 部位归类）。"""
     from app.services import stats as stats_service
@@ -1044,6 +1074,7 @@ def query_part_volume_trend(
         session,
         target_date - timedelta(weeks=weeks),
         target_date - timedelta(days=1),
+        user_id=user_id,
     )
     return [p for p in summary["part_distribution"] if p["part"] in parts]
 
@@ -1153,6 +1184,7 @@ def generate_plan_review(
     target_date: date | str,
     *,
     chat_fn: Callable[[list[dict]], dict] | None = None,
+    user_id: int | None = None,
 ) -> AIReport | None:
     """为某日计划训练日生成计划级点评并落库（type='plan_review'）。
 
@@ -1165,13 +1197,13 @@ def generate_plan_review(
     """
     target = date.fromisoformat(target_date) if isinstance(target_date, str) else target_date
 
-    plan_day = plan_service.query_plan_day(session, target)
+    plan_day = plan_service.query_plan_day(session, target, user_id=user_id)
     if plan_day is None:
         return None
 
-    last_workout = query_last_similar_workout(session, plan_day, target)
-    part_trend = query_part_volume_trend(session, plan_day, target)
-    recovery = query_recovery_summary(session, target)  # 含近4周体重趋势
+    last_workout = query_last_similar_workout(session, plan_day, target, user_id=user_id)
+    part_trend = query_part_volume_trend(session, plan_day, target, user_id=user_id)
+    recovery = query_recovery_summary(session, target, user_id=user_id)  # 含近4周体重趋势
     messages = build_plan_review_prompt(
         plan_day, last_workout, part_trend, recovery, load_movement_names()
     )
@@ -1205,6 +1237,7 @@ def generate_plan_review(
     report = AIReport(
         type="plan_review",
         workout_id=None,
+        user_id=user_id,
         period_start=target,
         period_end=target,
         model=model,
@@ -1251,18 +1284,21 @@ def month_range(day: date) -> tuple[date, date]:
 
 
 def query_period_training_summary(
-    session: Session, start: date, end: date
+    session: Session, start: date, end: date, *, user_id: int | None = None
 ) -> dict:
     """周期内全部融合训练汇总：频率 / 部位分布 / 总容量 / 时长 / 热量。"""
     from app.services import stats as stats_service
 
+    summary_filters = [
+        Workout.date >= start,
+        Workout.date <= end,
+        Workout.deleted_at.is_(None),
+    ]
+    if user_id is not None:
+        summary_filters.append(Workout.user_id == user_id)
     rows = (
         session.query(Workout)
-        .filter(
-            Workout.date >= start,
-            Workout.date <= end,
-            Workout.deleted_at.is_(None),
-        )
+        .filter(*summary_filters)
         .order_by(Workout.date, Workout.id)
         .all()
     )
@@ -1316,14 +1352,20 @@ def query_period_training_summary(
     }
 
 
-def query_pr_events(session: Session, start: date, end: date) -> list[dict]:
+def query_pr_events(session: Session, start: date, end: date, *, user_id: int | None = None) -> list[dict]:
     """PR 事件：周期内某动作最佳重量超过该动作周期前的历史最大重量。"""
-    def best_weights(s: date, e: date) -> dict[str, tuple[float, str | None]]:
+    def best_weights(s: date, e: date, uid: int | None = None) -> dict[str, tuple[float, str | None]]:
+        bw_filters = [
+            Workout.date >= s,
+            Workout.date <= e,
+            Workout.movements_json.isnot(None),
+            Workout.deleted_at.is_(None),
+        ]
+        if uid is not None:
+            bw_filters.append(Workout.user_id == uid)
         rows = (
             session.query(Workout)
-            .filter(Workout.date >= s, Workout.date <= e,
-                    Workout.movements_json.isnot(None),
-                    Workout.deleted_at.is_(None))
+            .filter(*bw_filters)
             .order_by(Workout.date)
             .all()
         )
@@ -1345,8 +1387,8 @@ def query_pr_events(session: Session, start: date, end: date) -> list[dict]:
         return best
 
     # 周期前历史最佳（有记录起点较早，全量扫描即可，单用户数据量可控）
-    history = best_weights(date(1970, 1, 1), start - timedelta(days=1))
-    current = best_weights(start, end)
+    history = best_weights(date(1970, 1, 1), start - timedelta(days=1), user_id)
+    current = best_weights(start, end, user_id)
 
     events: list[dict] = []
     for name, (weight, day) in current.items():
@@ -1361,17 +1403,20 @@ def query_pr_events(session: Session, start: date, end: date) -> list[dict]:
     return sorted(events, key=lambda e: (e["date"], e["movement"]))
 
 
-def query_plan_completion(session: Session, start: date, end: date) -> dict:
+def query_plan_completion(session: Session, start: date, end: date, *, user_id: int | None = None) -> dict:
     """训记官方计划完成率：周期内计划训练日 vs workout 表实际训练日。"""
+    plan_filters = [
+        XunjiPlan.plan_json.isnot(None),
+        XunjiPlan.date_from.isnot(None),
+        XunjiPlan.date_to.isnot(None),
+        XunjiPlan.date_from <= end,
+        XunjiPlan.date_to >= start,
+    ]
+    if user_id is not None:
+        plan_filters.append(XunjiPlan.user_id == user_id)
     rows = (
         session.query(XunjiPlan)
-        .filter(
-            XunjiPlan.plan_json.isnot(None),
-            XunjiPlan.date_from.isnot(None),
-            XunjiPlan.date_to.isnot(None),
-            XunjiPlan.date_from <= end,
-            XunjiPlan.date_to >= start,
-        )
+        .filter(*plan_filters)
         .all()
     )
     planned_dates: set[str] = set()
@@ -1393,14 +1438,17 @@ def query_plan_completion(session: Session, start: date, end: date) -> dict:
             if start <= day_date <= end:
                 planned_dates.add(day_str)
 
+    actual_filters = [
+        Workout.date >= start,
+        Workout.date <= end,
+        Workout.deleted_at.is_(None),
+    ]
+    if user_id is not None:
+        actual_filters.append(Workout.user_id == user_id)
     actual_dates = {
         w.date.isoformat()
         for w in session.query(Workout)
-        .filter(
-            Workout.date >= start,
-            Workout.date <= end,
-            Workout.deleted_at.is_(None),
-        )
+        .filter(*actual_filters)
         .all()
     }
     completed = planned_dates & actual_dates
@@ -1413,17 +1461,20 @@ def query_plan_completion(session: Session, start: date, end: date) -> dict:
     }
 
 
-def query_body_composition(session: Session, start: date, end: date) -> dict:
+def query_body_composition(session: Session, start: date, end: date, *, user_id: int | None = None) -> dict:
     """体成分变化：体重 / 体脂率的首末值与差值。"""
     result: dict[str, dict | None] = {}
     for metric_type in ("weight", "bodyfat"):
+        bc_filters = [
+            BodyMetric.type == metric_type,
+            BodyMetric.date >= start,
+            BodyMetric.date <= end,
+        ]
+        if user_id is not None:
+            bc_filters.append(BodyMetric.user_id == user_id)
         rows = (
             session.query(BodyMetric)
-            .filter(
-                BodyMetric.type == metric_type,
-                BodyMetric.date >= start,
-                BodyMetric.date <= end,
-            )
+            .filter(*bc_filters)
             .order_by(BodyMetric.date)
             .all()
         )
@@ -1442,12 +1493,18 @@ def query_body_composition(session: Session, start: date, end: date) -> dict:
 
 
 def query_previous_review(
-    session: Session, report_type: str, period_start: date
+    session: Session, report_type: str, period_start: date, *, user_id: int | None = None
 ) -> dict | None:
     """上一期同类型复盘报告（供模型自评上期建议执行情况）。"""
+    prev_filters = [
+        AIReport.type == report_type,
+        AIReport.period_start < period_start,
+    ]
+    if user_id is not None:
+        prev_filters.append(AIReport.user_id == user_id)
     row = (
         session.query(AIReport)
-        .filter(AIReport.type == report_type, AIReport.period_start < period_start)
+        .filter(*prev_filters)
         .order_by(AIReport.period_start.desc(), AIReport.id.desc())
         .first()
     )
@@ -1619,21 +1676,25 @@ def _generate_period_review(
     period_start: date,
     *,
     chat_fn: Callable[[list[dict]], dict] | None = None,
+    user_id: int | None = None,
 ) -> AIReport:
-    """周/月复盘共用生成流程：组装 prompt → 调用模型 → 落库 ai_report。"""
+    """周/月复盘共用生成流程：组装 prompt → 调用模型 → 落库 ai_report。
+
+    user_id 用于归属报告（多用户隔离，M2-4）。
+    """
     if report_type == "weekly":
         start, end = week_range(period_start)
-        summary = query_period_training_summary(session, start, end)
-        recovery = query_recovery_summary(session, end, days=7)
-        pr_events = query_pr_events(session, start, end)
-        prev = query_previous_review(session, "weekly", start)
+        summary = query_period_training_summary(session, start, end, user_id=user_id)
+        recovery = query_recovery_summary(session, end, days=7, user_id=user_id)
+        pr_events = query_pr_events(session, start, end, user_id=user_id)
+        prev = query_previous_review(session, "weekly", start, user_id=user_id)
         messages = build_weekly_prompt(summary, recovery, pr_events, prev)
     else:
         start, end = month_range(period_start)
-        summary = query_period_training_summary(session, start, end)
-        recovery = query_recovery_summary(session, end, days=30)
-        plan_completion = query_plan_completion(session, start, end)
-        body_composition = query_body_composition(session, start, end)
+        summary = query_period_training_summary(session, start, end, user_id=user_id)
+        recovery = query_recovery_summary(session, end, days=30, user_id=user_id)
+        plan_completion = query_plan_completion(session, start, end, user_id=user_id)
+        body_composition = query_body_composition(session, start, end, user_id=user_id)
         messages = build_monthly_prompt(summary, plan_completion, body_composition, recovery)
 
     if chat_fn is None:
@@ -1653,6 +1714,7 @@ def _generate_period_review(
     report = AIReport(
         type=report_type,
         workout_id=None,
+        user_id=user_id,
         period_start=start,
         period_end=end,
         model=model,
@@ -1671,9 +1733,10 @@ def generate_weekly_review(
     week_day: date,
     *,
     chat_fn: Callable[[list[dict]], dict] | None = None,
+    user_id: int | None = None,
 ) -> AIReport:
     """生成 week_day 所在 ISO 周（周一至周日）的周复盘。"""
-    return _generate_period_review(session, "weekly", week_day, chat_fn=chat_fn)
+    return _generate_period_review(session, "weekly", week_day, chat_fn=chat_fn, user_id=user_id)
 
 
 def generate_monthly_review(
@@ -1681,9 +1744,10 @@ def generate_monthly_review(
     month_day: date,
     *,
     chat_fn: Callable[[list[dict]], dict] | None = None,
+    user_id: int | None = None,
 ) -> AIReport:
     """生成 month_day 所在自然月的月复盘。"""
-    return _generate_period_review(session, "monthly", month_day, chat_fn=chat_fn)
+    return _generate_period_review(session, "monthly", month_day, chat_fn=chat_fn, user_id=user_id)
 
 
 def _write_review_job_run(session: Session, job_name: str, started_at: datetime,
@@ -1707,8 +1771,12 @@ def _run_period_review(
     *,
     session: Session | None = None,
     chat_fn: Callable[[list[dict]], dict] | None = None,
+    user_id: int | None = None,
 ) -> dict:
-    """周/月复盘编排：幂等（同周期已存在则跳过），每次运行写 JobRun，失败不外抛。"""
+    """周/月复盘编排：幂等（同周期已存在则跳过），每次运行写 JobRun，失败不外抛。
+
+    user_id 用于归属与幂等去重（多用户隔离，M2-4；None 匹配存量 NULL 行）。
+    """
     from app.db import SessionLocal
 
     job_name = f"{report_type}_review"
@@ -1728,11 +1796,14 @@ def _run_period_review(
         detail: dict[str, Any] = {
             "period_start": start.isoformat(), "period_end": end.isoformat(),
         }
+        existing_filters = [
+            AIReport.type == report_type,
+            AIReport.period_start == start,
+        ]
+        if user_id is not None:
+            existing_filters.append(AIReport.user_id == user_id)
         existing = session.scalars(
-            select(AIReport).where(
-                AIReport.type == report_type,
-                AIReport.period_start == start,
-            )
+            select(AIReport).where(*existing_filters)
         ).first()
         if existing is not None:
             detail["report_id"] = existing.id
@@ -1745,7 +1816,7 @@ def _run_period_review(
 
         try:
             report = _generate_period_review(
-                session, report_type, start, chat_fn=chat_fn
+                session, report_type, start, chat_fn=chat_fn, user_id=user_id
             )
         except Exception as exc:
             detail["reason"] = "generate_failed"
@@ -1771,9 +1842,10 @@ def run_weekly_review(
     *,
     session: Session | None = None,
     chat_fn: Callable[[list[dict]], dict] | None = None,
+    user_id: int | None = None,
 ) -> dict:
     """每周日 21:13 调度：生成 day（默认今天）所在周的周复盘。"""
-    return _run_period_review("weekly", day, session=session, chat_fn=chat_fn)
+    return _run_period_review("weekly", day, session=session, chat_fn=chat_fn, user_id=user_id)
 
 
 def run_monthly_review(
@@ -1781,6 +1853,7 @@ def run_monthly_review(
     *,
     session: Session | None = None,
     chat_fn: Callable[[list[dict]], dict] | None = None,
+    user_id: int | None = None,
 ) -> dict:
     """每月 1 日 09:23 调度：生成 day 所在月的月复盘（调度器传入前一天，即复盘上月）。"""
-    return _run_period_review("monthly", day, session=session, chat_fn=chat_fn)
+    return _run_period_review("monthly", day, session=session, chat_fn=chat_fn, user_id=user_id)

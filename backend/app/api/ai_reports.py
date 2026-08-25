@@ -11,9 +11,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.auth import require_auth
+from app.api.auth import get_current_user, get_current_user_id, resolve_viewer
 from app.db import get_session
-from app.models import AIReport, Workout
+from app.models import AIReport, User, Workout
 from app.services import ai as ai_service
 from app.services import export as export_service
 from app.services import report_chat as report_chat_service
@@ -21,7 +21,6 @@ from app.services import report_chat as report_chat_service
 router = APIRouter(
     prefix="/api/ai-reports",
     tags=["ai-reports"],
-    dependencies=[Depends(require_auth)],
 )
 
 
@@ -64,6 +63,8 @@ def list_ai_reports(
     type: str | None = Query(default=None, pattern=r"^(session_review|next_advice|weekly|monthly)$"),
     limit: int = Query(default=20, ge=1, le=100),
     session: Session = Depends(get_session),
+    principal: User = Depends(get_current_user),
+    override_user_id: int | None = Query(default=None, alias="user_id"),
 ) -> dict:
     """提供 date 时获取某日报告（V1-3 行为不变，type 缺省 session_review）；
     省略 date 时返回最近报告列表（created_at 倒序，limit 上限 100）。"""
@@ -72,12 +73,13 @@ def list_ai_reports(
         report_type = type or "session_review"
         rows = (
             session.query(AIReport)
-            .filter(AIReport.period_start == day, AIReport.type == report_type)
+            .filter(            AIReport.period_start == day, AIReport.type == report_type,
+                    AIReport.user_id == resolve_viewer(principal, override_user_id))
             .order_by(AIReport.created_at.desc())
             .all()
         )
         return {"date": date, "reports": [_serialize_report(session, r) for r in rows]}
-    query = session.query(AIReport)
+    query = session.query(AIReport).filter(AIReport.user_id == resolve_viewer(principal, override_user_id))
     if type:
         query = query.filter(AIReport.type == type)
     rows = (
@@ -92,10 +94,11 @@ def list_ai_reports(
 def get_ai_report(
     report_id: int,
     session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id),
 ) -> dict:
     """获取单条 AI 报告详情。"""
     report = session.get(AIReport, report_id)
-    if report is None:
+    if report is None or report.user_id != current_user_id:
         raise HTTPException(status_code=404, detail="报告不存在")
     return _serialize_report(session, report)
 
@@ -181,10 +184,11 @@ def generate_review(
     payload: GenerateRequest,
     session: Session = Depends(get_session),
     manager: ReviewGenerateManager = Depends(get_review_manager),
+    current_user_id: int = Depends(get_current_user_id),
 ) -> dict:
     """手动触发周/月复盘生成（后台线程异步执行，前端轮询 /generate/status）。
 
-    幂等：目标周期已存在报告时直接返回 exists，不重复生成。
+    幂等：目标周期已存在报告时直接返回 exists，不重复生成（按当前用户隔离）。
     """
     day = datetime.date.fromisoformat(payload.date) if payload.date else datetime.date.today()
     range_fn = ai_service.week_range if payload.type == "weekly" else ai_service.month_range
@@ -193,11 +197,12 @@ def generate_review(
         select(AIReport).where(
             AIReport.type == payload.type,
             AIReport.period_start == start,
+            AIReport.user_id == current_user_id,
         )
     ).first()
     if existing is not None:
         return {"status": "exists", "report": _serialize_report(session, existing)}
-    if not manager.start(payload.type, payload.date):
+    if not manager.start(payload.type, payload.date, user_id=current_user_id):
         raise HTTPException(status_code=409, detail="该类型复盘正在生成中")
     return {
         "status": "started",
@@ -212,11 +217,12 @@ def generate_status(
     type: str = Query(pattern=r"^(weekly|monthly)$"),
     session: Session = Depends(get_session),
     manager: ReviewGenerateManager = Depends(get_review_manager),
+    current_user_id: int = Depends(get_current_user_id),
 ) -> dict:
-    """轮询生成状态：running + 最新一条该类型报告 + 最近错误。"""
+    """轮询生成状态：running + 最新一条该类型报告（当前用户）+ 最近错误。"""
     report = (
         session.query(AIReport)
-        .filter(AIReport.type == type)
+        .filter(AIReport.type == type, AIReport.user_id == current_user_id)
         .order_by(AIReport.created_at.desc(), AIReport.id.desc())
         .first()
     )
@@ -301,6 +307,7 @@ class RegenerateRequest(BaseModel):
 def regenerate_session_review(
     payload: RegenerateRequest,
     manager: SessionReviewRegenManager = Depends(get_session_review_regen_manager),
+    current_user_id: int = Depends(get_current_user_id),
 ) -> dict:
     """重新生成某日单次点评（后台线程异步执行，前端轮询 status）。
 
@@ -316,6 +323,7 @@ def regenerate_session_review(
 def regenerate_session_review_status(
     date: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
     manager: SessionReviewRegenManager = Depends(get_session_review_regen_manager),
+    current_user_id: int = Depends(get_current_user_id),
 ) -> dict:
     """轮询重新生成状态：running + 最近错误。"""
     return {
@@ -353,8 +361,12 @@ def _serialize_message(msg) -> dict:
 def list_report_messages(
     report_id: int,
     session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id),
 ) -> dict:
     """该报告的追问对话历史（按时间正序）。"""
+    report = session.get(AIReport, report_id)
+    if report is None or report.user_id != current_user_id:
+        raise HTTPException(status_code=404, detail="报告不存在") from None
     try:
         messages = report_chat_service.list_messages(session, report_id)
     except report_chat_service.ReportNotFoundError:
@@ -367,11 +379,15 @@ def post_report_message(
     report_id: int,
     payload: ChatMessageRequest,
     session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id),
 ) -> dict:
     """发送追问消息：落用户消息 → 调 LLM → 落 assistant 回复，同步返回两条。
 
     幂等：client_request_id 重放时直接返回已落库消息对，不重复调 LLM。
     """
+    report = session.get(AIReport, report_id)
+    if report is None or report.user_id != current_user_id:
+        raise HTTPException(status_code=404, detail="报告不存在") from None
     if not payload.content.strip():
         raise HTTPException(status_code=422, detail="消息内容不能为空")
     try:
@@ -395,10 +411,11 @@ def export_report(
     report_id: int,
     format: str = Query(pattern=r"^(md|pdf)$"),
     session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id),
 ) -> Response:
     """导出报告为 Markdown 或 PDF（附件下载）。"""
     report = session.get(AIReport, report_id)
-    if report is None:
+    if report is None or report.user_id != current_user_id:
         raise HTTPException(status_code=404, detail="报告不存在")
     filename = export_service.report_filename(report, format)
     if format == "md":

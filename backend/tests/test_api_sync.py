@@ -19,18 +19,22 @@ from app.services.sync_manager import SyncManager
 
 
 @pytest.fixture
-def client(env_vars, monkeypatch):
+def client(env_vars, monkeypatch, session):
     monkeypatch.setenv("APP_PASSWORD", "test-pass")
     from app.config import get_settings
+    from app.db import get_session
 
     get_settings.cache_clear()
+
+    def override_session():
+        yield session
 
     calls = []
     gate = threading.Event()
     gate.set()  # 默认不阻塞
     flags = {"fail": False}
 
-    def fake_sync(day, session=None):
+    def fake_sync(day, session=None, user_id=None):
         calls.append(day)
         gate.wait(timeout=5)
         if flags["fail"]:
@@ -40,6 +44,7 @@ def client(env_vars, monkeypatch):
 
     manager = SyncManager(sync_fn=fake_sync)
     app.dependency_overrides[get_sync_manager] = lambda: manager
+    app.dependency_overrides[get_session] = override_session
     with TestClient(app) as c:
         c.sync_calls = calls
         c.gate = gate
@@ -50,9 +55,14 @@ def client(env_vars, monkeypatch):
 
 
 @pytest.fixture
-def auth(client):
-    token = client.post("/api/auth/login", json={"password": "test-pass"}).json()["token"]
-    return {"Authorization": f"Bearer {token}"}
+def auth(client, session):
+    from app.services import users as _us
+    try:
+        _us.create_user(session, username="alice", password="test-pass", role="user")
+    except ValueError:
+        pass  # alice 已由 conftest session 预建（id=1）
+    _b = client.post("/api/auth/login", json={"username": "alice", "password": "test-pass"}).json()
+    return {"Authorization": f"Bearer {_b['token']}"}
 
 
 def wait_done(client, auth, timeout=5):

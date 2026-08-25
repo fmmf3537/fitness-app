@@ -415,3 +415,14 @@
 3. **findBy\* 只保证 DOM 提交**：effect 副作用（如 echarts.setOption、轮询类状态更新）必须用 `waitFor` 轮询断言，禁止 findBy 后立即同步读 mock 状态（T29）。
 
 **评审结论**：Sprint 9 九个任务全部完成，真机验收六项（追问发送 / 体脂秤图导入 / GPX+TCX 导入 / 日历头部 / 周报图表 / 删除与恢复）全过；测试基线（后端 784+6 / 93.28%，前端 289 / 36 文件，oxlint 0/0，build + capacitor 通过）逐项一致无回归；T29 flake 定位到根因并修复，8/8 轮全绿关闭。**Sprint 9 目标达成，打 tag `sprint-9`。**
+
+
+---
+
+## 十二、multiuser-v2 M2-3 偏差记录（2026-08-24）
+
+| # | 偏差 | 说明 | 状态 |
+|---|------|------|------|
+| M2-3-a | login 保留「仅口令」兼容分支 | PRD/任务要求 LoginRequest 为 username+password 并替换原仅口令模型；但 M2-4（业务 API 权限注入）尚未执行，全部业务接口仍挂在旧的内存会话 `require_auth` 上，现有 `tests/test_api_*.py` 均以 `{"password": "test-pass"}` 登录取 token。若本次直接删除仅口令路径，约 20 个测试文件全部 401/422。折中：`LoginRequest.username` 暂为可选，缺省时走旧 APP_PASSWORD + 内存 token 路径；提供 username 时走新的多用户 DB token 路径。**M2-4 切换业务 API 至 `get_current_user_id` 后，必须删除该兼容分支并将 username 改为必填，同时更新旧测试。** | ✅ 已闭环（M2-4：仅口令分支与 `require_auth`/`_ACTIVE_TOKENS` 已删除，`LoginRequest.username` 为必填，旧测试改用 username+password 登录） |
+| M2-3-b | `require_auth` 与新 token 体系并存 | 旧 `require_auth`（内存 `_ACTIVE_TOKENS`）仍被 14 个业务 api/*.py 引用，本次按任务要求保留不动；它与 auth_token 表互不相通（login 新路径签发的 DB token 暂不能访问业务接口）。**M2-4 统一替换后删除。** | ✅ 已闭环（M2-4：全部业务 API 已切换至 `get_current_user_id` 依赖，旧 `require_auth` 路径删除） |
+| M2-3-c | autogenerate 误检存量索引 | `alembic revision --autogenerate` 会误报 report_chat_message 上 DB 存量索引 `ix_report_chat_message_report_id`（模型未声明）为待删除，已在迁移脚本中手工剔除（同 M1-3 注释约定）。后续每次 autogenerate 都需同样核对。 | 持续注意 |

@@ -151,9 +151,14 @@ def client(session, monkeypatch):
 
 
 @pytest.fixture
-def auth(client):
-    token = client.post("/api/auth/login", json={"password": "test-pass"}).json()["token"]
-    return {"Authorization": f"Bearer {token}"}
+def auth(client, session):
+    from app.services import users as _us
+    try:
+        _us.create_user(session, username="alice", password="test-pass", role="user")
+    except ValueError:
+        pass  # alice 已由 conftest session 预建（id=1）
+    _b = client.post("/api/auth/login", json={"username": "alice", "password": "test-pass"}).json()
+    return {"Authorization": f"Bearer {_b['token']}"}
 
 
 class TestCreateApi:
@@ -216,9 +221,9 @@ class TestCreateApi:
 
 class TestQueryApi:
     def test_list_with_filters(self, client, auth, session):
-        upsert_body_metric(session, date(2026, 7, 1), "weight", 73.0)
-        upsert_body_metric(session, date(2026, 8, 1), "weight", 72.0)
-        upsert_body_metric(session, date(2026, 8, 1), "height", 175.0)
+        upsert_body_metric(session, date(2026, 7, 1), "weight", 73.0, user_id=1)
+        upsert_body_metric(session, date(2026, 8, 1), "weight", 72.0, user_id=1)
+        upsert_body_metric(session, date(2026, 8, 1), "height", 175.0, user_id=1)
 
         resp = client.get("/api/body-metrics", headers=auth)
         assert resp.status_code == 200

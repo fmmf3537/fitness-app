@@ -51,6 +51,7 @@ class BackfillState:
 
     def __init__(self) -> None:
         self.running = False
+        self.user_id: int | None = None
         self.phase = "idle"  # idle / xunji / garmin_activities / garmin_daily / fusion / done / error
         self.started_at: datetime | None = None
         self.finished_at: datetime | None = None
@@ -371,19 +372,21 @@ class BackfillManager:
             self._session_factory = SessionLocal
         return self._session_factory
 
-    def start(self) -> dict:
+    def start(self, user_id: int | None = None) -> dict:
         """启动后台导入线程；已在运行时不重复启动。导入全程后台执行，不阻塞服务。"""
         with self._lock:
             if self._state.running:
                 return {"started": False, "message": "backfill 已在运行中"}
             self._state = BackfillState()
             self._state.running = True
+            self._state.user_id = user_id
             self._state.started_at = datetime.now()
-            thread = threading.Thread(target=self._run_safe, daemon=True, name="backfill")
+            thread = threading.Thread(target=self._run_safe, args=(user_id,),
+                                      daemon=True, name="backfill")
             thread.start()
             return {"started": True, "message": "backfill 已启动"}
 
-    def _run_safe(self) -> None:
+    def _run_safe(self, user_id: int | None = None) -> None:
         session = self._sf()()
         try:
             from app.config import get_settings

@@ -1,0 +1,65 @@
+你正在参与一个健身数据整合分析 APP 的多用户化改造项目（WorkBuddy 协作开发）。
+
+通用铁律（必须遵守）：
+1. 改动范围只允许覆盖：backend/app/api/*.py（全部 14 个业务路由）、backend/app/api/auth.py。
+2. 密码与令牌一律走 M2-3 的 get_current_user_id 依赖，禁止保留旧内存 token 路径。
+3. 任何「查得到即有权」的现状必须改为「按 current_user_id 过滤」，杜绝跨用户数据泄漏。
+4. 新增/修改代码必须有对应测试。
+5. 完成后运行 pytest 与 oxlint，确保 0 error。
+
+## 背景
+- M2-3 已定义 app/api/auth.py 的 get_current_user_id(authorization, session) -> int（Bearer token 校验，命中返回 user_id，否则 401），并已保留旧 require_auth 与 _ACTIVE_TOKENS / LoginRequest.username 可选分支作为过渡。
+- 现状：14 个业务 API（sync / workouts / match_candidates / settings / llm / stats / ai_reports / backfill / fit_import / writeback / body_metrics / screenshot / plans / posters）全部用 dependencies=[Depends(require_auth)] 做认证，但认证后没有任何 user_id 概念——查询是全局的，存在跨用户数据泄漏风险。
+- 数据基础：M1-3 已给 xunji_train / garmin_activity / garmin_daily / body_metric / xunji_plan / workout / match_candidate / ai_report / llm_call / job_run / report_chat_message 加了 user_id 列（nullable）；M1-2 已将 settings 改为「每用户一行」（user_id unique）。LLMCall、JobRun、AuditLog 等部分表可能无 user_id——这些只做管理员/系统级用途，本次不在业务查询里按 user_id 过滤，但凡涉及「用户个人数据」的表必须过滤。
+
+## 目标
+把「单用户/全局」切换为「多用户隔离」：登录用户可以且只能访问自己的数据。
+
+### 1. 改造认证注入（auth.py）
+- 删除 auth.py 中的 _ACTIVE_TOKENS、require_auth 函数、以及 login 中 if req.username is None: 的旧单口令分支（含 get_settings().app_password 校验与 _ACTIVE_TOKENS.add）。
+- LoginRequest.username 改为必填（username: str，去掉 = None）。
+- 保留 get_current_user_id、logout、_get_active_token、_parse_bearer、TOKEN_TTL。
+- 删除文件顶部「兼容说明」段落里关于 M2-4 删除的旧分支描述（更新为「M2-4 已切换」）。
+
+### 2. 替换所有业务 API 的认证依赖
+对以下 14 个文件，把 from app.api.auth import require_auth 改为 from app.api.auth import get_current_user_id，并把路由级 dependencies=[Depends(require_auth)] 改为在每个处理函数参数注入 current_user_id: int = Depends(get_current_user_id)（移除 router 级 dependencies 或保留均可，但处理函数必须显式拿到 current_user_id 用于过滤）：
+
+app/api/sync.py、app/api/workouts.py、app/api/match_candidates.py、app/api/settings.py、app/api/llm.py（/monthly-usage）、app/api/stats.py、app/api/ai_reports.py、app/api/backfill.py、app/api/fit_import.py、app/api/writeback.py、app/api/body_metrics.py、app/api/screenshot.py、app/api/plans.py、app/api/posters.py
+
+### 3. 数据隔离（最关键）
+对每个业务查询/写入，按 current_user_id 过滤或绑定：
+- 查询（GET / 列表 / 详情）：在 session.query(Model) 或 select(Model) 后一律追加 .filter(Model.user_id == current_user_id)。包括：
+  - workouts.py：calendar（Workout）、deleted（Workout）、workout_detail（Workout 及其关联的 XunjiTrain/GarminActivity 也应间接属于该 user，直接按 Workout.user_id 过滤即可）、delete/restore 前先确认该 workout 属于当前用户（wf.user_id != current_user_id -> 404）。
+  - match_candidates.py、body_metrics.py、stats.py、ai_reports.py、fit_import.py、writeback.py、sync.py、plans.py、posters.py、llm.py 的所有涉及「用户个人数据」表的查询，均加 user_id 过滤。
+  - settings.py：已经是「每用户一行」，GET/PUT 必须按 user_id == current_user_id 取自己那条（而非全局第一行）；如需新建设置则填 user_id=current_user_id。
+- 创建（POST）：新增行必须写入 user_id=current_user_id。若 service 层函数负责创建（如 sync/backfill/fit_import 批量写入），需将 current_user_id 透传进 service 函数并写入每行。
+- user_id 为 nullable 的表（M1-3）：过滤时仅作用于「有 user_id 的行」；本用户只应看到自己 user_id 的行；存量 NULL 行（M1-4 仅 admin 被回填、其余 NULL）对当前用户不可见，符合预期。
+- 不要对 LLMCall、JobRun、AuditLog 等系统级表加 user_id 过滤（它们是全局运维数据），但若某接口「返回当前用户自己的用量」，则需在写入时带 user_id（如 LLMCall 已有 user_id 列则写入 current_user_id）。
+
+### 4. Service 层透传（仅当需要创建数据）
+- 若 api 调用了 services 层的创建/写入函数（如 sync / fit_import / workouts.delete_workout / body_metrics / plans / writeback / ai_reports 编排），将 current_user_id 透传进去，确保新建行带 user_id。
+- services/workouts.py 的 delete_workout / restore_workout / list_deleted_workouts 需接收 user_id 参数按 user_id 过滤，避免删除他人数据。
+- 不需要重构 service 层内部逻辑，只在「新建数据」与「按当前用户查询」处加 user_id。
+
+### 5. 测试
+- 新增/修改 backend/tests/ 下针对多用户隔离的测试（可新建 backend/tests/test_api_isolation.py）：
+  - 用 TestClient + 两个不同用户分别登录获得 token；
+  - 用户 A 创建数据（如 workout / body_metric / setting），用户 B 用自己 token 访问应 401 或 404（拿不到 A 的数据）；
+  - 未带 token 访问业务接口 -> 401；
+  - 带 token 访问自己数据 -> 200 且数据正确；
+  - 旧「无 token 直接访问」的旧测试若依赖 require_auth，需改用新 token（或用依赖注入测试）。
+- 注意：现有 122 个业务 api 测试原本依赖旧 require_auth（内存 token）。由于本次删除了 require_auth，必须同步更新这些测试以使用 get_current_user_id（用 TestClient 先登录拿 token，再带 Bearer 头）。建议在测试中加一个 fixture：创建用户 -> 登录 -> 返回 Authorization 头。
+- 运行：
+  - cd backend && .venv/Scripts/python.exe -m pytest tests/ -q --no-cov（全量，确保无回归）
+  - 单独：pytest tests/test_api_isolation.py -  q --no-cov
+
+### 6. 要求
+- 仅修改上述 api/*.py、auth.py，必要时修改 services 层的极少数函数签名（加 user_id 参数）。
+- 谨慎处理现有 122 个测试，统一改造成「先登录拿 token」模式，确保全量 green。
+- 不自行 commit，仅留工作区待审核。
+
+### 验收标准
+1. 全部业务 API 不再引用 require_auth / _ACTIVE_TOKENS；require_auth 已从 auth.py 删除。
+2. 任何业务查询都按 current_user_id 过滤，跨用户访问返回 404/401。
+3. 新建数据带 user_id=current_user_id。
+4. 全量 pytest 通过（exit 0），无跨用户数据泄漏路径。

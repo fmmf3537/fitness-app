@@ -52,8 +52,10 @@ VALID_CONTENT = (
 )
 
 
-def _make_plan(session, days, plan_ref="platform:155", plan_name="增肌计划"):
+def _make_plan(session, days, plan_ref="platform:155", plan_name="增肌计划",
+               user_id: int | None = 1):
     row = XunjiPlan(
+        user_id=user_id,
         plan_ref=plan_ref,
         plan_json=json.dumps(
             {"plan": {"plan_ref": plan_ref, "name": plan_name}, "days": days},
@@ -488,9 +490,14 @@ class TestNextAdviceAPI:
             get_settings.cache_clear()
 
     @pytest.fixture
-    def auth(self, client):
-        token = client.post("/api/auth/login", json={"password": "test-pass"}).json()["token"]
-        return {"Authorization": f"Bearer {token}"}
+    def auth(self, client, session):
+        from app.services import users as _us
+        try:
+            _us.create_user(session, username="alice", password="test-pass", role="user")
+        except ValueError:
+            pass  # alice 已由 conftest session 预建（id=1）
+        _b = client.post("/api/auth/login", json={"username": "alice", "password": "test-pass"}).json()
+        return {"Authorization": f"Bearer {_b['token']}"}
 
     def test_list_filters_by_type(self, client, auth, session):
         from app.models import Workout
@@ -499,9 +506,9 @@ class TestNextAdviceAPI:
         session.add(w)
         session.commit()
         session.add(AIReport(type="session_review", workout_id=w.id,
-                             period_start=DAY, period_end=DAY, content_md="点评"))
+                             user_id=1, period_start=DAY, period_end=DAY, content_md="点评"))
         session.add(AIReport(type="next_advice", workout_id=w.id,
-                             period_start=DAY, period_end=DAY, content_md=VALID_CONTENT))
+                             user_id=1, period_start=DAY, period_end=DAY, content_md=VALID_CONTENT))
         session.commit()
 
         resp = client.get(f"/api/ai-reports?date={DAY.isoformat()}&type=next_advice",

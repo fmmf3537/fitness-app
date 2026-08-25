@@ -41,7 +41,7 @@ VALID_CONTENT = (
 )
 
 
-def _make_plan(session, days=None, *, status=None, date_from=None, date_to=None):
+def _make_plan(session, days=None, *, status=None, date_from=None, date_to=None, user_id=1):
     if days is None:
         days = [
             {"datestr": TARGET.isoformat(), "workout": {"name": "胸·三头·腹", "movements": [
@@ -59,6 +59,7 @@ def _make_plan(session, days=None, *, status=None, date_from=None, date_to=None)
         plan_json=json.dumps({"plan": plan, "days": days}, ensure_ascii=False),
         date_from=date_from or (TARGET - timedelta(days=7)),
         date_to=date_to or (TARGET + timedelta(days=30)),
+        user_id=user_id,
     )
     session.add(row)
     session.commit()
@@ -334,7 +335,7 @@ def client(env_vars, session, monkeypatch):
     gate.set()
     flags = {"fail": False}
 
-    def fake_runner(date_str):
+    def fake_runner(date_str, user_id=None):
         calls.append(date_str)
         gate.wait(timeout=5)
         if flags["fail"]:
@@ -356,9 +357,14 @@ def client(env_vars, session, monkeypatch):
 
 
 @pytest.fixture
-def auth(client):
-    token = client.post("/api/auth/login", json={"password": "test-pass"}).json()["token"]
-    return {"Authorization": f"Bearer {token}"}
+def auth(client, session):
+    from app.services import users as _us
+    try:
+        _us.create_user(session, username="alice", password="test-pass", role="user")
+    except ValueError:
+        pass  # alice 已由 conftest session 预建（id=1）
+    _b = client.post("/api/auth/login", json={"username": "alice", "password": "test-pass"}).json()
+    return {"Authorization": f"Bearer {_b['token']}"}
 
 
 def _wait_review_done(client, auth, timeout=5):
@@ -422,7 +428,7 @@ class TestPlanReviewAPI:
         assert resp.status_code == 404
 
         session.add(AIReport(type="plan_review", period_start=TARGET, period_end=TARGET,
-                             model="deepseek-chat", prompt_tokens=10,
+                             user_id=1, model="deepseek-chat", prompt_tokens=10,
                              completion_tokens=5, cost_estimate=0.001,
                              content_md=VALID_CONTENT))
         session.commit()
@@ -436,7 +442,7 @@ class TestPlanReviewAPI:
 
     def test_get_ignores_other_types(self, client, auth, session):
         session.add(AIReport(type="next_advice", period_start=TARGET, period_end=TARGET,
-                             content_md=VALID_CONTENT))
+                             user_id=1, content_md=VALID_CONTENT))
         session.commit()
         resp = client.get(f"/api/plans/review/{TARGET.isoformat()}", headers=auth)
         assert resp.status_code == 404

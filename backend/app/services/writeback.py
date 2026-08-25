@@ -239,9 +239,10 @@ def _extract_server_trains(resp: dict) -> list[dict]:
 class WritebackService:
     """写回确认流编排。xunji 可注入以便测试；默认懒创建 XunjiClient。"""
 
-    def __init__(self, session: Session, xunji=None) -> None:
+    def __init__(self, session: Session, xunji=None, *, user_id: int | None = None) -> None:
         self._session = session
         self._xunji = xunji
+        self._user_id = user_id
 
     @property
     def xunji(self):
@@ -307,7 +308,8 @@ class WritebackService:
 
     def _find_train(self, datestr: str, localid: int | str) -> XunjiTrain | None:
         stmt = select(XunjiTrain).where(
-            XunjiTrain.datestr == datestr, XunjiTrain.localid == str(localid)
+            XunjiTrain.datestr == datestr, XunjiTrain.localid == str(localid),
+            XunjiTrain.user_id == self._user_id,
         )
         return self._session.scalars(stmt).first()
 

@@ -34,13 +34,14 @@ def _matched_workout(session):
     """构造一对自动匹配的训记+佳明并跑 match_day，返回 (workout, train, activity)。"""
     train = make_xunji_train(session, DAY, localid="1", title="胸部训练")
     act = make_garmin_activity(session, DAY, activity_id="g1", name="力量训练")
-    match_day(session, DAY)
+    match_day(session, DAY, user_id=1)
     w = session.query(Workout).filter(Workout.date == DAY).one()
     return w, train, act
 
 
 def _make_report(session, workout_id, rtype="session_review"):
     r = AIReport(
+        user_id=1,
         type=rtype,
         workout_id=workout_id,
         period_start=DAY,
@@ -63,7 +64,7 @@ def test_delete_marks_soft_delete_and_tombstones(session):
     """删除：workout 打 deleted_at，两侧源记录打 excluded 墓碑。"""
     w, train, act = _matched_workout(session)
 
-    result = delete_workout(session, w.id)
+    result = delete_workout(session, w.id, user_id=1)
 
     assert result is not None
     assert w.deleted_at is not None
@@ -81,7 +82,7 @@ def test_delete_removes_session_reports_and_chat_keeps_weekly(session):
     session.add(chat)
     session.commit()
 
-    delete_workout(session, w.id)
+    delete_workout(session, w.id, user_id=1)
 
     remaining = {r.type for r in session.query(AIReport).all()}
     assert remaining == {"weekly"}
@@ -92,12 +93,13 @@ def test_delete_cleans_match_candidates(session):
     """删除：关联 match_candidate 行清理。"""
     w, _, act = _matched_workout(session)
     session.add(MatchCandidate(
+        user_id=1,
         workout_id=w.id, garmin_activity_id=act.id,
         reason="garmin_only_strength", status="pending",
     ))
     session.commit()
 
-    delete_workout(session, w.id)
+    delete_workout(session, w.id, user_id=1)
 
     assert session.query(MatchCandidate).count() == 0
 
@@ -105,10 +107,10 @@ def test_delete_cleans_match_candidates(session):
 def test_delete_idempotent(session):
     """幂等：重复删除不报错、不产生新状态。"""
     w, _, _ = _matched_workout(session)
-    delete_workout(session, w.id)
+    delete_workout(session, w.id, user_id=1)
     deleted_at = w.deleted_at
 
-    again = delete_workout(session, w.id)
+    again = delete_workout(session, w.id, user_id=1)
 
     assert again is not None
     assert again.deleted_at == deleted_at
@@ -116,7 +118,7 @@ def test_delete_idempotent(session):
 
 
 def test_delete_nonexistent_returns_none(session):
-    assert delete_workout(session, 999) is None
+    assert delete_workout(session, 999, user_id=1) is None
 
 
 # ---------- 服务层：恢复 ----------
@@ -126,9 +128,9 @@ def test_restore_clears_flags(session):
     """恢复：清 deleted_at 与两侧墓碑；不重建 AI 报告。"""
     w, train, act = _matched_workout(session)
     _make_report(session, w.id, "session_review")
-    delete_workout(session, w.id)
+    delete_workout(session, w.id, user_id=1)
 
-    result = restore_workout(session, w.id)
+    result = restore_workout(session, w.id, user_id=1)
 
     assert result is not None
     assert w.deleted_at is None
@@ -140,8 +142,8 @@ def test_restore_clears_flags(session):
 
 def test_restore_not_deleted_returns_none(session):
     w, _, _ = _matched_workout(session)
-    assert restore_workout(session, w.id) is None
-    assert restore_workout(session, 999) is None
+    assert restore_workout(session, w.id, user_id=1) is None
+    assert restore_workout(session, 999, user_id=1) is None
 
 
 # ---------- 防复活：同步 upsert / 匹配器 ----------
@@ -152,7 +154,7 @@ def test_garmin_upsert_skips_tombstoned(session):
     from app.adapters.garmin_adapter import GarminClient
 
     w, _, act = _matched_workout(session)
-    delete_workout(session, w.id)
+    delete_workout(session, w.id, user_id=1)
 
     client = GarminClient(session)
     row = client._upsert_activity(
@@ -169,7 +171,7 @@ def test_garmin_upsert_skips_tombstoned(session):
     # 即便硬删 workout 行，匹配器也不再用墓碑源重建
     session.delete(w)
     session.commit()
-    match_day(session, DAY)
+    match_day(session, DAY, user_id=1)
     assert session.query(Workout).count() == 0
     assert session.query(MatchCandidate).count() == 0
 
@@ -179,7 +181,7 @@ def test_xunji_upsert_skips_tombstoned(session):
     from app.adapters.xunji import XunjiClient
 
     w, train, _ = _matched_workout(session)
-    delete_workout(session, w.id)
+    delete_workout(session, w.id, user_id=1)
 
     client = XunjiClient(session, api_key="k")
     row = client._upsert_train(DAY.isoformat(), {
@@ -206,9 +208,9 @@ def test_import_fit_file_skips_tombstoned(session, tmp_path):
         "</trkseg></trk></gpx>",
         encoding="utf-8",
     )
-    first = import_fit_file(session, p)
+    first = import_fit_file(session, p, user_id=1)
     w = session.query(Workout).one()
-    delete_workout(session, w.id)
+    delete_workout(session, w.id, user_id=1)
     # 硬删 workout，模拟用户想彻底重来但又不让文件导入复活
     session.delete(w)
     session.commit()
@@ -228,7 +230,7 @@ def test_matcher_excludes_tombstoned_sources(session):
     act.excluded = True
     session.commit()
 
-    result = match_day(session, DAY)
+    result = match_day(session, DAY, user_id=1)
 
     assert result["workouts"] == []
     assert result["candidates"] == []
@@ -246,7 +248,7 @@ def test_run_daily_reviews_skips_deleted(session):
                        match_status="xunji_only")
     w2 = fuse_workout(session, DAY, xunji=make_xunji_train(session, DAY, localid="2"),
                       match_status="xunji_only")
-    delete_workout(session, w1.id)
+    delete_workout(session, w1.id, user_id=1)
 
     chat_fn = lambda msgs: {"content": "点评", "prompt_tokens": 1,  # noqa: E731
                             "completion_tokens": 1, "model": "fake"}
@@ -279,9 +281,14 @@ def client(session, monkeypatch):
 
 
 @pytest.fixture
-def auth(client):
-    token = client.post("/api/auth/login", json={"password": "test-pass"}).json()["token"]
-    return {"Authorization": f"Bearer {token}"}
+def auth(client, session):
+    from app.services import users as _us
+    try:
+        _us.create_user(session, username="alice", password="test-pass", role="user")
+    except ValueError:
+        pass  # alice 已由 conftest session 预建（id=1）
+    _b = client.post("/api/auth/login", json={"username": "alice", "password": "test-pass"}).json()
+    return {"Authorization": f"Bearer {_b['token']}"}
 
 
 def test_api_delete_hides_from_calendar_and_detail(client, auth, session):
@@ -353,7 +360,7 @@ def test_api_trends_excludes_deleted(client, auth, session):
                               movements=movements)
     w1 = fuse_workout(session, today, xunji=train1, match_status="xunji_only")
     fuse_workout(session, today - timedelta(days=1), xunji=train2, match_status="xunji_only")
-    delete_workout(session, w1.id)
+    delete_workout(session, w1.id, user_id=1)
 
     data = client.get("/api/stats/trends?weeks=4", headers=auth).json()
     total_sessions = sum(row["sessions"] for row in data["weekly_volume"])

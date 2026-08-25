@@ -23,6 +23,7 @@ class SyncState:
     def __init__(self) -> None:
         self.running = False
         self.day: date | None = None
+        self.user_id: int | None = None
         self.started_at: datetime | None = None
         self.finished_at: datetime | None = None
         self.status: str | None = None  # running / success / failed / None(从未运行)
@@ -38,24 +39,25 @@ class SyncManager:
         self._lock = threading.Lock()
         self._state = SyncState()
 
-    def start(self, day: date) -> dict:
+    def start(self, day: date, user_id: int | None = None) -> dict:
         with self._lock:
             if self._state.running:
                 raise SyncAlreadyRunningError("已有同步任务进行中")
             self._state = SyncState()
             self._state.running = True
             self._state.day = day
+            self._state.user_id = user_id
             self._state.status = "running"
             self._state.started_at = datetime.now()
             thread = threading.Thread(
-                target=self._run_safe, args=(day,), daemon=True, name="manual-sync",
+                target=self._run_safe, args=(day, user_id), daemon=True, name="manual-sync",
             )
             thread.start()
         return {"status": "started", "date": day.isoformat()}
 
-    def _run_safe(self, day: date) -> None:
+    def _run_safe(self, day: date, user_id: int | None = None) -> None:
         try:
-            result = self._sync_fn(day)
+            result = self._sync_fn(day, user_id=user_id)
             with self._lock:
                 self._state.result = result
                 self._state.status = result.get("status", "success")

@@ -63,7 +63,7 @@ def test_full_overlap_auto_matched(session):
     x = make_xunji_train(session, DAY, localid="1", title="背二头2")
     g = make_garmin_activity(session, DAY, activity_id="g1")
 
-    result = match_day(session, DAY)
+    result = match_day(session, DAY, user_id=1)
 
     workouts = session.query(Workout).all()
     assert len(workouts) == 1
@@ -80,7 +80,7 @@ def test_overlap_61_percent_auto_matched(session):
     make_xunji_train(session, DAY, localid="1", start=time(9, 0), end=time(10, 36, 36))
     make_garmin_activity(session, DAY, activity_id="g1")
 
-    match_day(session, DAY)
+    match_day(session, DAY, user_id=1)
 
     w = session.query(Workout).one()
     assert w.match_status == "auto_matched"
@@ -92,7 +92,7 @@ def test_overlap_exactly_60_percent_auto_matched(session):
     make_xunji_train(session, DAY, localid="1", start=time(9, 0), end=time(10, 36))
     make_garmin_activity(session, DAY, activity_id="g1")
 
-    match_day(session, DAY)
+    match_day(session, DAY, user_id=1)
 
     assert session.query(Workout).one().match_status == "auto_matched"
 
@@ -103,7 +103,7 @@ def test_overlap_59_percent_not_auto_matched(session):
     x = make_xunji_train(session, DAY, localid="1", start=time(9, 0), end=time(10, 35, 24))
     g = make_garmin_activity(session, DAY, activity_id="g1")
 
-    match_day(session, DAY)
+    match_day(session, DAY, user_id=1)
 
     assert session.query(Workout).filter_by(match_status="auto_matched").count() == 0
     c = session.query(MatchCandidate).one()
@@ -122,7 +122,7 @@ def test_start_diff_29min_goes_pending(session):
     g = make_garmin_activity(session, DAY, activity_id="g1",
                              start=time(10, 29), end=time(12, 0))
 
-    match_day(session, DAY)
+    match_day(session, DAY, user_id=1)
 
     c = session.query(MatchCandidate).one()
     assert c.reason == "time_close"
@@ -137,7 +137,7 @@ def test_start_diff_31min_stays_unmatched(session):
     g = make_garmin_activity(session, DAY, activity_id="g1", activity_type="running",
                              start=time(10, 31), end=time(11, 31))
 
-    match_day(session, DAY)
+    match_day(session, DAY, user_id=1)
 
     assert session.query(MatchCandidate).count() == 0
     w_x = session.query(Workout).filter_by(match_status="xunji_only").one()
@@ -161,7 +161,7 @@ def test_two_sessions_same_day_matched_independently(session):
     g2 = make_garmin_activity(session, DAY, activity_id="g2", activity_type="strength_training",
                               name="力量训练", start=time(19, 0), end=time(20, 0))
 
-    match_day(session, DAY)
+    match_day(session, DAY, user_id=1)
 
     workouts = session.query(Workout).filter_by(match_status="auto_matched").all()
     assert len(workouts) == 2
@@ -177,7 +177,7 @@ def test_two_sessions_same_day_matched_independently(session):
 def test_xunji_only(session):
     x = make_xunji_train(session, DAY, localid="1", title="背二头2")
 
-    match_day(session, DAY)
+    match_day(session, DAY, user_id=1)
 
     w = session.query(Workout).one()
     assert w.match_status == "xunji_only"
@@ -189,7 +189,7 @@ def test_xunji_only(session):
 def test_garmin_only_non_strength_no_candidate(session):
     g = make_garmin_activity(session, DAY, activity_id="g1", activity_type="running")
 
-    match_day(session, DAY)
+    match_day(session, DAY, user_id=1)
 
     w = session.query(Workout).one()
     assert w.match_status == "garmin_only"
@@ -201,7 +201,7 @@ def test_garmin_only_non_strength_no_candidate(session):
 def test_garmin_only_strength_creates_draft_candidate(session):
     g = make_garmin_activity(session, DAY, activity_id="g1", activity_type="strength_training")
 
-    match_day(session, DAY)
+    match_day(session, DAY, user_id=1)
 
     w = session.query(Workout).one()
     assert w.match_status == "garmin_only"
@@ -226,19 +226,19 @@ def test_rerun_is_idempotent(session):
     make_garmin_activity(session, DAY, activity_id="g2", activity_type="strength_training",
                          start=time(12, 0), end=time(13, 0))
 
-    match_day(session, DAY)
+    match_day(session, DAY, user_id=1)
     w1 = session.query(Workout).count()
     c1 = session.query(MatchCandidate).count()
 
-    match_day(session, DAY)
-    match_day(session, DAY)
+    match_day(session, DAY, user_id=1)
+    match_day(session, DAY, user_id=1)
 
     assert session.query(Workout).count() == w1 == 3
     assert session.query(MatchCandidate).count() == c1 == 1
 
 
 def test_empty_day_no_workouts(session):
-    result = match_day(session, DAY)
+    result = match_day(session, DAY, user_id=1)
     assert result["workouts"] == []
     assert result["candidates"] == []
     assert session.query(Workout).count() == 0
@@ -248,7 +248,7 @@ def test_other_day_records_not_touched(session):
     other = date(2026, 8, 2)
     make_xunji_train(session, other, localid="9", title="昨日训练")
 
-    match_day(session, DAY)
+    match_day(session, DAY, user_id=1)
 
     assert session.query(Workout).count() == 0
 
@@ -264,7 +264,7 @@ def test_train_without_interval_goes_xunji_only(session):
     session.commit()
     make_garmin_activity(session, DAY, activity_id="g1")
 
-    match_day(session, DAY)
+    match_day(session, DAY, user_id=1)
 
     w_x = session.query(Workout).filter_by(match_status="xunji_only").one()
     assert w_x.xunji_train_id == x.id
@@ -317,7 +317,7 @@ def test_stale_train_inplace_refuse_and_ai_regen(session):
                      "sets": [{"weight": 60, "unit": "kg", "reps": 10, "done": True}]}]
     x = make_xunji_train(session, DAY, localid="1", title="背部训练", movements=movements_v1)
     make_garmin_activity(session, DAY, activity_id="g1")
-    match_day(session, DAY)
+    match_day(session, DAY, user_id=1)
     w = session.query(Workout).one()
     wid = w.id
 
@@ -337,12 +337,14 @@ def test_stale_train_inplace_refuse_and_ai_regen(session):
     raw = json.loads(x.raw_json)
     raw["movements"] = movements_v2
     x.raw_json = json.dumps(raw, ensure_ascii=False)
-    x.fetched_at = datetime.now() + timedelta(seconds=5)
+    # 训记重新拉取时间明显晚于 workout.updated_at（onupdate 会在提交时把
+    # updated_at 刷成当前时刻，故 fetched_at 需充分靠后以保证 > updated_at）
+    x.fetched_at = datetime.now() + timedelta(days=1)
     w.updated_at = datetime.now() - timedelta(hours=1)
     session.commit()
     _make_plan_for_advice(session)
 
-    result = match_day(session, DAY, chat_fn=_regen_chat)
+    result = match_day(session, DAY, user_id=1, chat_fn=_regen_chat)
 
     # 不新建行、匹配关系不变、movements_json 刷新
     assert session.query(Workout).count() == 1
@@ -370,7 +372,7 @@ def test_fresh_train_no_refuse_no_ai_regen(session):
                   "sets": [{"weight": 60, "unit": "kg", "reps": 10, "done": True}]}]
     make_xunji_train(session, DAY, localid="1", title="背部训练", movements=movements)
     make_garmin_activity(session, DAY, activity_id="g1")
-    match_day(session, DAY)
+    match_day(session, DAY, user_id=1)
     w = session.query(Workout).one()
     old_movements = w.movements_json
     session.add(AIReport(type="session_review", workout_id=w.id, period_start=DAY,
@@ -394,7 +396,7 @@ def test_activity_without_interval_goes_garmin_only(session):
     session.commit()
     x = make_xunji_train(session, DAY, localid="1", title="背二头2")
 
-    match_day(session, DAY)
+    match_day(session, DAY, user_id=1)
 
     w_g = session.query(Workout).filter_by(match_status="garmin_only").one()
     assert w_g.garmin_activity_id == g.id

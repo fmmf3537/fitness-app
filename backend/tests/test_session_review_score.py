@@ -1,5 +1,6 @@
 """V3-4 任务2：session_review 评分体系测试（解析/校验/重试/降级 + API + 迁移）。"""
 import json
+import os
 from datetime import date
 
 import pytest
@@ -36,6 +37,7 @@ def _make_workout(session) -> Workout:
     w = Workout(
         date=DAY,
         title="胸部训练",
+        user_id=1,
         match_status="auto_matched",
         movements_json=json.dumps(
             [{"name": "卧推", "sets": [{"weight": 60, "unit": "kg", "reps": 8, "done": True}]}]
@@ -217,9 +219,14 @@ def client(session, monkeypatch):
 
 
 @pytest.fixture
-def auth(client):
-    token = client.post("/api/auth/login", json={"password": "test-pass"}).json()["token"]
-    return {"Authorization": f"Bearer {token}"}
+def auth(client, session):
+    from app.services import users as _us
+    try:
+        _us.create_user(session, username="alice", password="test-pass", role="user")
+    except ValueError:
+        pass  # alice 已由 conftest session 预建（id=1）
+    _b = client.post("/api/auth/login", json={"username": "alice", "password": "test-pass"}).json()
+    return {"Authorization": f"Bearer {_b['token']}"}
 
 
 class TestSerializeScore:
@@ -229,6 +236,7 @@ class TestSerializeScore:
             AIReport(
                 type="session_review",
                 workout_id=w.id,
+                user_id=1,
                 period_start=DAY,
                 period_end=DAY,
                 model="deepseek-chat",
@@ -252,6 +260,7 @@ class TestSerializeScore:
             AIReport(
                 type="session_review",
                 workout_id=w.id,
+                user_id=1,
                 period_start=DAY,
                 period_end=DAY,
                 model="deepseek-chat",
@@ -274,6 +283,7 @@ class TestRegenerateService:
         old = AIReport(
             type="session_review",
             workout_id=w.id,
+            user_id=1,
             period_start=DAY,
             period_end=DAY,
             model="deepseek-chat",
@@ -304,6 +314,7 @@ class TestRegenerateService:
             AIReport(
                 type="session_review",
                 workout_id=None,
+                user_id=1,
                 period_start=DAY,
                 period_end=DAY,
                 model="deepseek-chat",
@@ -325,6 +336,7 @@ class TestRegenerateService:
         advice = AIReport(
             type="next_advice",
             workout_id=w.id,
+            user_id=1,
             period_start=DAY,
             period_end=DAY,
             model="deepseek-chat",
@@ -350,6 +362,7 @@ class TestRegenerateSessionReviewAPI:
         old = AIReport(
             type="session_review",
             workout_id=w.id,
+            user_id=1,
             period_start=DAY,
             period_end=DAY,
             model="deepseek-chat",
@@ -362,11 +375,21 @@ class TestRegenerateSessionReviewAPI:
         def fake_chat(messages):
             return {"content": GOOD_CONTENT, "prompt_tokens": 10, "completion_tokens": 5}
 
-        manager = api_mod.SessionReviewRegenManager(
-            runner=lambda day_str: ai_service.regenerate_session_reviews(
-                session, day_str, chat_fn=fake_chat
-            )
-        )
+        from app.db import make_engine, make_session_factory
+
+        def _runner(day_str, user_id=None):
+            eng = make_engine(os.environ["DATABASE_URL"])
+            factory = make_session_factory(eng)
+            s = factory()
+            try:
+                return ai_service.regenerate_session_reviews(
+                    s, day_str, chat_fn=fake_chat
+                )
+            finally:
+                s.close()
+                eng.dispose()
+
+        manager = api_mod.SessionReviewRegenManager(runner=_runner)
         app.dependency_overrides[api_mod.get_session_review_regen_manager] = lambda: manager
         try:
             resp = client.post(

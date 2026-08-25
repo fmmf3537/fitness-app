@@ -6,13 +6,12 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.adapters.llm import LLMError
-from app.api.auth import require_auth
+from app.api.auth import get_current_user_id
 from app.db import get_session
 from app.services.screenshot import ExtractionError, confirm_import, extract_from_image
 
 router = APIRouter(
     prefix="/api/screenshot", tags=["screenshot"],
-    dependencies=[Depends(require_auth)],
 )
 
 MAX_IMAGES = 9
@@ -36,6 +35,7 @@ class ConfirmRequest(BaseModel):
 async def screenshot_extract(
     files: list[UploadFile] = File(...),
     session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id),
 ) -> dict:
     """多图识别：逐张调视觉模型 + Schema 校验（失败自动重试 1 次），结果不落库。"""
     if not files:
@@ -63,9 +63,13 @@ async def screenshot_extract(
 
 
 @router.post("/confirm")
-def screenshot_confirm(req: ConfirmRequest, session: Session = Depends(get_session)) -> dict:
+def screenshot_confirm(
+    req: ConfirmRequest,
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id),
+) -> dict:
     """用户确认入库：写 xunji_train 并重跑当日匹配（match_status 按现有规则）。"""
     try:
-        return confirm_import(session, req.model_dump(exclude_none=True))
+        return confirm_import(session, req.model_dump(exclude_none=True), user_id=current_user_id)
     except ExtractionError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

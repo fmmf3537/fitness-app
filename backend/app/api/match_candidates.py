@@ -2,18 +2,17 @@
 from datetime import date, datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.api.auth import require_auth
+from app.api.auth import get_current_user, get_current_user_id, resolve_viewer
 from app.db import get_session
-from app.models import GarminActivity, MatchCandidate, XunjiTrain
+from app.models import GarminActivity, MatchCandidate, User, XunjiTrain
 from app.services.fuse import fuse_workout
 
 router = APIRouter(
     prefix="/api/match-candidates", tags=["match-candidates"],
-    dependencies=[Depends(require_auth)],
 )
 
 
@@ -62,11 +61,15 @@ def _serialize(c: MatchCandidate, session: Session) -> dict:
 
 
 @router.get("")
-def list_candidates(session: Session = Depends(get_session)) -> dict:
-    """待确认队列（仅 pending）。"""
+def list_candidates(
+    session: Session = Depends(get_session),
+    principal: User = Depends(get_current_user),
+    override_user_id: int | None = Query(default=None, alias="user_id"),
+) -> dict:
+    """待确认队列（仅 pending，当前用户）。"""
     rows = (
         session.query(MatchCandidate)
-        .filter(MatchCandidate.status == "pending")
+        .filter(MatchCandidate.status == "pending", MatchCandidate.user_id == resolve_viewer(principal, override_user_id))
         .order_by(MatchCandidate.id)
         .all()
     )
@@ -78,10 +81,11 @@ def resolve_candidate(
     candidate_id: int,
     req: ResolveRequest,
     session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id),
 ) -> dict:
     """合并 → manual_matched 融合记录；保持分开 → 两侧各自成档。"""
     c = session.get(MatchCandidate, candidate_id)
-    if c is None:
+    if c is None or c.user_id != current_user_id:
         raise HTTPException(status_code=404, detail="候选不存在")
     if c.status != "pending":
         raise HTTPException(status_code=409, detail="候选已处理")

@@ -162,7 +162,7 @@ def workout_pr_details(session: Session, workout: Workout,
 
     输出 [{"movement", "weight", "unit", "reps"}]，按动作名排序。
     """
-    events = query_pr_events(session, workout.date, workout.date)
+    events = query_pr_events(session, workout.date, workout.date, user_id=workout.user_id)
     if not events:
         return []
     names_in_workout = {

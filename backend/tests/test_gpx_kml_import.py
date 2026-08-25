@@ -416,7 +416,7 @@ def test_import_gpx_persists_activity(session, gpx_file):
     raw = json.loads(row.raw_json)
     assert raw["format"] == "gpx"
     assert raw["parsed"]["distance_m"] is not None
-    fake_match.assert_called_once_with(session, row.start_ts.date())
+    fake_match.assert_called_once_with(session, row.start_ts.date(), user_id=None)
 
 
 def test_import_gpx_idempotent(session, gpx_file):

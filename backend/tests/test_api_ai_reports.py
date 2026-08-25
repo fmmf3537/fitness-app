@@ -27,9 +27,14 @@ def client(session, monkeypatch):
 
 
 @pytest.fixture
-def auth(client):
-    token = client.post("/api/auth/login", json={"password": "test-pass"}).json()["token"]
-    return {"Authorization": f"Bearer {token}"}
+def auth(client, session):
+    from app.services import users as _us
+    try:
+        _us.create_user(session, username="alice", password="test-pass", role="user")
+    except ValueError:
+        pass  # alice 已由 conftest session 预建（id=1）
+    _b = client.post("/api/auth/login", json={"username": "alice", "password": "test-pass"}).json()
+    return {"Authorization": f"Bearer {_b['token']}"}
 
 
 class TestListAIReports:
@@ -42,6 +47,7 @@ class TestListAIReports:
         session.commit()
         session.add(
             AIReport(
+                user_id=1,
                 type="session_review",
                 workout_id=w.id,
                 period_start=date(2026, 8, 3),
@@ -79,6 +85,7 @@ class TestGetAIReport:
         session.add(w)
         session.commit()
         report = AIReport(
+            user_id=1,
             type="session_review",
             workout_id=w.id,
             period_start=date(2026, 8, 3),
@@ -107,6 +114,7 @@ class TestRecentAIReports:
     def _make_report(self, session, idx, report_type="session_review", created_at=None):
         from datetime import datetime as dt
         report = AIReport(
+            user_id=1,
             type=report_type,
             period_start=date(2026, 8, 1 + idx),
             period_end=date(2026, 8, 1 + idx),

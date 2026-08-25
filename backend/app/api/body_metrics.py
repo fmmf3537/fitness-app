@@ -18,9 +18,9 @@ from sqlalchemy.orm import Session
 from app.adapters.llm import LLMError
 from app.adapters.xunji import XunjiAPIError
 from app.adapters.xunji_body import XunjiBodyClient
-from app.api.auth import require_auth
+from app.api.auth import get_current_user, get_current_user_id, resolve_viewer
 from app.db import get_session
-from app.models import BodyMetric
+from app.models import BodyMetric, User
 from app.services import body_metrics as body_metrics_service
 from app.services.body_image import confirm_import as confirm_body_image_import
 from app.services.body_image import extract_from_image as extract_body_image
@@ -30,7 +30,6 @@ from app.services.screenshot import ExtractionError
 router = APIRouter(
     prefix="/api/body-metrics",
     tags=["body-metrics"],
-    dependencies=[Depends(require_auth)],
 )
 
 
@@ -96,12 +95,14 @@ def _parse_date(raw: str, field: str = "date") -> date:
 def create_body_metric(
     req: BodyMetricCreate,
     session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id),
 ) -> dict:
     """录入身体数据：同日同类型覆盖旧值（upsert 幂等）。"""
     day = _parse_date(req.date)
     try:
         row = body_metrics_service.upsert_body_metric(
-            session, day, req.type, req.value, unit=req.unit, note=req.note
+            session, day, req.type, req.value, unit=req.unit, note=req.note,
+            user_id=current_user_id,
         )
     except BodyMetricValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -114,11 +115,15 @@ def list_body_metrics(
     from_: str | None = Query(default=None, alias="from"),
     to: str | None = Query(default=None),
     session: Session = Depends(get_session),
+    principal: User = Depends(get_current_user),
+    override_user_id: int | None = Query(default=None, alias="user_id"),
 ) -> dict:
-    """趋势查询：按类型/日期区间过滤，日期升序。"""
+    """趋势查询：按类型/日期区间过滤，日期升序（当前用户）。"""
     from_date = _parse_date(from_, "from") if from_ else None
     to_date = _parse_date(to, "to") if to else None
-    rows = body_metrics_service.query_body_metrics(session, type, from_date, to_date)
+    rows = body_metrics_service.query_body_metrics(
+        session, type, from_date, to_date, user_id=resolve_viewer(principal, override_user_id)
+    )
     return {"metrics": [body_metrics_service.to_dict(r) for r in rows]}
 
 
@@ -128,6 +133,7 @@ def sync_body_metric_to_xunji(
     req: SyncRequest,
     session: Session = Depends(get_session),
     client: XunjiBodyClient = Depends(get_body_client),
+    current_user_id: int = Depends(get_current_user_id),
 ) -> dict:
     """同步到训记（仅 weight/bodyfat）。
 
@@ -135,7 +141,7 @@ def sync_body_metric_to_xunji(
     带 confirmed=True 再调本接口执行真实写入，成功后置 synced_to_xunji=TRUE。
     """
     row = session.get(BodyMetric, metric_id)
-    if row is None:
+    if row is None or row.user_id != current_user_id:
         raise HTTPException(status_code=404, detail=f"记录 {metric_id} 不存在")
     if row.type not in SYNCABLE_TYPES:
         raise HTTPException(
@@ -174,6 +180,7 @@ def sync_body_metric_to_xunji(
 async def extract_body_scale_image(
     file: UploadFile = File(...),
     session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id),
 ) -> dict:
     """体脂秤报告图片识别：调视觉模型 + Schema 校验（失败自动重试 1 次），结果不落库。"""
     if (file.content_type or "") not in ALLOWED_IMAGE_MIME:
@@ -196,6 +203,7 @@ def confirm_body_image_import_api(
     req: ConfirmImportRequest,
     session: Session = Depends(get_session),
     client: XunjiBodyClient | None = Depends(get_body_client_lazy),
+    current_user_id: int = Depends(get_current_user_id),
 ) -> dict:
     """用户确认后批量入库：selected 指标按 (date,type) 幂等 upsert；
 
@@ -211,6 +219,7 @@ def confirm_body_image_import_api(
             [m.model_dump() for m in req.metrics],
             sync_xunji=req.sync_xunji,
             body_client=client,
+            user_id=current_user_id,
         )
     except BodyMetricValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -54,13 +54,18 @@ def client(session, monkeypatch, fake_client):
 
 
 @pytest.fixture
-def auth(client):
-    token = client.post("/api/auth/login", json={"password": "test-pass"}).json()["token"]
-    return {"Authorization": f"Bearer {token}"}
+def auth(client, session):
+    from app.services import users as _us
+    try:
+        _us.create_user(session, username="alice", password="test-pass", role="user")
+    except ValueError:
+        pass  # alice 已由 conftest session 预建（id=1）
+    _b = client.post("/api/auth/login", json={"username": "alice", "password": "test-pass"}).json()
+    return {"Authorization": f"Bearer {_b['token']}"}
 
 
 def _add_weight(session, value=72.4):
-    return upsert_body_metric(session, date(2026, 8, 3), "weight", value)
+    return upsert_body_metric(session, date(2026, 8, 3), "weight", value, user_id=1)
 
 
 class TestPreview:
@@ -141,14 +146,14 @@ class TestLocalOnlyTypesRejected:
         self, client, auth, session, fake_client, type_, value
     ):
         """身高/血压/血糖训记 API 无对应类型，同步一律 400 且不发任何请求。"""
-        row = upsert_body_metric(session, date(2026, 8, 3), type_, value)
+        row = upsert_body_metric(session, date(2026, 8, 3), type_, value, user_id=1)
         resp = client.post(f"/api/body-metrics/{row.id}/sync-xunji", json={}, headers=auth)
         assert resp.status_code == 400
         assert fake_client.calls == []
 
     def test_bodyfat_sync_allowed(self, client, auth, session, fake_client):
         """体脂率（bodyfat）允许同步。"""
-        row = upsert_body_metric(session, date(2026, 8, 3), "bodyfat", 18.2)
+        row = upsert_body_metric(session, date(2026, 8, 3), "bodyfat", 18.2, user_id=1)
         resp = client.post(f"/api/body-metrics/{row.id}/sync-xunji", json={}, headers=auth)
         assert resp.status_code == 200
         assert fake_client.calls[0]["records"][0]["type"] == "bodyfat"

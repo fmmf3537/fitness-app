@@ -3,7 +3,7 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 
@@ -59,7 +59,7 @@ def test_workout_soft_delete_columns_roundtrip(tmp_path):
     assert "excluded" in {c["name"] for c in insp.get_columns("garmin_activity")}
     assert "excluded" in {c["name"] for c in insp.get_columns("xunji_train")}
 
-    command.downgrade(cfg, "-1")
+    command.downgrade(cfg, "e4f5a6b7c8d9")  # 回退到软删除迁移之前
     insp = inspect(create_engine(db_url))
     assert "deleted_at" not in {c["name"] for c in insp.get_columns("workout")}
     assert "excluded" not in {c["name"] for c in insp.get_columns("garmin_activity")}
@@ -108,6 +108,7 @@ def test_report_chat_message_table_roundtrip(tmp_path):
         "completion_tokens",
         "cost_estimate",
         "client_request_id",
+        "user_id",
         "created_at",
     } == cols
 
@@ -118,6 +119,46 @@ def test_report_chat_message_table_roundtrip(tmp_path):
     command.upgrade(cfg, "head")  # 再次升级恢复
     insp = inspect(create_engine(db_url))
     assert "report_chat_message" in insp.get_table_names()
+
+
+def test_settings_per_user_migration_roundtrip(tmp_path):
+    """multiuser-v2 M1-2：settings 改每用户一行，列改名保留数据，回滚可还原。"""
+    db_url = f"sqlite:///{tmp_path}/mig.db"
+    cfg = _make_config(db_url)
+    command.upgrade(cfg, "1f0d04e38eb5")  # 旧 head：单用户单行 settings
+    with create_engine(db_url).begin() as conn:
+        conn.execute(text(
+            "INSERT INTO settings (garmin_token_store, xunji_api_key_enc, default_llm) "
+            "VALUES ('tok', 'enc', 'kimi')"
+        ))
+
+    command.upgrade(cfg, "head")
+    insp = inspect(create_engine(db_url))
+    cols = {c["name"] for c in insp.get_columns("settings")}
+    assert {
+        "user_id", "garmin_token_store_enc", "garmin_email_enc", "garmin_password_enc",
+        "xunji_api_key_enc", "xunji_body_api_key_enc", "default_llm",
+        "llm_keys_json_enc", "leaderboard_opt_out_json", "created_at", "updated_at",
+    } <= cols
+    assert "garmin_token_store" not in cols  # 旧列名已改名
+    assert any(ix["name"] == "ix_settings_user_id" and ix["unique"]
+               for ix in insp.get_indexes("settings"))
+    # 已有数据不丢失：改名后原值保留，user_id 为 NULL（M1-4 才回填）
+    with create_engine(db_url).connect() as conn:
+        row = conn.execute(text(
+            "SELECT garmin_token_store_enc, xunji_api_key_enc, default_llm, user_id, "
+            "updated_at FROM settings"
+        )).one()
+    assert row[0] == "tok" and row[1] == "enc" and row[2] == "kimi"
+    assert row[3] is None and row[4] is not None
+
+    command.downgrade(cfg, "1f0d04e38eb5")  # 回滚到 M1-2 之前：列名还原、新增列消失、数据仍保留
+    insp = inspect(create_engine(db_url))
+    cols = {c["name"] for c in insp.get_columns("settings")}
+    assert "garmin_token_store" in cols
+    assert {"user_id", "garmin_token_store_enc", "updated_at"}.isdisjoint(cols)
+    with create_engine(db_url).connect() as conn:
+        assert conn.execute(text("SELECT garmin_token_store FROM settings")).scalar() == "tok"
 
 
 def test_upgrade_twice_is_stable(tmp_path):

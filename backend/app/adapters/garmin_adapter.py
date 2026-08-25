@@ -802,7 +802,8 @@ def parse_activity_file(path: str | Path) -> dict:
     return parsed
 
 
-def import_fit_file(session: Session, path: str | Path, *, match_fn=None) -> dict:
+def import_fit_file(session: Session, path: str | Path, *, match_fn=None,
+                    user_id: int | None = None) -> dict:
     """FIT/TCX 手动导入降级通道：解析 → 按内容哈希 upsert garmin_activity → 触发该日重匹配。
 
     - activity_id 取文件内容哈希（file_<sha256[:16]>），同一文件重复导入幂等；
@@ -822,7 +823,7 @@ def import_fit_file(session: Session, path: str | Path, *, match_fn=None) -> dic
         # V3-11 墓碑：同一文件重复导入不更新、不触发重匹配（防复活）
         return {"activity": row, "match": None}
     if row is None:
-        row = GarminActivity(activity_id=activity_id)
+        row = GarminActivity(activity_id=activity_id, user_id=user_id)
         session.add(row)
     row.activity_type = parsed.get("activity_type")
     row.name = row.name or parsed.get("activity_name") or f"{path.stem}（文件导入）"
@@ -844,5 +845,5 @@ def import_fit_file(session: Session, path: str | Path, *, match_fn=None) -> dic
     if match_fn is None:
         from app.services.matcher import match_day
         match_fn = match_day
-    match_result = match_fn(session, row.start_ts.date())
+    match_result = match_fn(session, row.start_ts.date(), user_id=user_id)
     return {"activity": row, "match": match_result}

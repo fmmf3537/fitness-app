@@ -53,8 +53,12 @@ def _write_job_run(session: Session, job_name: str, started_at: datetime, result
 
 
 def daily_sync(day, *, session: Session | None = None, xunji=None, garmin=None,
+               user_id: int | None = None,
                sleep: Callable[[float], None] = time.sleep) -> dict:
-    """每日同步编排：训记 → 佳明活动 → 佳明健康 → 融合匹配。"""
+    """每日同步编排：训记 → 佳明活动 → 佳明健康 → 融合匹配。
+
+    user_id 用于隔离多用户数据写入（经适配器落地，见 M2-5）。
+    """
     day_date = date.fromisoformat(day) if isinstance(day, str) else day
     datestr = day_date.isoformat()
     own_session = session is None
@@ -67,6 +71,7 @@ def daily_sync(day, *, session: Session | None = None, xunji=None, garmin=None,
         if garmin is None:
             from app.adapters.garmin_adapter import GarminClient
             garmin = GarminClient(session)
+        # user_id 透传待 M2-5：适配器写入点加 user_id 隔离（见 daily_sync 签名已就绪）
 
         # V2-7b 缺陷3：同步日期为今天时必须绕过同日缓存强刷，否则当天补录的
         # 组数拉不下来；历史日期保持缓存命中策略不变（SyncManager 手动同步亦走此处）。
@@ -80,7 +85,7 @@ def daily_sync(day, *, session: Session | None = None, xunji=None, garmin=None,
             ("xunji_trains", xunji_step),
             ("garmin_activities", lambda: garmin.sync_activities(datestr)),
             ("garmin_daily", lambda: garmin.sync_daily(datestr)),
-            ("match", lambda: match_day(session, day_date)),
+            ("match", lambda: match_day(session, day_date, user_id=user_id)),
         ]
         detail: dict[str, Any] = {"date": datestr}
         attempts: dict[str, int] = {}

@@ -6,14 +6,13 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.api.auth import require_auth
+from app.api.auth import get_current_user, get_current_user_id, resolve_viewer
 from app.db import get_session
-from app.models import GarminActivity, Workout, XunjiTrain
+from app.models import GarminActivity, User, Workout, XunjiTrain
 from app.services.workouts import delete_workout, list_deleted_workouts, restore_workout
 
 router = APIRouter(
     prefix="/api/workouts", tags=["workouts"],
-    dependencies=[Depends(require_auth)],
 )
 
 
@@ -84,6 +83,8 @@ def extract_heart_rate_series(raw_json: str | None) -> list[dict]:
 def workout_calendar(
     month: str = Query(pattern=r"^\d{4}-\d{2}$"),
     session: Session = Depends(get_session),
+    principal: User = Depends(get_current_user),
+    override_user_id: int | None = Query(default=None, alias="user_id"),
 ) -> dict:
     """月历数据：当月有训练的日子及其融合状态（PRD US-4 AC1）。"""
     year, mon = int(month[:4]), int(month[5:7])
@@ -95,6 +96,7 @@ def workout_calendar(
             Workout.date >= first,
             Workout.date <= last,
             Workout.deleted_at.is_(None),
+            Workout.user_id == resolve_viewer(principal, override_user_id),
         )
         .order_by(Workout.date, Workout.id)
         .all()
@@ -109,7 +111,11 @@ def workout_calendar(
 
 
 @router.get("/deleted")
-def workout_deleted_list(session: Session = Depends(get_session)) -> dict:
+def workout_deleted_list(
+    session: Session = Depends(get_session),
+    principal: User = Depends(get_current_user),
+    override_user_id: int | None = Query(default=None, alias="user_id"),
+) -> dict:
     """已删除训练列表（V3-11，供设置页恢复操作）。"""
     return {
         "workouts": [
@@ -120,16 +126,20 @@ def workout_deleted_list(session: Session = Depends(get_session)) -> dict:
                 "match_status": w.match_status,
                 "deleted_at": w.deleted_at.isoformat() if w.deleted_at else None,
             }
-            for w in list_deleted_workouts(session)
+            for w in list_deleted_workouts(session, user_id=resolve_viewer(principal, override_user_id))
         ]
     }
 
 
 @router.get("/{workout_id}")
-def workout_detail(workout_id: int, session: Session = Depends(get_session)) -> dict:
+def workout_detail(
+    workout_id: int,
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id),
+) -> dict:
     """训练详情：融合视图 + 训记原始 + 佳明原始（PRD US-3 AC3 / US-4 AC2）。"""
     w = session.get(Workout, workout_id)
-    if w is None or w.deleted_at is not None:
+    if w is None or w.deleted_at is not None or w.user_id != current_user_id:
         raise HTTPException(status_code=404, detail="workout 不存在")
     train = session.get(XunjiTrain, w.xunji_train_id) if w.xunji_train_id else None
     activity = (
@@ -154,18 +164,26 @@ def workout_detail(workout_id: int, session: Session = Depends(get_session)) -> 
 
 
 @router.delete("/{workout_id}")
-def workout_delete(workout_id: int, session: Session = Depends(get_session)) -> dict:
+def workout_delete(
+    workout_id: int,
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id),
+) -> dict:
     """软删除一次训练（V3-11）：幂等，重复删除返回 200。"""
-    w = delete_workout(session, workout_id)
+    w = delete_workout(session, workout_id, user_id=current_user_id)
     if w is None:
         raise HTTPException(status_code=404, detail="workout 不存在")
     return {"ok": True, "id": workout_id}
 
 
 @router.post("/{workout_id}/restore")
-def workout_restore(workout_id: int, session: Session = Depends(get_session)) -> dict:
+def workout_restore(
+    workout_id: int,
+    session: Session = Depends(get_session),
+    current_user_id: int = Depends(get_current_user_id),
+) -> dict:
     """恢复已删除的训练（V3-11）：不重建 AI 报告。"""
-    w = restore_workout(session, workout_id)
+    w = restore_workout(session, workout_id, user_id=current_user_id)
     if w is None:
         raise HTTPException(status_code=404, detail="workout 不存在或未删除")
     return {"ok": True, "id": workout_id}

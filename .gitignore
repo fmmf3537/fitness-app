@@ -33,3 +33,11 @@ logs/
 # 本机运维脚本（含绝对路径，机器专用）
 scripts/server_daemon.py
 scripts/start_server_hidden.vbs
+
+# 本会话恢复 / 调试产物（不入库）
+.workbuddy/
+_backup_m25b/
+backend/_*.log
+
+# 本地输出的临时备份（不入库）
+outputs/backup-*

@@ -13,6 +13,7 @@ from app.models import (
     LLMCall,
     MatchCandidate,
     Setting,
+    User,
     Workout,
     XunjiPlan,
     XunjiTrain,
@@ -51,13 +52,42 @@ def _garmin_activity(**kw):
 
 
 def test_settings_insert_query(session):
-    row = Setting(garmin_token_store="tok", xunji_api_key_enc="enc",
-                  default_llm="kimi", llm_keys_json_enc="{}")
+    row = Setting(garmin_token_store_enc="enc_tok", garmin_email_enc="enc_email",
+                  garmin_password_enc="enc_pwd", xunji_api_key_enc="enc",
+                  xunji_body_api_key_enc="enc_body", default_llm="kimi",
+                  llm_keys_json_enc="{}",
+                  leaderboard_opt_out_json='{"frequency": false, "volume": true}')
     session.add(row)
     session.commit()
     got = session.query(Setting).one()
     assert got.default_llm == "kimi"
     assert got.created_at is not None
+    assert got.updated_at is not None
+    # M1-2：user_id 可空，存量行以 NULL 平滑升级（M1-4 才回填默认管理员）
+    assert got.user_id is None
+
+
+def test_settings_user_id_unique(session):
+    """每用户一行：同一 user_id 不允许第二条 settings；不同用户各一行。"""
+    u1 = User(username="u1", password_hash="h1")
+    u2 = User(username="u2", password_hash="h2")
+    session.add_all([u1, u2])
+    session.commit()
+    session.add(Setting(user_id=u1.id, default_llm="kimi"))
+    session.add(Setting(user_id=u2.id, default_llm="deepseek"))
+    session.commit()
+    session.add(Setting(user_id=u1.id, default_llm="dup"))
+    with pytest.raises(IntegrityError):
+        session.commit()
+    session.rollback()
+
+
+def test_settings_user_id_null_allowed(session):
+    """M1-2：user_id=NULL 的存量行可与其他行共存（SQLite/PG 唯一索引不约束 NULL）。"""
+    session.add(Setting(default_llm="kimi"))
+    session.add(Setting(default_llm="deepseek"))
+    session.commit()
+    assert session.query(Setting).filter(Setting.user_id.is_(None)).count() == 2
 
 
 def test_xunji_train_insert_query(session):
@@ -69,12 +99,25 @@ def test_xunji_train_insert_query(session):
 
 
 def test_xunji_train_unique_datestr_localid(session):
-    session.add(_xunji_train())
+    """M1-3：UNIQUE 改为 (user_id, datestr, localid)；
+    同一用户重复 → 冲突；不同用户相同自然键 → 各自共存。"""
+    u1 = User(username="u1", password_hash="h1")
+    u2 = User(username="u2", password_hash="h2")
+    u3 = User(username="u3", password_hash="h3")
+    session.add_all([u1, u2, u3])
     session.commit()
-    session.add(_xunji_train(title="重复记录"))
+    session.add(_xunji_train(user_id=u1.id))
+    session.commit()
+    # 同一用户重复 (datestr, localid) → 冲突
+    session.add(_xunji_train(user_id=u1.id, title="重复记录"))
     with pytest.raises(IntegrityError):
         session.commit()
     session.rollback()
+    # 不同用户相同 (datestr, localid) → 不冲突（u2/u3 各自一条，互不撞）
+    session.add(_xunji_train(user_id=u2.id))
+    session.add(_xunji_train(user_id=u3.id))
+    session.commit()
+    assert session.query(XunjiTrain).filter_by(localid="abc123").count() == 3
 
 
 def test_garmin_activity_insert_query(session):
@@ -85,12 +128,25 @@ def test_garmin_activity_insert_query(session):
 
 
 def test_garmin_activity_unique_activity_id(session):
-    session.add(_garmin_activity())
+    """M1-3：UNIQUE 改为 (user_id, activity_id)；
+    同一用户重复 → 冲突；不同用户相同自然键 → 各自共存。"""
+    u1 = User(username="u1", password_hash="h1")
+    u2 = User(username="u2", password_hash="h2")
+    u3 = User(username="u3", password_hash="h3")
+    session.add_all([u1, u2, u3])
     session.commit()
-    session.add(_garmin_activity(name="重复活动"))
+    session.add(_garmin_activity(user_id=u1.id))
+    session.commit()
+    # 同一用户重复 activity_id → 冲突
+    session.add(_garmin_activity(user_id=u1.id, name="重复活动"))
     with pytest.raises(IntegrityError):
         session.commit()
     session.rollback()
+    # 不同用户相同 activity_id → 不冲突（u2/u3 各自一条，互不撞）
+    session.add(_garmin_activity(user_id=u2.id))
+    session.add(_garmin_activity(user_id=u3.id))
+    session.commit()
+    assert session.query(GarminActivity).filter_by(activity_id="1001").count() == 3
 
 
 def test_garmin_daily_insert_query(session):
@@ -103,12 +159,25 @@ def test_garmin_daily_insert_query(session):
 
 
 def test_garmin_daily_unique_date(session):
-    session.add(GarminDaily(date=date(2026, 8, 3)))
+    """M1-3：UNIQUE 改为 (user_id, date)；
+    同一用户重复 → 冲突；不同用户相同自然键 → 各自共存。"""
+    u1 = User(username="u1", password_hash="h1")
+    u2 = User(username="u2", password_hash="h2")
+    u3 = User(username="u3", password_hash="h3")
+    session.add_all([u1, u2, u3])
     session.commit()
-    session.add(GarminDaily(date=date(2026, 8, 3), steps=1))
+    session.add(GarminDaily(date=date(2026, 8, 3), user_id=u1.id))
+    session.commit()
+    # 同一用户重复 date → 冲突
+    session.add(GarminDaily(date=date(2026, 8, 3), user_id=u1.id, steps=1))
     with pytest.raises(IntegrityError):
         session.commit()
     session.rollback()
+    # 不同用户相同 date → 不冲突（u2/u3 各自一条，互不撞）
+    session.add(GarminDaily(date=date(2026, 8, 3), user_id=u2.id))
+    session.add(GarminDaily(date=date(2026, 8, 3), user_id=u3.id))
+    session.commit()
+    assert session.query(GarminDaily).filter_by(date=date(2026, 8, 3)).count() == 3
 
 
 def test_body_metric_insert_query(session):
@@ -122,12 +191,25 @@ def test_body_metric_insert_query(session):
 
 
 def test_body_metric_unique_date_type(session):
-    session.add(BodyMetric(date=date(2026, 8, 3), type="weight", value=72.4, unit="kg"))
+    """M1-3：UNIQUE 改为 (user_id, date, type)；
+    同一用户重复 → 冲突；不同用户相同自然键 → 各自共存。"""
+    u1 = User(username="u1", password_hash="h1")
+    u2 = User(username="u2", password_hash="h2")
+    u3 = User(username="u3", password_hash="h3")
+    session.add_all([u1, u2, u3])
     session.commit()
-    session.add(BodyMetric(date=date(2026, 8, 3), type="weight", value=73.0, unit="kg"))
+    session.add(BodyMetric(date=date(2026, 8, 3), type="weight", value=72.4, unit="kg", user_id=u1.id))
+    session.commit()
+    # 同一用户重复 (date, type) → 冲突
+    session.add(BodyMetric(date=date(2026, 8, 3), type="weight", value=73.0, unit="kg", user_id=u1.id))
     with pytest.raises(IntegrityError):
         session.commit()
     session.rollback()
+    # 不同用户相同 (date, type) → 不冲突（u2/u3 各自一条，互不撞）
+    session.add(BodyMetric(date=date(2026, 8, 3), type="weight", value=72.4, unit="kg", user_id=u2.id))
+    session.add(BodyMetric(date=date(2026, 8, 3), type="weight", value=72.4, unit="kg", user_id=u3.id))
+    session.commit()
+    assert session.query(BodyMetric).filter_by(date=date(2026, 8, 3), type="weight").count() == 3
 
 
 def test_body_metric_same_date_different_type_ok(session):

@@ -28,9 +28,14 @@ def client(session, monkeypatch):
 
 
 @pytest.fixture
-def auth(client):
-    token = client.post("/api/auth/login", json={"password": "test-pass"}).json()["token"]
-    return {"Authorization": f"Bearer {token}"}
+def auth(client, session):
+    from app.services import users as _us
+    try:
+        _us.create_user(session, username="alice", password="test-pass", role="user")
+    except ValueError:
+        pass  # alice 已由 conftest session 预建（id=1）
+    _b = client.post("/api/auth/login", json={"username": "alice", "password": "test-pass"}).json()
+    return {"Authorization": f"Bearer {_b['token']}"}
 
 
 def _movements_json(movements):
@@ -61,6 +66,7 @@ def _make_report(session, workout=None, day=date(2026, 8, 3), score=88,
     if subscores is None and score is not None:
         subscores = {"completion": 90, "intensity": 85, "recovery_fit": 80}
     r = AIReport(
+        user_id=1,
         type="session_review",
         workout_id=workout.id if workout else None,
         period_start=day,

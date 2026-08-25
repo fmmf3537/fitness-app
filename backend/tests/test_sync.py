@@ -36,7 +36,7 @@ def _mock_adapters():
 
 
 def _stub_match(workouts=(), candidates=()):
-    def fake_match(session, day):
+    def fake_match(session, day, user_id=None):
         return {"workouts": list(workouts), "candidates": list(candidates)}
     return fake_match
 
@@ -51,7 +51,7 @@ def test_daily_sync_orchestration_order(session, monkeypatch):
     garmin.sync_activities.side_effect = lambda datestr: order.append("sync_activities") or []
     garmin.sync_daily.side_effect = lambda datestr: order.append("sync_daily") or Mock()
 
-    def fake_match(sess, day):
+    def fake_match(sess, day, user_id=None):
         order.append("match_day")
         return {"workouts": [], "candidates": []}
     monkeypatch.setattr(sync_mod, "match_day", fake_match)
@@ -142,7 +142,7 @@ def test_retry_backoff_then_success(session, monkeypatch):
 def test_persistent_failure_records_failed_job_run(session, monkeypatch):
     match_called = []
     monkeypatch.setattr(sync_mod, "match_day",
-                        lambda s, d: match_called.append(d) or {"workouts": [], "candidates": []})
+                        lambda s, d, user_id=None: match_called.append(d) or {"workouts": [], "candidates": []})
     xunji = Mock()
     xunji.fetch_trains.side_effect = RuntimeError("always down")
     garmin = Mock()

@@ -200,7 +200,7 @@ class TestExtractFromImage:
 
 class TestConfirmImport:
     def test_creates_train_and_workout_xunji_only(self, session):
-        result = confirm_import(session, _valid())
+        result = confirm_import(session, _valid(), user_id=1)
         train = session.query(XunjiTrain).one()
         assert train.datestr == "2026-08-03"
         assert train.localid.startswith("shot-")
@@ -222,7 +222,7 @@ class TestConfirmImport:
         make_garmin_activity(session, date(2026, 8, 3), activity_id="g1",
                              start=time(10, 0), end=time(11, 0))
         data = _valid(start_time="10:05", end_time="10:50")
-        result = confirm_import(session, data)
+        result = confirm_import(session, data, user_id=1)
         workout = session.query(Workout).one()
         assert workout.match_status == "auto_matched"
         assert workout.garmin_activity_id is not None
@@ -234,13 +234,13 @@ class TestConfirmImport:
         make_garmin_activity(session, date(2026, 8, 3), activity_id="g1",
                              start=time(12, 0), end=time(13, 0))
         data = _valid(start_time="12:25", end_time="13:55")
-        result = confirm_import(session, data)
+        result = confirm_import(session, data, user_id=1)
         assert result["match_status"] == "pending"
         assert session.query(Workout).count() == 0  # 双方入候选队列，不产 workout
 
     def test_invalid_data_rejected_no_rows(self, session):
         with pytest.raises(ExtractionError):
-            confirm_import(session, _valid(movements=[]))
+            confirm_import(session, _valid(movements=[]), user_id=1)
         assert session.query(XunjiTrain).count() == 0
         assert session.query(Workout).count() == 0
 
@@ -277,9 +277,14 @@ def client(session, monkeypatch):
 
 
 @pytest.fixture
-def auth(client):
-    token = client.post("/api/auth/login", json={"password": "test-pass"}).json()["token"]
-    return {"Authorization": f"Bearer {token}"}
+def auth(client, session):
+    from app.services import users as _us
+    try:
+        _us.create_user(session, username="alice", password="test-pass", role="user")
+    except ValueError:
+        pass  # alice 已由 conftest session 预建（id=1）
+    _b = client.post("/api/auth/login", json={"username": "alice", "password": "test-pass"}).json()
+    return {"Authorization": f"Bearer {_b['token']}"}
 
 
 class TestExtractApi:

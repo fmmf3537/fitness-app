@@ -24,7 +24,7 @@ START = date(2026, 8, 10)
 
 
 def _make_plan(session, days, *, plan_ref="platform:155", plan_name="增肌计划",
-               status=None, structure="get", date_from=None, date_to=None):
+               status=None, structure="get", date_from=None, date_to=None, user_id=1):
     """构造一行计划缓存。structure='get' 用 datestr+workout.movements+target_sets；
     structure='list' 用 date+movements（旧缓存结构）。"""
     if structure == "get":
@@ -41,6 +41,7 @@ def _make_plan(session, days, *, plan_ref="platform:155", plan_name="增肌计�
         plan_json=json.dumps(payload, ensure_ascii=False),
         date_from=date_from or (START - timedelta(days=7)),
         date_to=date_to or (START + timedelta(days=60)),
+        user_id=user_id,
     )
     session.add(row)
     session.commit()
@@ -254,9 +255,14 @@ def client(env_vars, session, monkeypatch):
 
 
 @pytest.fixture
-def auth(client):
-    token = client.post("/api/auth/login", json={"password": "test-pass"}).json()["token"]
-    return {"Authorization": f"Bearer {token}"}
+def auth(client, session):
+    from app.services import users as _us
+    try:
+        _us.create_user(session, username="alice", password="test-pass", role="user")
+    except ValueError:
+        pass  # alice 已由 conftest session 预建（id=1）
+    _b = client.post("/api/auth/login", json={"username": "alice", "password": "test-pass"}).json()
+    return {"Authorization": f"Bearer {_b['token']}"}
 
 
 def _wait_refresh_done(client, auth, timeout=5):

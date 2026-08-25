@@ -3,12 +3,11 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.api.auth import require_auth
+from app.api.auth import get_current_user_id
 from app.services.sync_manager import SyncAlreadyRunningError
 
 router = APIRouter(
     prefix="/api/sync", tags=["sync"],
-    dependencies=[Depends(require_auth)],
 )
 
 
@@ -20,15 +19,22 @@ def get_sync_manager():
 
 
 @router.post("/{day}")
-def trigger_sync(day: date, manager=Depends(get_sync_manager)) -> dict:
+def trigger_sync(
+    day: date,
+    manager=Depends(get_sync_manager),
+    current_user_id: int = Depends(get_current_user_id),
+) -> dict:
     """后台启动当日同步，立即返回 {"status": "started"}；运行中重复触发 409。"""
     try:
-        return manager.start(day)
+        return manager.start(day, user_id=current_user_id)
     except SyncAlreadyRunningError as exc:
         raise HTTPException(409, str(exc)) from exc
 
 
 @router.get("/status")
-def sync_status(manager=Depends(get_sync_manager)) -> dict:
+def sync_status(
+    manager=Depends(get_sync_manager),
+    current_user_id: int = Depends(get_current_user_id),
+) -> dict:
     """当前/最近一次同步状态：running / success / failed + 结果摘要 + 错误。"""
     return manager.status()
