@@ -94,26 +94,36 @@ describe('login()', () => {
   afterEach(() => vi.unstubAllGlobals())
 
   it('成功返回 json', async () => {
+    // P0-1 修复：login 改为 (username, password)，body 含 username
     const fetchMock = mockFetch(200, { token: 'tok' })
     vi.stubGlobal('fetch', fetchMock)
-    const data = await login('pw')
+    const data = await login('alice', 'pw')
     expect(data).toEqual({ token: 'tok' })
     const [url, opts] = fetchMock.mock.calls[0]
     expect(url).toBe('/api/auth/login')
-    expect(JSON.parse(opts.body)).toEqual({ password: 'pw' })
+    expect(JSON.parse(opts.body)).toEqual({ username: 'alice', password: 'pw' })
   })
 
-  it('401 抛口令错误', async () => {
+  it('401 抛用户名或密码错误', async () => {
     vi.stubGlobal('fetch', mockFetch(401))
-    await expect(login('bad')).rejects.toMatchObject({
+    await expect(login('bad', 'bad')).rejects.toMatchObject({
       status: 401,
-      message: '口令错误',
+      message: '用户名或密码错误',
+    })
+  })
+
+  it('422 抛请输入用户名和密码', async () => {
+    // P0-1: 后端必填校验失败（缺 username）时返回 422
+    vi.stubGlobal('fetch', mockFetch(422))
+    await expect(login('', 'pw')).rejects.toMatchObject({
+      status: 422,
+      message: '请输入用户名和密码',
     })
   })
 
   it('其他非 ok 状态抛 request failed', async () => {
     vi.stubGlobal('fetch', mockFetch(503))
-    await expect(login('pw')).rejects.toMatchObject({
+    await expect(login('alice', 'pw')).rejects.toMatchObject({
       status: 503,
       message: 'request failed: 503',
     })

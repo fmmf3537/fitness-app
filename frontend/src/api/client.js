@@ -93,14 +93,19 @@ export async function download(path, filename) {
   URL.revokeObjectURL(url)
 }
 
-export async function login(password) {
+export async function login(username, password) {
+  // P0-1 修复：后端 LoginRequest{username, password} 都必填
+  // (M2-3 / M5-3)
   const res = await fetch('/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password }),
+    body: JSON.stringify({ username, password }),
   })
   if (res.status === 401) {
-    throw new ApiError(401, '口令错误')
+    throw new ApiError(401, '用户名或密码错误')
+  }
+  if (res.status === 422) {
+    throw new ApiError(422, '请输入用户名和密码')
   }
   if (!res.ok) {
     throw new ApiError(res.status, `request failed: ${res.status}`)

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
 import BottomSheet from '../components/BottomSheet'
 import ReportChatSection from '../components/ReportChatSection'
@@ -8,6 +8,8 @@ import SimpleMarkdown from '../components/SimpleMarkdown'
 import useIsMobile from '../hooks/useIsMobile'
 
 const REGEN_POLL_INTERVAL_MS = 3000
+// P0-4 修复：限制轮询次数，避免后端任务卡死时永久耗电/API 配额耗尽
+const REGEN_POLL_MAX = 60 // 3s × 60 = 3 分钟超时
 
 function formatDateInput(date) {
   return date.toISOString().slice(0, 10)
@@ -83,6 +85,8 @@ export default function AIReportsPage() {
   const [error, setError] = useState('')
   const [regenerating, setRegenerating] = useState(false)
   const [regenError, setRegenError] = useState('')
+  // P0-4 修复：跟踪组件卸载/重复触发时本轮询是否取消
+  const regenCancelledRef = useRef(false)
 
   const load = useCallback(
     (keepSelection = false) => {
@@ -110,25 +114,44 @@ export default function AIReportsPage() {
     load()
   }, [load])
 
+  // P0-4 修复：组件卸载时取消正在进行的重新生成轮询，
+  // 避免 setState on unmounted component（React 18 自动 noop，但显式更安全）
+  useEffect(() => {
+    return () => {
+      regenCancelledRef.current = true
+    }
+  }, [])
+
   // V3-4：存量无评分报告「重新生成」——删旧后后台重生成，轮询状态直至完成
   const handleRegenerate = async () => {
     if (!selected?.date || regenerating) return
     const targetDate = selected.date
     setRegenerating(true)
     setRegenError('')
+    // P0-4 修复：组件卸载/重复触发时通过 regenCancelledRef 取消本轮询
+    regenCancelledRef.current = false
     try {
       await api('/api/ai-reports/session-review/regenerate', {
         method: 'POST',
         body: JSON.stringify({ date: targetDate }),
       })
-      // 轮询直至后台任务结束
-      for (;;) {
+      // 轮询直至后台任务结束，带 MAX_POLLS 超时（3s × 60 = 3 分钟）
+      for (let i = 0; i < REGEN_POLL_MAX; i++) {
         await new Promise((resolve) => setTimeout(resolve, REGEN_POLL_INTERVAL_MS))
+        if (regenCancelledRef.current) return
         const st = await api(
           `/api/ai-reports/session-review/regenerate/status?date=${targetDate}`,
         )
+        if (st.error) {
+          setRegenError(st.error)
+          return
+        }
         if (!st.running) {
-          if (st.error) setRegenError(st.error)
+          // 第 60 次仍 running 即视为超时
+          if (i === REGEN_POLL_MAX - 1) {
+            setRegenError('生成超时，请稍后查看报告列表')
+            return
+          }
           break
         }
       }
