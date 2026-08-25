@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { api, clearToken } from '../api/client'
+import { useCurrentUser } from '../contexts/CurrentUserContext'
 import useIsMobile from '../hooks/useIsMobile'
 import useAndroidBackButton from '../hooks/useAndroidBackButton'
 import useNativeStatusBar from '../hooks/useNativeStatusBar'
@@ -20,6 +21,11 @@ const NAV_LINKS = [
   { to: '/settings', label: '设置' },
 ]
 
+const ADMIN_LINKS = [
+  { to: '/admin/users', label: '用户管理' },
+  { to: '/admin/health', label: '健康面板' },
+]
+
 // 移动端汉堡菜单仅保留次级入口；五个主入口由 BottomTabs 承载
 const SECONDARY_LINKS = [
   { to: '/candidates', label: '待确认队列', badge: true },
@@ -33,6 +39,8 @@ const SECONDARY_LINKS = [
 export default function Layout() {
   const navigate = useNavigate()
   const isMobile = useIsMobile()
+  const currentUser = useCurrentUser()
+  const isAdmin = Boolean(currentUser?.isAdmin)
   const [pendingCount, setPendingCount] = useState(0)
   const [menuOpen, setMenuOpen] = useState(false)
 
@@ -85,6 +93,11 @@ export default function Layout() {
                     {renderBadge(link)}
                   </NavLink>
                 ))}
+                {isAdmin && ADMIN_LINKS.map((link) => (
+                  <NavLink key={link.to} to={link.to} className={linkClass}>
+                    {link.label}
+                  </NavLink>
+                ))}
               </nav>
             )}
           </div>
@@ -122,6 +135,16 @@ export default function Layout() {
                 >
                   {link.label}
                   {renderBadge(link)}
+                </NavLink>
+              ))}
+              {isAdmin && ADMIN_LINKS.map((link) => (
+                <NavLink
+                  key={link.to}
+                  to={link.to}
+                  className={mobileLinkClass}
+                  onClick={() => setMenuOpen(false)}
+                >
+                  {link.label}
                 </NavLink>
               ))}
             </div>

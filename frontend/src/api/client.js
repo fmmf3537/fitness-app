@@ -1,4 +1,6 @@
 const TOKEN_KEY = 'fh_token'
+const USER_ID_KEY = 'fh_user_id'
+const USER_ROLE_KEY = 'fh_user_role'
 
 export function getToken() {
   return localStorage.getItem(TOKEN_KEY)
@@ -8,8 +10,18 @@ export function setToken(token) {
   localStorage.setItem(TOKEN_KEY, token)
 }
 
+export function getCurrentUser() {
+  if (!getToken()) return null
+  const userId = localStorage.getItem(USER_ID_KEY)
+  const role = localStorage.getItem(USER_ROLE_KEY)
+  if (!userId || !role) return null
+  return { user_id: Number(userId), role }
+}
+
 export function clearToken() {
   localStorage.removeItem(TOKEN_KEY)
+  localStorage.removeItem(USER_ID_KEY)
+  localStorage.removeItem(USER_ROLE_KEY)
 }
 
 export class ApiError extends Error {
@@ -110,5 +122,9 @@ export async function login(username, password) {
   if (!res.ok) {
     throw new ApiError(res.status, `request failed: ${res.status}`)
   }
-  return res.json()
+  const data = await res.json()
+  if (data?.token) setToken(data.token)
+  if (data?.user_id != null) localStorage.setItem(USER_ID_KEY, String(data.user_id))
+  if (data?.role) localStorage.setItem(USER_ROLE_KEY, data.role)
+  return data
 }
