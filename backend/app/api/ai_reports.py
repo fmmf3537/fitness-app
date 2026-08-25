@@ -364,12 +364,14 @@ def list_report_messages(
     current_user_id: int = Depends(get_current_user_id),
 ) -> dict:
     """该报告的追问对话历史（按时间正序）。"""
-    report = session.get(AIReport, report_id)
-    if report is None or report.user_id != current_user_id:
-        raise HTTPException(status_code=404, detail="报告不存在") from None
     try:
-        messages = report_chat_service.list_messages(session, report_id)
+        messages = report_chat_service.list_messages(
+            session, report_id, user_id=current_user_id
+        )
     except report_chat_service.ReportNotFoundError:
+        raise HTTPException(status_code=404, detail="报告不存在") from None
+    except report_chat_service.ReportNotOwnedError:
+        # M2-5: 不区分"不存在"和"非你所有"，统一 404 防枚举
         raise HTTPException(status_code=404, detail="报告不存在") from None
     return {"messages": [_serialize_message(m) for m in messages]}
 
@@ -385,16 +387,17 @@ def post_report_message(
 
     幂等：client_request_id 重放时直接返回已落库消息对，不重复调 LLM。
     """
-    report = session.get(AIReport, report_id)
-    if report is None or report.user_id != current_user_id:
-        raise HTTPException(status_code=404, detail="报告不存在") from None
     if not payload.content.strip():
         raise HTTPException(status_code=422, detail="消息内容不能为空")
     try:
         user_msg, assistant_msg = report_chat_service.post_message(
-            session, report_id, payload.content, payload.client_request_id
+            session, report_id, payload.content, payload.client_request_id,
+            user_id=current_user_id,
         )
     except report_chat_service.ReportNotFoundError:
+        raise HTTPException(status_code=404, detail="报告不存在") from None
+    except report_chat_service.ReportNotOwnedError:
+        # M2-5: 不区分"不存在"和"非你所有"，统一 404 防枚举
         raise HTTPException(status_code=404, detail="报告不存在") from None
     except report_chat_service.ChatMessageLimitError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None

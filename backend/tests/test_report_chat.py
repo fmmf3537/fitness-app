@@ -10,7 +10,9 @@ from app.services.report_chat import (
     MAX_MESSAGES_PER_REPORT,
     ChatMessageLimitError,
     ReportNotFoundError,
+    ReportNotOwnedError,
     build_messages,
+    list_messages,
     post_message,
 )
 
@@ -196,3 +198,73 @@ def test_cascade_delete_messages_with_report(session):
 
     remaining = session.query(ReportChatMessage).filter_by(report_id=report.id).count()
     assert remaining == 0
+
+
+# =====================================================================
+# M2-5 跨用户隔离：服务层独立校验 user_id 所有权
+# =====================================================================
+
+
+def make_report_with_owner(session, owner_id, content_md="# 报告"):
+    """创建属于指定 user 的报告（M2-5 测试用）。"""
+    report = AIReport(
+        user_id=owner_id,
+        type="session_review",
+        period_start=datetime.date(2026, 8, 3),
+        period_end=datetime.date(2026, 8, 3),
+        model="deepseek-chat",
+        content_md=content_md,
+        score=88,
+    )
+    session.add(report)
+    session.commit()
+    return report
+
+
+def test_list_messages_reports_not_owned_for_other_user(session):
+    """M2-5: list_messages 传入非 owner user_id 必须抛 ReportNotOwnedError。"""
+    owner = 1
+    intruder = 2
+    report = make_report_with_owner(session, owner)
+    add_message(session, report.id, "user", "机主的问题")
+    add_message(session, report.id, "assistant", "机主的回答")
+
+    with pytest.raises(ReportNotOwnedError):
+        list_messages(session, report.id, user_id=intruder)
+
+    # owner 自己的 user_id 可以正常返回
+    msgs = list_messages(session, report.id, user_id=owner)
+    assert len(msgs) == 2
+
+
+def test_post_message_reports_not_owned_for_other_user(session):
+    """M2-5: post_message 传入非 owner user_id 必须抛 ReportNotOwnedError。"""
+    owner = 1
+    intruder = 2
+    report = make_report_with_owner(session, owner)
+    fake, calls = fake_chat_with_spy()
+
+    with pytest.raises(ReportNotOwnedError):
+        post_message(
+            session, report.id, "入侵者问题", "crid-intruder",
+            chat_fn=fake, user_id=intruder,
+        )
+    # LLM 不应被调
+    assert len(calls) == 0
+
+    # owner 自己的 user_id 可以正常发
+    post_message(
+        session, report.id, "机主问题", "crid-owner",
+        chat_fn=fake, user_id=owner,
+    )
+    assert len(calls) == 1
+
+
+def test_list_messages_none_user_id_skips_ownership_check(session):
+    """M2-5: user_id=None 时跳过所有权校验（向后兼容内部 unit test）。"""
+    report = make_report(session)  # 不设 user_id
+    add_message(session, report.id, "user", "问题")
+    # 不传 user_id = 不校验,正常返回
+    msgs = list_messages(session, report.id)
+    assert len(msgs) == 1
+

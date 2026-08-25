@@ -29,11 +29,19 @@ async def lifespan(app: FastAPI):
     # 生产模式强制校验关键配置（APP_PASSWORD/FERNET_KEY/PostgreSQL），缺失即拒绝启动
     from app.config import validate_production_settings
     validate_production_settings()
+    scheduler = None
     if os.getenv("SCHEDULER_ENABLED", "1") == "1":
         from app.scheduler import create_scheduler
-        _scheduler = create_scheduler()
-        _scheduler.start()
-    yield
+        scheduler = create_scheduler()
+        scheduler.start()
+        _scheduler = scheduler
+    try:
+        yield
+    finally:
+        # P0-3 修复：reload/重启时显式 shutdown APScheduler 线程池
+        # 避免 BackgroundScheduler 线程残留以及下次启动 add_job 同 ID 冲突
+        if scheduler is not None:
+            scheduler.shutdown(wait=False)
 
 
 app = FastAPI(title="Fitness Hub", version="0.1.0", lifespan=lifespan)

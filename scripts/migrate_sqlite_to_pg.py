@@ -17,7 +17,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 from sqlalchemy import MetaData, Table, create_engine, inspect, select, text
 
 # 按外键依赖顺序迁移（父表在前）
+# P0-5 修复：多用户表 users/auth_token/audit_log 必须先于所有业务表迁移
+# （auth_token 和 audit_log FK 到 users）
 TABLE_ORDER = [
+    "users",         # M1-1：多用户父表，最先
+    "auth_token",    # M2-3：FK users
+    "audit_log",     # M1-1：FK users
     "settings",
     "xunji_train",
     "garmin_activity",

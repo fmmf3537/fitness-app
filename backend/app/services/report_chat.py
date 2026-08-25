@@ -37,6 +37,14 @@ class ReportChatError(Exception):
 class ReportNotFoundError(ReportChatError):
     """报告不存在。"""
 
+    def __init__(self, report_id: int) -> None:
+        super().__init__(f"报告 {report_id} 不存在")
+        self.report_id = report_id
+
+
+class ReportNotOwnedError(ReportChatError):
+    """报告存在但不属于当前用户。M2-5: 服务层独立校验 user_id 所有权。"""
+
 
 class ChatMessageLimitError(ReportChatError):
     """单报告消息总数达上限。"""
@@ -115,11 +123,30 @@ def _find_pair_by_request_id(
     return user_msg, reply
 
 
-def list_messages(session: Session, report_id: int) -> list[ReportChatMessage]:
-    """该报告的对话历史（按时间正序）。"""
-    report = session.get(AIReport, report_id)
+def _assert_report_owned(report: AIReport | None, report_id: int, user_id: int | None) -> AIReport:
+    """M2-5: 服务层独立校验报告所有权。
+
+    - report 不存在 → ReportNotFoundError
+    - report 存在但 user_id 不匹配 → ReportNotOwnedError(不区分"非你所有"和"不存在"，防枚举)
+    - user_id 为 None (内部调用，跳过所有权校验)
+    """
     if report is None:
-        raise ReportNotFoundError(f"报告 {report_id} 不存在")
+        raise ReportNotFoundError(report_id)
+    if user_id is not None and report.user_id != user_id:
+        raise ReportNotOwnedError(
+            f"报告 {report_id} 不属于用户 {user_id}"
+        )
+    return report
+
+
+def list_messages(
+    session: Session, report_id: int, *, user_id: int | None = None
+) -> list[ReportChatMessage]:
+    """该报告的对话历史（按时间正序）。
+
+    M2-5: 传 user_id 时校验报告所有权；不传则仅校验存在（供内部 unit test 用）。
+    """
+    report = _assert_report_owned(session.get(AIReport, report_id), report_id, user_id)
     return list(
         session.scalars(
             select(ReportChatMessage)
@@ -136,14 +163,15 @@ def post_message(
     client_request_id: str,
     *,
     chat_fn: Callable[[list[dict]], dict] | None = None,
+    user_id: int | None = None,
 ) -> tuple[ReportChatMessage, ReportChatMessage]:
     """落用户消息 → 调 LLM → 落 assistant 回复，返回两条消息。
 
     幂等：client_request_id 已存在时直接返回已落库的消息对，不重复调 LLM。
+
+    M2-5: 传 user_id 时校验报告所有权；不传则仅校验存在（供内部 unit test 用）。
     """
-    report = session.get(AIReport, report_id)
-    if report is None:
-        raise ReportNotFoundError(f"报告 {report_id} 不存在")
+    report = _assert_report_owned(session.get(AIReport, report_id), report_id, user_id)
 
     content = (content or "").strip()
     if not content:

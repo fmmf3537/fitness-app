@@ -167,12 +167,13 @@ class XunjiClient:
         return list(self._session.scalars(select(XunjiTrain).where(XunjiTrain.datestr == datestr)))
 
     def _cached_trains(self, datestr: str) -> list[XunjiTrain]:
-        """当天已拉取过的 datestr 缓存命中。"""
-        today_start = datetime.combine(date.today(), datetime.min.time())
-        stmt = select(XunjiTrain).where(
-            XunjiTrain.datestr == datestr,
-            XunjiTrain.fetched_at >= today_start,
-        )
+        """该 datestr 已落库的训练即视为缓存命中。
+
+        P0-2 修复：原实现用 `fetched_at >= today_start` 做"当天已拉"判定，
+        看似聪明但对 backfill 历史日期全部命中（fetched_at 总是晚于今天 00:00），
+        导致历史回溯全部空跑。改为：datestr 已有行就命中。
+        """
+        stmt = select(XunjiTrain).where(XunjiTrain.datestr == datestr)
         return list(self._session.scalars(stmt))
 
     def _upsert_train(self, datestr: str, train: dict) -> XunjiTrain:
