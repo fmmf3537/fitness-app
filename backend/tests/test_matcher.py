@@ -292,6 +292,7 @@ _REGEN_CONTENT = (
 def _make_plan_for_advice(session):
     row = XunjiPlan(
         plan_ref="platform:155",
+        user_id=1,
         plan_json=json.dumps(
             {"plan": {"plan_ref": "platform:155", "name": "增肌计划"},
              "days": [{"date": ADVICE_DAY.isoformat(),
