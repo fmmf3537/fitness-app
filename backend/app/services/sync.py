@@ -14,16 +14,20 @@ import time
 from datetime import date, datetime, timedelta
 from typing import Any, Callable
 
+from sqlalchemy import exists, or_, select
 from sqlalchemy.orm import Session
 
 from app.adapters.llm import LLMError
 from app.db import SessionLocal
-from app.models import JobRun
+from app.models import JobRun, Setting, User
 from app.services.ai import run_daily_next_advices, run_daily_reviews
 from app.services.matcher import match_day
 
 # 指数退避（秒）：失败后最多重试 3 次（共 4 次尝试）
 RETRY_DELAYS = [1, 4, 16]
+
+# M4-1：多用户串行同步总耗时告警阈值（秒）
+SYNC_ALL_USERS_ALERT_THRESHOLD_S = 300.0
 
 
 def _run_with_retry(fn: Callable[[], Any], *, sleep: Callable[[float], None] = time.sleep) -> tuple[Any, int]:
@@ -39,7 +43,14 @@ def _run_with_retry(fn: Callable[[], Any], *, sleep: Callable[[float], None] = t
             sleep(RETRY_DELAYS[attempts - 1])
 
 
-def _write_job_run(session: Session, job_name: str, started_at: datetime, result: dict) -> None:
+def _write_job_run(
+    session: Session,
+    job_name: str,
+    started_at: datetime,
+    result: dict,
+    *,
+    user_id: int | None = None,
+) -> None:
     run = JobRun(
         job_name=job_name,
         started_at=started_at,
@@ -47,6 +58,7 @@ def _write_job_run(session: Session, job_name: str, started_at: datetime, result
         status=result["status"],
         error=result["error"],
         detail_json=json.dumps(result["detail"], ensure_ascii=False, default=str),
+        user_id=user_id,
     )
     session.add(run)
     session.commit()
@@ -252,6 +264,143 @@ def sync_plan_cache(*, session: Session | None = None, xunji=None, days_ahead: i
             }
         _write_job_run(session, "plan_cache", started_at, result)
         return result
+    finally:
+        if own_session:
+            session.close()
+
+
+def _active_bound_users(session: Session) -> list[User]:
+    """is_active=True 且 settings 中至少绑定一个外部账号的用户，按 id 升序。"""
+    bound = or_(
+        Setting.garmin_email_enc.isnot(None),
+        Setting.xunji_api_key_enc.isnot(None),
+        Setting.llm_keys_json_enc.isnot(None),
+    )
+    stmt = (
+        select(User)
+        .where(User.is_active.is_(True))
+        .where(
+            exists(
+                select(Setting.id).where(
+                    Setting.user_id == User.id,
+                    bound,
+                )
+            )
+        )
+        .order_by(User.id)
+    )
+    return list(session.scalars(stmt))
+
+
+def sync_all_users(
+    day: date | str,
+    *,
+    session: Session | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+    alert_evaluator=None,
+    daily_sync_fn: Callable | None = None,
+    time_fn: Callable[[], float] = time.monotonic,
+) -> dict:
+    """为所有 is_active=True 且至少绑定一个外部账号的用户串行执行 daily_sync。
+
+    单用户失败捕获后写 job_run 并继续下一用户；总耗时 > 5 分钟打 alert 标记。
+    循环内不向 daily_sync 传 session（各自自建事务，避免跨用户污染）。
+    """
+    day_date = date.fromisoformat(day) if isinstance(day, str) else day
+    datestr = day_date.isoformat()
+    sync_one = daily_sync_fn or daily_sync
+    own_session = session is None
+    session = session or SessionLocal()
+    started_at = datetime.now()
+    t0 = time_fn()
+    per_user: list[dict] = []
+    users_succeeded = 0
+    users_failed = 0
+    try:
+        users = _active_bound_users(session)
+        for user in users:
+            user_started = time_fn()
+            entry: dict[str, Any] = {
+                "user_id": user.id,
+                "status": "success",
+                "error": None,
+                "duration_s": 0.0,
+            }
+            try:
+                # 不传 session：daily_sync 自建 SessionLocal，事务边界按用户隔离
+                result = sync_one(day_date, user_id=user.id, sleep=sleep)
+                if isinstance(result, dict) and result.get("status") == "failed":
+                    entry["status"] = "failed"
+                    entry["error"] = result.get("error") or "daily_sync failed"
+                    users_failed += 1
+                else:
+                    users_succeeded += 1
+            except Exception as exc:
+                entry["status"] = "failed"
+                entry["error"] = str(exc)
+                users_failed += 1
+                _write_job_run(
+                    session,
+                    "daily_sync",
+                    started_at,
+                    {
+                        "status": "failed",
+                        "error": str(exc),
+                        "detail": {"date": datestr, "user_id": user.id},
+                    },
+                    user_id=user.id,
+                )
+            entry["duration_s"] = round(time_fn() - user_started, 4)
+            per_user.append(entry)
+
+        total_duration_s = round(time_fn() - t0, 4)
+        overall_status = "failed" if users_failed else "success"
+        alert = None
+        if total_duration_s > SYNC_ALL_USERS_ALERT_THRESHOLD_S:
+            alert = {
+                "message": f"multi_user_sync_took_{total_duration_s:.0f}s",
+                "threshold_s": SYNC_ALL_USERS_ALERT_THRESHOLD_S,
+                "total_duration_s": total_duration_s,
+            }
+            if alert_evaluator is not None:
+                try:
+                    alert_evaluator(session, alert)
+                except Exception:
+                    pass  # 告警失败不阻断同步汇总
+
+        summary = {
+            "date": datestr,
+            "users_attempted": len(users),
+            "users_succeeded": users_succeeded,
+            "users_failed": users_failed,
+            "total_duration_s": total_duration_s,
+            "per_user": per_user,
+            "alert": alert,
+        }
+        _write_job_run(
+            session,
+            "sync_all_users",
+            started_at,
+            {
+                "status": overall_status,
+                "error": None if users_failed == 0 else f"{users_failed} user(s) failed",
+                "detail": summary,
+            },
+        )
+        return summary
+    except Exception as exc:
+        # 整体编排意外失败（如查用户列表崩了）
+        _write_job_run(
+            session,
+            "sync_all_users",
+            started_at,
+            {
+                "status": "failed",
+                "error": str(exc),
+                "detail": {"date": datestr},
+            },
+        )
+        raise
     finally:
         if own_session:
             session.close()
