@@ -6,6 +6,9 @@ from fastapi import FastAPI
 
 from app.api.ai_reports import router as ai_reports_router
 from app.api.auth import router as auth_router
+from app.api.admin import health as admin_health_router
+from app.api.admin import impersonate as admin_impersonate_router
+from app.api.admin import users as admin_users_router
 from app.api.backfill import router as backfill_router
 from app.api.fit_import import router as fit_import_router
 from app.api.llm import router as llm_router
@@ -60,6 +63,9 @@ app.include_router(body_metrics_router)
 app.include_router(screenshot_router)
 app.include_router(plans_router)
 app.include_router(posters_router)
+app.include_router(admin_users_router.router)
+app.include_router(admin_health_router.router)
+app.include_router(admin_impersonate_router.router)
 
 
 @app.get("/health")
