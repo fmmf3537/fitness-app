@@ -11,6 +11,7 @@ from app.api.admin import impersonate as admin_impersonate_router
 from app.api.admin import users as admin_users_router
 from app.api.backfill import router as backfill_router
 from app.api.fit_import import router as fit_import_router
+from app.api.leaderboard import router as leaderboard_router
 from app.api.llm import router as llm_router
 from app.api.body_metrics import router as body_metrics_router
 from app.api.match_candidates import router as match_candidates_router
@@ -66,6 +67,7 @@ app.include_router(posters_router)
 app.include_router(admin_users_router.router)
 app.include_router(admin_health_router.router)
 app.include_router(admin_impersonate_router.router)
+app.include_router(leaderboard_router)
 
 
 @app.get("/health")

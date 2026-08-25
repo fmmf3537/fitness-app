@@ -315,6 +315,24 @@ class JobRun(Base):
     detail_json: Mapped[str | None] = mapped_column(Text)
 
 
+class LeaderboardCache(Base):
+    """排行榜预计算缓存（每日 23:30 刷新，M5-1）。
+
+    系统级聚合：每个 (metric, window) 仅一行，不含 user_id。
+    """
+
+    __tablename__ = "leaderboard_cache"
+    __table_args__ = (
+        UniqueConstraint("metric", "window", name="uq_leaderboard_cache_metric_window"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    metric: Mapped[str] = mapped_column(String(20))  # frequency / volume / calories / streak
+    window: Mapped[str] = mapped_column(String(10))  # 7d / 30d
+    payload_json: Mapped[str] = mapped_column(Text)  # 排名列表 JSON
+    computed_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class User(Base):
     """多用户账号（multiuser-v2）。
 

@@ -1,9 +1,11 @@
-"""APScheduler 任务注册（M5；V2-2 增加周/月复盘；V2-4 增加每日数据库备份；M4-1 多用户串行同步）。
+"""APScheduler 任务注册（M5；V2-2 增加周/月复盘；V2-4 增加每日数据库备份；
+M4-1 多用户串行同步；M5-1 排行榜预计算）。
 
 - 返回未 start 的 BackgroundScheduler，由调用方（main.py startup）启动；
 - jobstores 固定内存存储（单用户自托管，无需持久化）；
 - 任务函数通过参数注入，便于测试替换。
 - M4-1：22:47 / 22:52 改调 sync_all_users（按绑定用户串行 daily_sync）。
+- M5-1：23:30 预计算排行榜（precompute_leaderboards）。
 """
 from datetime import date, timedelta
 from functools import partial
@@ -27,7 +29,8 @@ def _job_monthly_review(monthly_fn) -> None:
 
 
 def create_scheduler(*, sync_fn=None, all_users_sync_fn=None, health_fn=None, plan_fn=None,
-                     weekly_fn=None, monthly_fn=None, backup_fn=None) -> BackgroundScheduler:
+                     weekly_fn=None, monthly_fn=None, backup_fn=None,
+                     leaderboard_fn=None) -> BackgroundScheduler:
     if (
         all_users_sync_fn is None
         or sync_fn is None
@@ -48,6 +51,9 @@ def create_scheduler(*, sync_fn=None, all_users_sync_fn=None, health_fn=None, pl
     if backup_fn is None:
         from app.services import backup as backup_mod
         backup_fn = backup_mod.backup_database
+    if leaderboard_fn is None:
+        from app.services import leaderboard as lb_mod
+        leaderboard_fn = lb_mod.precompute_leaderboards
 
     scheduler = BackgroundScheduler(jobstores={"default": MemoryJobStore()})
     # M4-1：daily 任务改用 all_users_sync_fn；sync_fn 仍注入以向后兼容，但不挂到这两个 job
@@ -65,4 +71,7 @@ def create_scheduler(*, sync_fn=None, all_users_sync_fn=None, health_fn=None, pl
                       CronTrigger(day=1, hour=9, minute=23), id="monthly_review")
     # V2-4：每日 03:17 数据库备份（低峰时段，保留 30 天滚动清理）
     scheduler.add_job(backup_fn, CronTrigger(hour=3, minute=17), id="db_backup_daily")
+    # M5-1：每日 23:30 预计算排行榜
+    scheduler.add_job(leaderboard_fn, CronTrigger(hour=23, minute=30),
+                      id="precompute_leaderboards")
     return scheduler
