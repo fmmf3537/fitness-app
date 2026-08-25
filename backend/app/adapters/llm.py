@@ -79,6 +79,14 @@ class LLMError(Exception):
     """LLM 调用失败（含重试耗尽、响应畸形、Key 缺失等）。"""
 
 
+class LLMKeyNotConfiguredError(LLMError):
+    """M3-3：某用户 / 某 provider 的 API Key 未配置（settings 表与环境变量都没有）。
+
+    区别于 LLMError（运行时调用失败）：这是**配置缺失**，应让上层明确提示
+    用户去 settings 页面绑定 Key，而不是当作可重试的瞬时错误。
+    """
+
+
 # ---------- <think> 剥离 ----------
 
 _THINK_CLOSED = re.compile(r"<think>.*?</think>", re.S | re.I)
@@ -216,27 +224,39 @@ def verify_api_key(provider: str, api_key: str, *, http: httpx.Client | None = N
 # ---------- 客户端 ----------
 
 class LLMClient:
-    """统一 chat 客户端。sleep/http 可注入以便测试。"""
+    """统一 chat 客户端。sleep/http 可注入以便测试。
+
+    M3-3：构造函数收 user_id，从 settings 表按用户读取 LLM Key。
+    未传 user_id 时 fall back 到环境变量（向后兼容旧调用）。
+    """
 
     def __init__(
         self,
         session: Session | None = None,
         provider: str | None = None,
         *,
+        user_id: int | None = None,
         sleep: Callable[[float], None] = time.sleep,
         http: httpx.Client | None = None,
     ) -> None:
         self._session = session
+        self._user_id = user_id
         self.provider = provider or (
-            get_default_provider(session) if session is not None else DEFAULT_PROVIDER
+            get_default_provider(session, user_id=user_id)
+            if session is not None else DEFAULT_PROVIDER
         )
         if self.provider not in PROVIDERS:
             raise LLMError(f"未知 provider：{self.provider}")
         if not PROVIDERS[self.provider]["implemented"]:
             raise NotImplementedError(f"provider {self.provider} 尚未接入")
-        self._api_key = resolve_api_key(session, self.provider)
+        self._api_key = resolve_api_key(session, self.provider, user_id=user_id)
         if not self._api_key:
-            raise LLMError(f"provider {self.provider} 的 API Key 未配置（settings 表或环境变量）")
+            # M3-3：未配置 Key 抛专用错误，前端可定向提示用户去 settings 绑定
+            scope = f"用户 {user_id} " if user_id is not None else ""
+            raise LLMKeyNotConfiguredError(
+                f"provider {self.provider} 的 API Key 未配置"
+                f"（{scope}settings 表与环境变量都没有）"
+            )
         self._sleep = sleep
         self._http = http or httpx.Client(timeout=60.0)
 
@@ -364,18 +384,22 @@ def chat(
     session: Session | None = None,
     provider: str | None = None,
     purpose: str | None = None,
+    user_id: int | None = None,
     **opts: Any,
 ) -> dict:
-    """模块级统一接口（PRD §6.3）。session 为空时自动创建短会话。"""
+    """模块级统一接口（PRD §6.3）。session 为空时自动创建短会话。
+
+    M3-3：user_id 用于从 settings 表按用户隔离读取 LLM Key。
+    """
     if session is not None:
-        return LLMClient(session, provider).chat(
+        return LLMClient(session, provider, user_id=user_id).chat(
             messages, model_override=model_override, purpose=purpose, **opts
         )
     from app.db import SessionLocal
 
     own_session = SessionLocal()
     try:
-        return LLMClient(own_session, provider).chat(
+        return LLMClient(own_session, provider, user_id=user_id).chat(
             messages, model_override=model_override, purpose=purpose, **opts
         )
     finally:
@@ -387,20 +411,24 @@ def vision_extract(
     prompt: str,
     *,
     session: Session | None = None,
+    user_id: int | None = None,
     model_override: str | None = None,
     max_tokens: int = VISION_DEFAULT_MAX_TOKENS,
     mime: str = "image/png",
 ) -> dict:
-    """模块级截图识别接口：固定走 Kimi 多模态（与默认文本模型无关）。"""
+    """模块级截图识别接口：固定走 Kimi 多模态（与默认文本模型无关）。
+
+    M3-3：user_id 用于按用户读取 Kimi Key。
+    """
     if session is not None:
-        return LLMClient(session, "kimi").vision_extract(
+        return LLMClient(session, "kimi", user_id=user_id).vision_extract(
             image_bytes, prompt, model_override=model_override, max_tokens=max_tokens, mime=mime
         )
     from app.db import SessionLocal
 
     own_session = SessionLocal()
     try:
-        return LLMClient(own_session, "kimi").vision_extract(
+        return LLMClient(own_session, "kimi", user_id=user_id).vision_extract(
             image_bytes, prompt, model_override=model_override, max_tokens=max_tokens, mime=mime
         )
     finally:

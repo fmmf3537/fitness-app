@@ -231,3 +231,121 @@ class TestRetry:
         result = client.chat([{"role": "user", "content": "hi"}])
         assert result["content"] == "ok"
         assert route.call_count == 2
+
+
+# =====================================================================
+# M3-3：LLM Key 按用户隔离
+# =====================================================================
+
+
+def test_no_key_raises_LLMKeyNotConfiguredError(monkeypatch):
+    """M3-3：未配置 Key 时抛专用错误（继承自 LLMError）。"""
+    # 清理所有可能的 Key 来源
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("MINIMAX_API_KEY", raising=False)
+    monkeypatch.delenv("KIMI_API_KEY", raising=False)
+    from app.config import get_settings
+    get_settings.cache_clear()
+
+    from app.adapters.llm import LLMKeyNotConfiguredError
+    with pytest.raises(LLMKeyNotConfiguredError) as exc:
+        LLMClient(session=None, provider="deepseek")
+    assert "deepseek" in str(exc.value)
+    assert "未配置" in str(exc.value)
+
+
+def test_user_a_key_not_visible_to_user_b(session):
+    """M3-3：用户 A 存的 Key，用户 B 拿不到（按 user_id 隔离）。"""
+    from app.adapters import llm as llm_module
+    from app.services import users as user_service
+
+    # 用户 1 = alice（conftest 预建）
+    # 创建用户 2
+    try:
+        user_service.create_user(session, username="bob", password="test-pass", role="user")
+    except ValueError:
+        session.rollback()
+    user_b = user_service.get_user_by_username(session, "bob")
+    assert user_b is not None
+
+    llm_module.save_api_key(session, "deepseek", "sk-user-a-secret", user_id=1)
+    llm_module.save_api_key(session, "deepseek", "sk-user-b-secret", user_id=user_b.id)
+
+    keys_a = llm_module.get_stored_keys(session, user_id=1)
+    keys_b = llm_module.get_stored_keys(session, user_id=user_b.id)
+
+    assert keys_a.get("deepseek") == "sk-user-a-secret"
+    assert keys_b.get("deepseek") == "sk-user-b-secret"
+    # 关键：A 拿不到 B 的 key，B 拿不到 A 的
+    assert "sk-user-b-secret" not in keys_a.values()
+    assert "sk-user-a-secret" not in keys_b.values()
+
+
+def test_resolve_api_key_user_specific(session, monkeypatch):
+    """M3-3：resolve_api_key 必须按 user_id 取 settings 表的 Key，忽略环境变量。"""
+    from app.adapters.llm import save_api_key, resolve_api_key
+    from app.services import users as user_service
+
+    # 创建用户 2
+    try:
+        user_service.create_user(session, username="bob2", password="test-pass", role="user")
+    except ValueError:
+        session.rollback()
+    user_b = user_service.get_user_by_username(session, "bob2")
+
+    # 环境变量有 key
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-env-default")
+    from app.config import get_settings
+    get_settings.cache_clear()
+
+    # 用户 1 存了自己的 key（覆盖环境变量）
+    save_api_key(session, "deepseek", "sk-user-1", user_id=1)
+
+    # 用户 1 拿自己的 key
+    assert resolve_api_key(session, "deepseek", user_id=1) == "sk-user-1"
+    # 用户 2 没存，回退到环境变量
+    assert resolve_api_key(session, "deepseek", user_id=user_b.id) == "sk-env-default"
+    # 不传 user_id 也回退到环境变量
+    assert resolve_api_key(session, "deepseek") == "sk-env-default"
+
+    get_settings.cache_clear()
+
+
+def test_LLMClient_uses_user_specific_key(session, monkeypatch, respx_mock):
+    """M3-3：LLMClient(user_id=X) 构造时按 X 取 settings 表 Key，发请求时用 X 的 key。"""
+    from app.adapters.llm import save_api_key, LLMKeyNotConfiguredError
+    from app.config import get_settings
+
+    # 清环境变量避免干扰
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("MINIMAX_API_KEY", raising=False)
+    monkeypatch.delenv("KIMI_API_KEY", raising=False)
+    get_settings.cache_clear()
+
+    # 用户 1 存 deepseek key
+    save_api_key(session, "deepseek", "sk-user-1-key", user_id=1)
+    # 用户 2 不存（alice 已被 conftest 预建，不另建）
+
+    # mock 远端 deepseek 端点
+    route = respx_mock.post(DEEPSEEK_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"role": "assistant", "content": "ok"}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+                "model": "deepseek-chat",
+            },
+        )
+    )
+
+    # 用户 1 能调通
+    client1 = LLMClient(session=session, provider="deepseek", user_id=1)
+    result = client1.chat([{"role": "user", "content": "hi"}])
+    assert result["content"] == "ok"
+    # 验证请求头用的是用户 1 的 key
+    last_request = route.calls.last.request
+    assert last_request.headers["authorization"] == "Bearer sk-user-1-key"
+
+    # 用户 999 不存在 + 没 key，构造应抛 LLMKeyNotConfiguredError
+    with pytest.raises(LLMKeyNotConfiguredError):
+        LLMClient(session=session, provider="deepseek", user_id=999)

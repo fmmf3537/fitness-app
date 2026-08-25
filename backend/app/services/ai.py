@@ -435,7 +435,7 @@ def generate_session_review(
 
     if chat_fn is None:
         chat_fn = lambda msgs: llm.chat(  # noqa: E731
-            msgs, session=session, purpose="session_review"
+            msgs, session=session, purpose="session_review", user_id=user_id
         )
 
     # V3-4：正文后须附 session_review_v1 评分 JSON 块；解析失败重试 1 次，
@@ -849,7 +849,7 @@ def generate_next_advice(
 
     if chat_fn is None:
         chat_fn = lambda msgs: llm.chat(  # noqa: E731
-            msgs, session=session, purpose="next_advice"
+            msgs, session=session, purpose="next_advice", user_id=user_id
         )
 
     result = chat_fn(messages)
@@ -1210,7 +1210,7 @@ def generate_plan_review(
 
     if chat_fn is None:
         chat_fn = lambda msgs: llm.chat(  # noqa: E731
-            msgs, session=session, purpose="plan_review"
+            msgs, session=session, purpose="plan_review", user_id=user_id
         )
 
     result = chat_fn(messages)
@@ -1699,7 +1699,7 @@ def _generate_period_review(
 
     if chat_fn is None:
         chat_fn = lambda msgs: llm.chat(  # noqa: E731
-            msgs, session=session, purpose=report_type
+            msgs, session=session, purpose=report_type, user_id=user_id
         )
 
     result = chat_fn(messages)
