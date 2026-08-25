@@ -3,3 +3,5 @@
 Caddyfile text eol=lf
 Dockerfile text eol=lf
 *.conf text eol=lf
+# Git hook 由 Git Bash 在 Windows / POSIX 都会执行，强制 LF 避免 \r 干扰 read
+.githooks/* text eol=lf

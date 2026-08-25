@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Soft guard for the `main` branch.
+# Per BRANCH_STRATEGY.md, main is the production-stable line and is FROZEN.
+# New development happens on `multiuser-v2`.
+#
+# This hook is SOFT: it allows committing on main if you explicitly type
+# `hotfix` at the prompt. Use this only for trivial fixes (typos, broken
+# links, etc.) or pre-approved production patches.
+#
+# Hooks are installed via `git config core.hooksPath .githhooks`.
+
+set -u
+
+current_branch="$(git rev-parse --abbrev-ref HEAD)"
+
+if [ "$current_branch" != "main" ]; then
+  exit 0
+fi
+
+cat <<'EOF'
+
+  ============================================================
+  !  WARNING: you are about to commit on `main`
+  ============================================================
+  Per BRANCH_STRATEGY.md, `main` is the production-stable line
+  and is FROZEN. All new development happens on `multiuser-v2`.
+
+  Allowed only:
+    * Trivial hotfixes (typos, broken links in docs)
+    * Pre-approved production patches (security, data loss)
+
+  If you intended to work on multiuser-v2, abort now and run:
+    git switch multiuser-v2
+
+  Otherwise, type `hotfix` (literally) to confirm and continue:
+EOF
+
+read -r answer
+if [ "$answer" != "hotfix" ]; then
+  echo ""
+  echo "Commit aborted on main."
+  echo "Switch to multiuser-v2 or re-run with explicit confirmation."
+  exit 1
+fi
+
+echo ""
+echo "[ok] Proceeding as documented hotfix on main."
+echo "     Remember to also include the reason in your commit message."
+exit 0

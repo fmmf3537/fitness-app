@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# HARD guard for pushing to `main`.
+# Per BRANCH_STRATEGY.md, pushing to origin/main is strictly prohibited.
+# All changes flow into main via a deliberate merge from multiuser-v2.
+#
+# This hook is HARD: it does NOT accept a confirmation. If you need to
+# update main, you must be on multiuser-v2, push there, then merge via
+# PR or local merge.
+#
+# Hooks are installed via `git config core.hooksPath .githhooks`.
+
+set -u
+
+# pre-push receives ref info on stdin: <local-ref> <local-sha1> <remote-ref> <remote-sha1>
+while read -r local_ref local_sha remote_ref remote_sha; do
+  # Only block pushes to `main` (refs/heads/main). Other branches are fine.
+  if [ "$remote_ref" = "refs/heads/main" ] || [ "$remote_ref" = "main" ]; then
+    cat <<'EOF'
+
+  ============================================================
+  X  PUSH TO main IS STRICTLY PROHIBITED
+  ============================================================
+  You are about to push to origin/main. This violates BRANCH_STRATEGY.md.
+
+  main is the production-stable line. All updates must come from
+  multiuser-v2 via an explicit merge decision, not a direct push.
+
+  Correct flow:
+    1. Stay on multiuser-v2
+    2. git push origin multiuser-v2
+    3. When ready to release, merge multiuser-v2 -> main locally:
+         git switch main
+         git merge --no-ff multiuser-v2
+         git push origin main
+       (the merge commit is the audit trail)
+
+  If you are running the merge-to-main step above, that is the one
+  legitimate case. Confirm by re-running with SKIP_MAIN_PUSH_GUARD=1:
+    SKIP_MAIN_PUSH_GUARD=1 git push origin main
+
+EOF
+    exit 1
+  fi
+done
+
+exit 0
