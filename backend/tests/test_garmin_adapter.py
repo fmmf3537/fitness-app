@@ -11,8 +11,9 @@ from datetime import date
 import pytest
 import requests
 from garth.exc import GarthException, GarthHTTPError
+from sqlalchemy import select
 
-from app.models import GarminActivity, GarminDaily
+from app.models import GarminActivity, GarminDaily, Setting
 
 DATESTR = "2026-08-03"
 
@@ -86,10 +87,35 @@ class FakeGarth:
         self.sleep = SLEEP
         self.hrv = HRV
         self.body_battery = BODY_BATTERY
+        # M3-1：login() 成功后会填充这些字段，供 _serialize_garmin_token 读取
+        # 真实 garth.Client 也用同样字段名（oauth1_token / oauth2_token / domain）
+        self.oauth1_token = {
+            "oauth_token": "fake-oauth1",
+            "oauth_token_secret": "fake-secret",
+            "mfa_token": None,
+            "mfa_expiration_timestamp": None,
+            "domain": "garmin.cn",
+        }
+        self.oauth2_token = {
+            "scope": "fake",
+            "jti": "fake-jti",
+            "token_type": "Bearer",
+            "access_token": "fake-access",
+            "refresh_token": "fake-refresh",
+            "expires_in": 3600,
+            "expires_at": 9999999999,
+            "refresh_token_expires_in": 86400,
+            "refresh_token_expires_at": 9999999999,
+        }
+        self.domain = "garmin.cn"
 
     # ---- 认证 ----
     def configure(self, domain=None, **kwargs):
         self.configured_domains.append(domain)
+        if domain:
+            self.domain = domain
+            if isinstance(self.oauth1_token, dict):
+                self.oauth1_token["domain"] = domain
 
     def login(self, email, password):
         if self.credential_login_fails:
@@ -164,13 +190,17 @@ def fake_garth():
 
 @pytest.fixture
 def client(session, fake_garth, clock, tmp_path):
+    """M3-1：GarminClient 现在用 settings 表 token（按 user_id），不再用磁盘 token_store。
+    传 user_id=1（conftest 已预建 alice），让 _resolve_garmin_credentials 走 settings 路径。
+    token_store 参数保留为向后兼容（被忽略）。"""
     from app.adapters.garmin_adapter import GarminClient
 
     return GarminClient(
         session,
-        email="u@example.com",
+        user_id=1,
+        email="u@example.com",  # 显式传 email/password 优先于 settings 解析
         password="pw",
-        token_store=tmp_path / "tokens",
+        token_store=tmp_path / "tokens",  # noqa: ARG003  # 兼容旧 API
         garth=fake_garth,
         sleep=clock.sleep,
         time_fn=clock.time,
@@ -180,34 +210,89 @@ def client(session, fake_garth, clock, tmp_path):
 # ---------- 登录与 token 缓存 ----------
 
 
-def test_login_uses_cached_token_store(client, fake_garth, tmp_path):
-    """token 缓存目录存在时直接 resume 恢复会话，不走凭据重登。"""
-    (tmp_path / "tokens").mkdir()
+def test_login_uses_settings_token(client, fake_garth, session):
+    """M3-1：settings.garmin_token_store_enc 已有有效 token 时直接恢复，不走凭据重登。"""
+    from app.config import encrypt_value
+    from app.models import Setting
+
+    # 预存一个"有效"的 token JSON 到 alice (user_id=1) 的 settings
+    fake_token = {
+        "oauth1": {
+            "oauth_token": "fake-oauth1",
+            "oauth_token_secret": "secret",
+            "mfa_token": None,
+            "mfa_expiration_timestamp": None,
+            "domain": "garmin.cn",
+        },
+        "oauth2": {
+            "scope": "...",
+            "jti": "...",
+            "token_type": "Bearer",
+            "access_token": "fake-access",
+            "refresh_token": "fake-refresh",
+            "expires_in": 3600,
+            "expires_at": 9999999999,
+            "refresh_token_expires_in": 86400,
+            "refresh_token_expires_at": 9999999999,
+        },
+        "domain": "garmin.cn",
+    }
+    row = session.scalars(select(Setting).where(Setting.user_id == 1)).first()
+    if row is None:
+        row = Setting(user_id=1)
+        session.add(row)
+        session.flush()
+    row.garmin_token_store_enc = encrypt_value(json.dumps(fake_token))
+    session.commit()
+
     client.login()
 
-    assert fake_garth.resume_calls == [str(tmp_path / "tokens")]
+    # 关键：没走凭据登录，token 直接从 settings 恢复
     assert fake_garth.login_calls == []
+    # 也没走 save_calls（不再写磁盘）
     assert fake_garth.save_calls == []
 
 
-def test_login_relogs_with_credentials_when_no_cache(client, fake_garth, tmp_path):
-    """无缓存时：凭据全量登录并把 token save 到缓存目录。"""
+def test_login_relogs_with_credentials_when_no_token(client, fake_garth, session):
+    """M3-1：settings.garmin_token_store_enc 为空时凭据登录，token 加密存 settings。"""
+    # 确保 settings.garmin_token_store_enc 为空
+    row = session.scalars(select(Setting).where(Setting.user_id == 1)).first()
+    if row is not None:
+        row.garmin_token_store_enc = None
+        session.commit()
+
     client.login()
 
     assert fake_garth.login_calls == [("u@example.com", "pw")]
-    assert fake_garth.save_calls == [str(tmp_path / "tokens")]
-    assert (tmp_path / "tokens").is_dir()
+    # 关键：登录成功后 token 被加密写回 settings
+    row = session.scalars(select(Setting).where(Setting.user_id == 1)).first()
+    assert row is not None
+    assert row.garmin_token_store_enc is not None
+    # 也不再写磁盘
+    assert fake_garth.save_calls == []
 
 
-def test_login_falls_back_when_cached_token_expired(client, fake_garth, tmp_path):
-    """缓存 token 过期：自动用 GARMIN_EMAIL/GARMIN_PASSWORD 重登并刷新缓存。"""
-    (tmp_path / "tokens").mkdir()
-    fake_garth.resume_fails = True
+def test_login_falls_back_when_settings_token_invalid(client, fake_garth, session):
+    """M3-1：settings.garmin_token_store_enc 内容无效时 fallback 凭据重登。"""
+    from app.config import encrypt_value
+    from app.models import Setting
+
+    # 预存一个无法被 _restore_garmin_token 解析的 token（缺关键字段）
+    bad_token = {"domain": "garmin.cn"}  # 没有 oauth1 / oauth2
+    row = session.scalars(select(Setting).where(Setting.user_id == 1)).first()
+    if row is None:
+        row = Setting(user_id=1)
+        session.add(row)
+        session.flush()
+    row.garmin_token_store_enc = encrypt_value(json.dumps(bad_token))
+    session.commit()
+
     client.login()
 
-    assert fake_garth.resume_calls == [str(tmp_path / "tokens")]
+    # 关键：fallback 到凭据重登
     assert fake_garth.login_calls == [("u@example.com", "pw")]
-    assert fake_garth.save_calls == [str(tmp_path / "tokens")]
+    # 登录成功后 token 被刷新到 settings
+    assert fake_garth.save_calls == []  # 不写磁盘
 
 
 def test_login_failure_wrapped(client, fake_garth):
@@ -394,17 +479,38 @@ def test_network_error_wrapped_as_adapter_error(client, fake_garth):
     assert isinstance(excinfo.value.__cause__, ConnectionError)
 
 
-def test_auth_error_triggers_relogin_and_retry(client, fake_garth, tmp_path):
-    """API 调用中 token 失效（401）：自动凭据重登一次并重试，调用方无感知。"""
-    (tmp_path / "tokens").mkdir()
-    fake_garth.summary_auth_fails = 1
-    row = client.sync_daily(DATESTR)
+def test_auth_error_triggers_relogin_and_retry(client, fake_garth, session):
+    """M3-1：API 调用中 token 失效（401）：自动凭据重登一次并重试，调用方无感知。
+    重登成功后新 token 加密存 settings（不再写磁盘 token_store）。"""
+    from app.config import encrypt_value
+    fake_token = {
+        "oauth1": {
+            "oauth_token": "fake-oauth1", "oauth_token_secret": "secret",
+            "mfa_token": None, "mfa_expiration_timestamp": None, "domain": "garmin.cn",
+        },
+        "oauth2": {
+            "scope": "...", "jti": "...", "token_type": "Bearer",
+            "access_token": "fake-access", "refresh_token": "fake-refresh",
+            "expires_in": 3600, "expires_at": 9999999999,
+            "refresh_token_expires_in": 86400, "refresh_token_expires_at": 9999999999,
+        },
+        "domain": "garmin.cn",
+    }
+    row = session.scalars(select(Setting).where(Setting.user_id == 1)).first()
+    if row is None:
+        row = Setting(user_id=1)
+        session.add(row)
+        session.flush()
+    row.garmin_token_store_enc = encrypt_value(json.dumps(fake_token))
+    session.commit()
 
-    assert row.steps == 12345
-    # 缓存 resume 1 次 + 失效后凭据重登 1 次并刷新缓存
-    assert fake_garth.resume_calls == [str(tmp_path / "tokens")]
+    fake_garth.summary_auth_fails = 1
+    row_result = client.sync_daily(DATESTR)
+
+    assert row_result.steps == 12345
+    # M3-1：先从 settings 恢复，失败后凭据重登；不再调 resume/save
     assert fake_garth.login_calls == [("u@example.com", "pw")]
-    assert fake_garth.save_calls == [str(tmp_path / "tokens")]
+    assert fake_garth.save_calls == []
 
 
 def test_auth_error_retry_failure_wrapped(client, fake_garth):
@@ -433,26 +539,62 @@ def test_credentials_from_env_not_hardcoded(session, monkeypatch, tmp_path):
     assert c._password == "env-pw"
 
 
-def test_missing_credentials_raises(session, monkeypatch, tmp_path):
-    from app.adapters.garmin_adapter import GarminClient
+def test_missing_credentials_raises(session, monkeypatch, fake_garth):
+    """M3-1：email/password + settings + env 都没有时抛 GarminKeyNotConfiguredError。
+    旧版用 RuntimeError，新版用专用异常（继承自 GarminAdapterError）便于上层定向处理。"""
+    from app.adapters.garmin_adapter import GarminClient, GarminKeyNotConfiguredError
 
     monkeypatch.delenv("GARMIN_EMAIL", raising=False)
     monkeypatch.delenv("GARMIN_PASSWORD", raising=False)
     from app.config import get_settings
 
     get_settings.cache_clear()
-    with pytest.raises(RuntimeError):
-        GarminClient(session, token_store=tmp_path / "t", garth=FakeGarth())
+    with pytest.raises(GarminKeyNotConfiguredError):
+        GarminClient(session, user_id=1, garth=fake_garth)
+    get_settings.cache_clear()
 
 
-def test_default_token_store_is_home_dir(session, fake_garth):
-    """默认 token 缓存目录为 ~/.garminconnect。"""
-    from pathlib import Path
-
+def test_token_settings_per_user_isolated(session, fake_garth):
+    """M3-1：settings.garmin_token_store_enc 按 user_id 隔离（user 2 拿不到 user 1 的 token）。"""
     from app.adapters.garmin_adapter import GarminClient
+    from app.config import encrypt_value
+    from app.services import users as user_service
 
-    c = GarminClient(session, email="u@example.com", password="pw", garth=fake_garth)
-    assert c._token_store == Path.home() / ".garminconnect"
+    # 预建用户 2
+    try:
+        user_service.create_user(session, username="bob", password="test-pass", role="user")
+    except ValueError:
+        session.rollback()
+    user_b = user_service.get_user_by_username(session, "bob")
+
+    # 用户 1 存 token
+    fake_token_1 = {
+        "oauth1": {"oauth_token": "alice-token", "oauth_token_secret": "s", "mfa_token": None, "mfa_expiration_timestamp": None, "domain": "garmin.cn"},
+        "oauth2": {"scope": "x", "jti": "x", "token_type": "Bearer", "access_token": "alice-access", "refresh_token": "x", "expires_in": 3600, "expires_at": 9999999999, "refresh_token_expires_in": 86400, "refresh_token_expires_at": 9999999999},
+        "domain": "garmin.cn",
+    }
+    row1 = session.scalars(select(Setting).where(Setting.user_id == 1)).first()
+    if row1 is None:
+        row1 = Setting(user_id=1)
+        session.add(row1)
+        session.flush()
+    row1.garmin_token_store_enc = encrypt_value(json.dumps(fake_token_1))
+    # 用户 2 不存
+    row2 = session.scalars(select(Setting).where(Setting.user_id == user_b.id)).first()
+    if row2 is not None:
+        row2.garmin_token_store_enc = None
+    session.commit()
+
+    # 用户 1 login → 直接从 settings 恢复，fake_garth 不应被 login() 调用
+    c1 = GarminClient(session, user_id=1, email="u@example.com", password="pw", garth=fake_garth)
+    c1.login()
+    assert fake_garth.login_calls == []
+
+    # 用户 2 login → settings 没 token，走凭据重登
+    fake_garth.login_calls.clear()
+    c2 = GarminClient(session, user_id=user_b.id, email="u@example.com", password="pw", garth=fake_garth)
+    c2.login()
+    assert fake_garth.login_calls == [("u@example.com", "pw")]
 
 
 # ---------- 集成测试（真实外呼，默认跳过） ----------

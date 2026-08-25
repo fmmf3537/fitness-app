@@ -2,10 +2,10 @@
 
 纪律：
 - 佳明接入只允许通过本模块暴露的函数调用，业务代码不得直接 import garth/garminconnect；
-- 凭据只从环境变量 GARMIN_EMAIL / GARMIN_PASSWORD 读取，禁止硬编码；
+- 凭据只从环境变量 GARMIN_EMAIL / GARMIN_PASSWORD / settings 表 (按 user_id) 读取，禁止硬编码；
 - 域名读 GARMIN_DOMAIN（默认中国区 garmin.cn，全球区登录成功但返回空数据）；
-- 登录链路：garth.configure → garth.resume(token_store)（失效才 garth.login + garth.save）；
-- token 缓存于 ~/.garminconnect，同一进程只登录一次并复用会话（佳明有 IP 级 429 风控）；
+- 登录链路：M3-1 重构——**每个 GarminClient 自带 garth.Client 实例**（避免模块级单例串 token），
+  token 走 settings.garmin_token_store_enc（Fernet 加密，**完全在内存**），不再写 ~/.garminconnect 目录；
 - 全局限速：任意两次佳明 API 调用间隔 ≥ 0.5s；
 - 收到 429 指数退避 60s/300s/900s，3 次仍失败抛 GarminAdapterError；
 - 401/403（会话中途失效）自动凭据重登并重试一次；
@@ -23,15 +23,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.models import GarminActivity, GarminDaily
+from app.models import GarminActivity, GarminDaily, Setting
 
 # 全局限速：任意两次佳明 API 调用的最小间隔（秒）
 MIN_CALL_INTERVAL_S = 0.5
 
 # 429 指数退避（秒）：依次等待 60 / 300 / 900，仍失败则抛 GarminAdapterError
 BACKOFFS_429 = (60.0, 300.0, 900.0)
-
-DEFAULT_TOKEN_STORE = Path.home() / ".garminconnect"
 
 # Garmin Connect API 端点（与 garminconnect 库及网页端实际请求一致）
 ACTIVITIES_PATH = "/activitylist-service/activities/search/activities"
@@ -50,6 +48,14 @@ class GarminAdapterError(Exception):
     """佳明适配器统一异常：包装 garth/网络/认证的一切失败。"""
 
 
+class GarminKeyNotConfiguredError(GarminAdapterError):
+    """M3-1：某用户/全局佳明凭据未配置（settings 表与环境变量都没有）。
+
+    区别于 GarminAdapterError（运行时调用失败）：这是**配置缺失**，应让上层明确提示
+    用户去 settings 页面绑定佳明账号。
+    """
+
+
 def _http_status(exc: BaseException) -> int | None:
     """从 garth.exc.GarthHTTPError / requests.HTTPError 中提取 HTTP 状态码。"""
     for err in (exc, getattr(exc, "error", None)):
@@ -60,34 +66,192 @@ def _http_status(exc: BaseException) -> int | None:
     return None
 
 
+# ---------- Key 解析（M3-1 多用户按 user_id 隔离） ----------
+
+
+def _resolve_garmin_credentials(
+    session: Session | None,
+    user_id: int | None,
+) -> tuple[str | None, str | None, str | None]:
+    """佳明凭据解析优先级：参数 > settings 表（按 user_id，Fernet 解密）> 环境变量。
+
+    返回 (email, password, domain)。任一缺失返回 None 占位。
+    """
+    from app.config import decrypt_value
+
+    email = password = domain = None
+    if session is not None and user_id is not None:
+        row = session.scalars(
+            select(Setting).where(Setting.user_id == user_id)
+        ).first()
+        if row is not None:
+            try:
+                if row.garmin_email_enc:
+                    email = decrypt_value(row.garmin_email_enc)
+                if row.garmin_password_enc:
+                    password = decrypt_value(row.garmin_password_enc)
+            except Exception:
+                pass
+    settings = get_settings()
+    if not email:
+        email = settings.garmin_email
+    if not password:
+        password = settings.garmin_password
+    domain = settings.garmin_domain or "garmin.cn"
+    return email, password, domain
+
+
+def _serialize_garmin_token(client: Any) -> str:
+    """从登录后的 garth.Client 提取 token，序列化为 JSON 字符串。
+
+    M3-1：settings.garmin_token_store_enc 存的就是这个 JSON 加密后的产物。
+    完全在内存操作，不写任何磁盘文件。
+    兼容 dataclass 实例（生产 garth.Client）和 dict（测试桩）。
+    """
+    from dataclasses import asdict, is_dataclass
+
+    def _to_dict(obj):
+        if obj is None:
+            return None
+        if is_dataclass(obj):
+            return asdict(obj)
+        if isinstance(obj, dict):
+            return obj
+        # 兜底：尝试 vars()（普通对象）
+        return vars(obj) if hasattr(obj, "__dict__") else obj
+
+    oauth1 = client.oauth1_token
+    oauth2 = client.oauth2_token
+    domain = getattr(client, "domain", "garmin.com")
+    return json.dumps(
+        {
+            "oauth1": _to_dict(oauth1),
+            "oauth2": _to_dict(oauth2),
+            "domain": domain,
+        },
+        ensure_ascii=False,
+    )
+
+
+def _restore_garmin_token(client: Any, token_json: str) -> None:
+    """从 JSON 还原 token 到给定的 garth.Client 实例。
+
+    解析失败 / oauth1+oauth2 都为空 → 抛 GarminAdapterError（让上层 fallback 重登）。
+    """
+    from garth.auth_tokens import OAuth1Token, OAuth2Token
+
+    try:
+        data = json.loads(token_json)
+        oauth1_dict = data.get("oauth1")
+        oauth2_dict = data.get("oauth2")
+        domain = data.get("domain") or "garmin.com"
+        # oauth1 + oauth2 都为空视为无效 token（不能 resume）
+        if not oauth1_dict or not oauth2_dict:
+            raise GarminAdapterError(
+                "佳明 token 不完整（缺 oauth1 或 oauth2）"
+            )
+        oauth1 = OAuth1Token(**oauth1_dict)
+        oauth2 = OAuth2Token(**oauth2_dict)
+    except GarminAdapterError:
+        raise
+    except Exception as exc:
+        raise GarminAdapterError(f"佳明 token 解析失败：{exc}") from exc
+    # 测试桩模式（FakeGarth）也支持 configure
+    client.configure(oauth1_token=oauth1, oauth2_token=oauth2, domain=domain)
+
+
+def _save_garmin_token_to_settings(
+    session: Session, user_id: int, token_json: str
+) -> None:
+    """M3-1：将 token 加密存到 settings.garmin_token_store_enc（按用户）。"""
+    from app.config import encrypt_value
+    from app.models import Setting
+
+    row = session.scalars(
+        select(Setting).where(Setting.user_id == user_id)
+    ).first()
+    if row is None:
+        row = Setting(user_id=user_id)
+        session.add(row)
+        session.flush()
+    row.garmin_token_store_enc = encrypt_value(token_json)
+    session.commit()
+
+
+def _load_garmin_token_from_settings(
+    session: Session, user_id: int
+) -> str | None:
+    """M3-1：从 settings.garmin_token_store_enc 按用户读取并解密 token JSON。"""
+    from app.config import decrypt_value
+
+    row = session.scalars(
+        select(Setting).where(Setting.user_id == user_id)
+    ).first()
+    if row is None or not row.garmin_token_store_enc:
+        return None
+    try:
+        return decrypt_value(row.garmin_token_store_enc)
+    except Exception:
+        return None
+
+
 class GarminClient:
-    """佳明客户端（garth 直连）。garth/sleep/time_fn 可注入以便测试。"""
+    """佳明客户端（garth 直连）。garth/sleep/time_fn 可注入以便测试。
+
+    M3-1：构造函数收 user_id（kw-only），凭据按 user_id 从 settings 表读取。
+    每个 GarminClient 持**自己的 garth.Client 实例**（避免模块级单例串 token），
+    token 完全在内存流转，**不再写 ~/.garminconnect 目录**。
+    """
 
     def __init__(
         self,
         session: Session,
         *,
+        user_id: int | None = None,
         email: str | None = None,
         password: str | None = None,
-        token_store: str | Path | None = None,
+        token_store: str | Any = None,  # noqa: ARG003  # M3-1: 已废弃，仅为向后兼容
         domain: str | None = None,
         garth: Any = None,
         sleep: Callable[[float], None] = time.sleep,
         time_fn: Callable[[], float] = time.monotonic,
     ) -> None:
-        settings = get_settings()
-        self._email = email if email is not None else settings.garmin_email
-        self._password = password if password is not None else settings.garmin_password
-        if not self._email or not self._password:
-            raise RuntimeError(
-                "GARMIN_EMAIL/GARMIN_PASSWORD 未配置：请在环境变量或 .env 中设置"
-            )
-        self._domain = (
-            domain if domain is not None else (settings.garmin_domain or "garmin.cn")
-        )
         self._session = session
-        self._token_store = Path(token_store) if token_store else DEFAULT_TOKEN_STORE
-        self._garth = garth  # None 时首次使用再 import 真实 garth 模块
+        self._user_id = user_id
+
+        # 凭据解析：参数 > settings 表(按 user_id) > 环境变量
+        # 当显式传 email/password 时不查 settings（保持调用方预期）
+        # 无论走哪条分支，都要保证 env_domain 有值（用于 domain fallback）
+        _, _, env_domain = _resolve_garmin_credentials(session, user_id)
+        if email is not None or password is not None:
+            self._email = email
+            self._password = password
+        else:
+            resolved_email, resolved_password, _ = _resolve_garmin_credentials(
+                session, user_id
+            )
+            self._email = resolved_email
+            self._password = resolved_password
+        self._domain = domain or env_domain or "garmin.cn"
+
+        if not self._email or not self._password:
+            scope = f"用户 {user_id} " if user_id is not None else ""
+            raise GarminKeyNotConfiguredError(
+                f"{scope}GARMIN_EMAIL/GARMIN_PASSWORD 未配置"
+                f"（settings 表与环境变量都没有）"
+            )
+
+        # M3-1：每个 client 自带 garth.Client 实例（避免全局单例串 token）
+        # 测试时可注入桩模块（garth 参数）：桩实现 configure/login/connectapi 等接口
+        if garth is not None:
+            self._garth_mod_obj = garth
+            self._client = garth  # FakeGarth 实现与 garth.Client 相同的接口
+        else:
+            # 生产路径：每个 client 一个 garth.Client 实例
+            import garth as garth_mod
+            from garth.http import Client as GarthClient
+            self._garth_mod_obj = garth_mod
+            self._client = GarthClient()
         self._sleep = sleep
         self._time = time_fn
         self._last_call: float | None = None
@@ -97,37 +261,49 @@ class GarminClient:
     # ---------- 底层：garth 模块 / 登录 / 限速 / 异常包装 ----------
 
     def _garth_mod(self) -> Any:
-        """惰性加载真实 garth 模块（测试时注入桩，不走这里）。"""
-        if self._garth is None:
-            import garth
+        return self._garth_mod_obj
 
-            self._garth = garth
-        return self._garth
+    def _garth_client(self) -> Any:
+        """获取本 client 专属的 garth.Client 实例（生产路径）；测试桩时为 FakeGarth。"""
+        return self._client
 
     def login(self) -> None:
-        """登录：优先用 token 缓存 resume 恢复会话；失效/缺失时凭据重登并刷新缓存。"""
+        """登录：优先从 settings 表恢复 token（按 user_id）；失效/缺失时凭据重登并刷新 settings。
+
+        M3-1：完全在内存流转，不写 ~/.garminconnect 目录。
+        """
         if self._logged_in:
             return
-        g = self._garth_mod()
-        g.configure(domain=self._domain)
-        try:
-            if not self._token_store.is_dir():
-                raise FileNotFoundError(str(self._token_store))
-            g.resume(str(self._token_store))
-        except Exception:
-            self._relogin()
-        self._logged_in = True
+        # 步骤 1：尝试从 settings 表恢复
+        if self._user_id is not None:
+            token_json = _load_garmin_token_from_settings(self._session, self._user_id)
+            if token_json:
+                try:
+                    _restore_garmin_token(self._garth_client(), token_json)
+                    self._logged_in = True
+                    return
+                except GarminAdapterError:
+                    # 解析失败：fall through 到凭据重登
+                    pass
+        # 步骤 2：凭据重登
+        self._relogin()
 
     def _relogin(self) -> None:
-        """凭据全量登录并把 token save 到缓存目录。"""
+        """凭据全量登录 + 提取 token 加密存 settings 表（M3-1，**不写磁盘**）。"""
         g = self._garth_mod()
         try:
-            g.configure(domain=self._domain)
-            g.login(self._email, self._password)
-            self._token_store.mkdir(parents=True, exist_ok=True)
-            g.save(str(self._token_store))
+            client = self._garth_client()
+            client.configure(domain=self._domain)
+            client.login(self._email, self._password)
+            # 提取 token 并加密存 settings
+            if self._user_id is not None:
+                token_json = _serialize_garmin_token(client)
+                _save_garmin_token_to_settings(self._session, self._user_id, token_json)
+        except GarminAdapterError:
+            raise
         except Exception as exc:
             raise GarminAdapterError(f"佳明凭据重登失败：{exc}") from exc
+        self._logged_in = True
 
     def _throttle(self) -> None:
         """全局限速：距上次 API 调用不足 MIN_CALL_INTERVAL_S 时先等待。"""
@@ -145,7 +321,7 @@ class GarminClient:
                 self._sleep(BACKOFFS_429[attempt - 1])
             self._throttle()
             try:
-                return self._garth_mod().connectapi(path, params=params)
+                return self._garth_client().connectapi(path, params=params)
             except Exception as exc:
                 if _http_status(exc) == 429 and attempt < len(BACKOFFS_429):
                     continue

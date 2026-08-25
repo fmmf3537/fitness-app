@@ -72,7 +72,9 @@ def daily_sync(day, *, session: Session | None = None, xunji=None, garmin=None,
             xunji = XunjiClient(session, user_id=user_id)
         if garmin is None:
             from app.adapters.garmin_adapter import GarminClient
-            garmin = GarminClient(session)
+            # M3-1：传入 user_id 让 GarminClient 按用户从 settings 表取凭据 + token
+            # 每个 GarminClient 自带 garth.Client 实例，避免模块级单例串 token
+            garmin = GarminClient(session, user_id=user_id)
         # user_id 透传待 M2-5：适配器写入点加 user_id 隔离（见 daily_sync 签名已就绪）
 
         # V2-7b 缺陷3：同步日期为今天时必须绕过同日缓存强刷，否则当天补录的
