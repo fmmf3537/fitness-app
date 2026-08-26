@@ -70,12 +70,46 @@ M4-1 那种 `sync_all_users` 模式遍历所有 `is_active` 用户）。
 **性质**：外部网络/路由问题（可能 Docker 默认 bridge 有 ACL 限制，或
 该 IP 在大陆被 GFW 屏蔽），不是 multiuser-v2 代码 bug。
 
-**建议**：
-- 主机浏览器（不走 Docker bridge）访问 `https://trains.xunjiapp.cn/`
-  应该 OK
-- 部署到腾讯云 CVM 后再观察（云上容器网络更宽松）
-- 临时 workaround：在 `docker-compose.yml` 给 backend 加
-  `network_mode: host`，让容器共享主机网络栈
+**已尝试的临时方案（均不可行）**：
+
+1. **`network_mode: host`（host 网络模式）**：让 backend 容器共享主机
+   网络栈，预期能直接出公网。
+   - **结果：Windows Docker Desktop 不支持**
+   - 现象：容器内 `/proc/net/tcp` 显示 0.0.0.0:8000 监听，但主机
+     `netstat` 看不到 8000；caddy 容器内 `wget host.docker.internal:8000`
+     报 `Connection refused`
+   - 根因：Hyper-V 虚拟化层在 Windows 上对 host network 的实现不完整，
+     这是 Docker Desktop for Windows 的已知 bug（不是 multiuser-v2
+     配置问题）
+   - 已回退该改动（host network 不可行）
+
+**结论**：
+
+- multiuser-v2 在本机（Windows + Docker Desktop）下，**sync 功能无法
+  完整跑通**（trains.xunjiapp.cn 走不通）
+- 不影响 multiuser-v2 主体功能：
+  - 历史 2877 行训练数据已全部导入 postgres ✅
+  - 登录 / bindings / 数据展示 / admin 后台都正常 ✅
+  - 排行榜、历史趋势、月度 LLM 用量等只读功能 OK ✅
+- sync 失败的影响：手动按"刷新"会报 xunji connection error，但系统
+  数据完整性不受影响
+
+**永久方案**：
+
+- **部署到腾讯云 CVM（推荐）**：云上 Docker bridge 通常没 ACL 限制，
+  `trains.xunjiapp.cn` 出网应该 OK
+- **本机临时绕过**（不推荐）：重启 Docker Desktop（部分情况下能修复
+  Docker 内部网络栈），但不是稳定方案
+- **代码层绕过**（不建议）：给 backend 加 HTTP 代理或 hosts 改写，
+  引入额外复杂度和维护成本
+
+**部署到 CVM 时验证清单**：
+
+1. `docker compose up -d` 后立刻 `docker compose exec backend python
+   -c "import socket; s=socket.socket(); s.settimeout(5);
+   s.connect(('trains.xunjiapp.cn', 443))"` 看是否 OK
+2. 触发 `/api/sync/<today>`，看 xunji_trains 4 attempts 是否成功
+3. health panel 的 garmin_token_state 看是否从 `expired` 变 `ok`
 
 ## 关联 commit
 
