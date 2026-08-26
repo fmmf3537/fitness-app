@@ -2,12 +2,34 @@ const TOKEN_KEY = 'fh_token'
 const USER_ID_KEY = 'fh_user_id'
 const USER_ROLE_KEY = 'fh_user_role'
 
+// 订阅者列表：当 token/user_id/role 变化时通知
+// 用于 CurrentUserContext.jsx 的 useSyncExternalStore 订阅，修复
+// 登录后 useCurrentUser() 不刷新的死循环 bug（M5 hotfix 2026-08-26）。
+const authSubscribers = new Set()
+
+function notifyAuthChange() {
+  for (const cb of authSubscribers) {
+    try {
+      cb()
+    } catch (e) {
+      // 单个订阅者抛错不影响其他订阅者
+      console.error('[auth] subscriber error:', e)
+    }
+  }
+}
+
+export function subscribeAuth(cb) {
+  authSubscribers.add(cb)
+  return () => authSubscribers.delete(cb)
+}
+
 export function getToken() {
   return localStorage.getItem(TOKEN_KEY)
 }
 
 export function setToken(token) {
   localStorage.setItem(TOKEN_KEY, token)
+  notifyAuthChange()
 }
 
 export function getCurrentUser() {
@@ -22,6 +44,7 @@ export function clearToken() {
   localStorage.removeItem(TOKEN_KEY)
   localStorage.removeItem(USER_ID_KEY)
   localStorage.removeItem(USER_ROLE_KEY)
+  notifyAuthChange()
 }
 
 export class ApiError extends Error {
