@@ -3,13 +3,22 @@
 # 需 DNS A 记录指向服务器且 80/443 对公网开放。
 # 仅内网/无域名时可把 .env 中 SITE_ADDRESS 设为 :80（明文 HTTP，仅限可信网络）。
 {$SITE_ADDRESS} {
-	reverse_proxy frontend:80
+	# /api/* 走 backend（FastAPI :8000），保留 path 前缀（/api/auth/login → backend 完整路径）
+	# 注意：必须用 handle 而非 handle_path——后者会 strip path prefix 导致后端 404
+	@api path /api/*
+	handle @api {
+		reverse_proxy backend:8000
+	}
 
-	# 安全响应头
-	header {
-		X-Content-Type-Options nosniff
-		X-Frame-Options DENY
-		Referrer-Policy same-origin
-		-Server
+	handle {
+		reverse_proxy frontend:80
+
+		# 安全响应头
+		header {
+			X-Content-Type-Options nosniff
+			X-Frame-Options DENY
+			Referrer-Policy same-origin
+			-Server
+		}
 	}
 }

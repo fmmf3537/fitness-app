@@ -83,8 +83,10 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    # host 端口 8888(避免与 ats_nginx 80 冲突;caddy 容器内仍 80 监听)
+    # Tailscale 内网访问:http://<host>:8888
     ports:
-      - "80:80"
+      - "8888:80"
       - "443:443"
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS:?SITE_ADDRESS 未在 .env 中配置（如 fitness.example.com）}
