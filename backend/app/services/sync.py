@@ -179,11 +179,16 @@ def daily_sync(day, *, session: Session | None = None, xunji=None, garmin=None,
 
 
 def health_check(*, session: Session | None = None, xunji=None, garmin=None,
+                 user_id: int = 1,
                  alert_evaluator=None, alert_notifier=None) -> dict:
     """数据源健康探针（训记 + 佳明）。不做重试。
 
     V2-4：探针写完 job_run 后评估连续失败阈值，达标则推送告警
     （alert_evaluator / alert_notifier 可注入；告警失败不影响探针本身）。
+
+    M6 hotfix 2026-08-26：新增 user_id kw-only 参数。
+    系统级 cron 任务代表"系统"用 admin 凭据（user_id=1 默认）；
+    未来用户多了应改成 sync_all_users 模式遍历所有 is_active 用户。
     """
     today = date.today()
     datestr = today.isoformat()
@@ -193,10 +198,10 @@ def health_check(*, session: Session | None = None, xunji=None, garmin=None,
     try:
         if xunji is None:
             from app.adapters.xunji import XunjiClient
-            xunji = XunjiClient(session)
+            xunji = XunjiClient(session, user_id=user_id)
         if garmin is None:
             from app.adapters.garmin_adapter import GarminClient
-            garmin = GarminClient(session)
+            garmin = GarminClient(session, user_id=user_id)
 
         failures: list[str] = []
         try:
@@ -234,8 +239,13 @@ def health_check(*, session: Session | None = None, xunji=None, garmin=None,
             session.close()
 
 
-def sync_plan_cache(*, session: Session | None = None, xunji=None, days_ahead: int = 30) -> dict:
-    """刷新训记官方计划缓存（PRD §6.1 计划缓存任务）。"""
+def sync_plan_cache(*, session: Session | None = None, xunji=None, user_id: int = 1,
+                     days_ahead: int = 30) -> dict:
+    """刷新训记官方计划缓存（PRD §6.1 计划缓存任务）。
+
+    M6 hotfix 2026-08-26：新增 user_id kw-only 参数。系统级 cron 用 admin
+    凭据；未来用户多了应改成遍历所有 is_active 用户。
+    """
     today = date.today()
     own_session = session is None
     session = session or SessionLocal()
@@ -243,7 +253,7 @@ def sync_plan_cache(*, session: Session | None = None, xunji=None, days_ahead: i
     try:
         if xunji is None:
             from app.adapters.xunji import XunjiClient
-            xunji = XunjiClient(session)
+            xunji = XunjiClient(session, user_id=user_id)
 
         try:
             plans = xunji.fetch_plan_list()
