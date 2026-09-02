@@ -1,5 +1,8 @@
 # 环境与密钥
 .env
+.env.*
+!.env.example
+!.env.production.example
 *.local
 .garminconnect/
 素材/训记key*.txt
