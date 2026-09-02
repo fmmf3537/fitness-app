@@ -28,6 +28,40 @@ from app.services.plans import parse_json as _parse_json
 
 PROMPT_SECTIONS = ("完成质量", "与历史对比", "恢复评估", "注意事项")
 
+# V4-1 F1：佳明 activityType.typeKey → 中文显示名（覆盖 18 个常见有氧/无训记动作场景）
+ACTIVITY_TYPE_ZH: dict[str, str] = {
+    "badminton": "羽毛球",
+    "running": "跑步",
+    "treadmill_running": "跑步机跑步",
+    "cycling": "骑行",
+    "indoor_cycling": "室内骑行",
+    "lap_swimming": "泳池游泳",
+    "swimming": "游泳",
+    "walking": "步行",
+    "hiking": "徒步",
+    "strength_training": "力量训练",
+    "elliptical": "椭圆机",
+    "indoor_rowing": "划船机",
+    "yoga": "瑜伽",
+    "basketball": "篮球",
+    "soccer": "足球",
+    "tennis": "网球",
+    "table_tennis": "乒乓球",
+    "jump_rope": "跳绳",
+}
+
+
+def activity_type_zh(type_key: str | None) -> str:
+    """佳明 typeKey → 中文显示名。
+
+    命中映射返回中文；未命中的非空 typeKey 原样返回；None/空串返回『未知类型』。
+    """
+    if type_key is None:
+        return "未知类型"
+    if isinstance(type_key, str) and not type_key.strip():
+        return "未知类型"
+    return ACTIVITY_TYPE_ZH.get(type_key, type_key)
+
 
 def _int_or_none(value: Any) -> int | None:
     if isinstance(value, int):
@@ -167,6 +201,75 @@ def query_movement_history(
     }
 
 
+def query_activity_history(
+    session: Session,
+    activity_type: str,
+    current_date: date,
+    *,
+    weeks: int = 4,
+    limit: int = 3,
+) -> dict:
+    """V4-1 F1：查询近 N 周同类活动历史（garmin_only 但 tags 非空时使用）。
+
+    时间窗口与 query_movement_history 完全一致：含 start 日、止于 current_date-1，
+    过滤 deleted_at.is_(None)；按 Workout.tags 精确匹配，按日期倒序。
+    返回结构（键名固定，供 prompt 与测试断言）：
+        {
+            "count": int,
+            "avg_duration_s": int | None,
+            "avg_hr": int | None,
+            "recent": [
+                {"date": "YYYY-MM-DD", "duration_s": int|None,
+                 "avg_hr": int|None, "max_hr": int|None, "calories": int|None},
+                ...
+            ],
+        }
+    """
+    start = current_date - timedelta(weeks=weeks)
+    end = current_date - timedelta(days=1)
+    rows = (
+        session.query(Workout)
+        .filter(
+            Workout.date >= start,
+            Workout.date <= end,
+            Workout.tags == activity_type,
+            Workout.deleted_at.is_(None),
+        )
+        .order_by(Workout.date.desc(), Workout.id.desc())
+        .all()
+    )
+
+    duration_values: list[int] = []
+    hr_values: list[int] = []
+    for w in rows:
+        if w.duration_s is not None:
+            duration_values.append(w.duration_s)
+        if w.avg_hr is not None:
+            hr_values.append(w.avg_hr)
+
+    recent = [
+        {
+            "date": w.date.isoformat(),
+            "duration_s": w.duration_s,
+            "avg_hr": w.avg_hr,
+            "max_hr": w.max_hr,
+            "calories": w.calories,
+        }
+        for w in rows
+    ][:limit]
+
+    return {
+        "count": len(rows),
+        "avg_duration_s": (
+            int(sum(duration_values) / len(duration_values)) if duration_values else None
+        ),
+        "avg_hr": (
+            int(sum(hr_values) / len(hr_values)) if hr_values else None
+        ),
+        "recent": recent,
+    }
+
+
 def query_recovery_summary(
     session: Session,
     current_date: date,
@@ -251,10 +354,13 @@ def build_session_review_prompt(
     workout: dict,
     history: dict[str, dict],
     recovery: dict,
+    activity_history: dict | None = None,
 ) -> list[dict]:
     """纯函数：组装单次训练点评 prompt。
 
     输出固定四节 Markdown 要求：完成质量 / 与历史对比 / 恢复评估 / 注意事项。
+    新增 activity_history（可选）：当 workout 无 movements 且传入了同类活动历史时，
+    「近4周同动作历史」整段替换为「近4周同类活动历史」段。
     """
     movements = workout.get("movements") or []
     lines: list[str] = []
@@ -263,7 +369,7 @@ def build_session_review_prompt(
         lines.append(f"标题：{workout['title']}")
     tags = workout.get("tags")
     if tags:
-        lines.append(f"活动类型：{tags}")
+        lines.append(f"活动类型：{activity_type_zh(tags)}")
     lines.append(
         f"时长：{_format_duration(workout.get('duration_s'))} | "
         f"热量：{workout.get('calories') or '-'} 千卡 | "
@@ -299,25 +405,57 @@ def build_session_review_prompt(
         lines.append("- 无动作数据")
 
     lines.append("")
-    lines.append(f"# 近4周同动作历史（截至 {workout.get('date') or '今日'}）")
-    if history:
-        for name, hist in history.items():
-            lines.append(f"## {name}")
-            lines.append(f"- 出现次数：{hist['count']}")
-            if hist.get("pr_weight") is not None:
-                lines.append(f"- 个人纪录（PR）重量：{hist['pr_weight']} kg")
-            recent = hist.get("recent") or []
+    if not movements and activity_history is not None:
+        # V4-1 F1：garmin_only 且 tags 非空时，整段替换为同类活动历史
+        zh_name = activity_type_zh(workout.get("tags"))
+        lines.append(
+            f"# 近4周同类活动（{zh_name}）历史（截至 {workout.get('date') or '今日'}）"
+        )
+        if activity_history.get("count", 0) == 0:
+            lines.append("- 近4周无同类活动记录")
+        else:
+            lines.append(f"- 出现次数：{activity_history['count']}")
+            avg_dur = activity_history.get("avg_duration_s")
+            avg_hr = activity_history.get("avg_hr")
+            if avg_dur is not None and avg_hr is not None:
+                lines.append(
+                    f"- 平均时长：{_format_duration(avg_dur)} | "
+                    f"平均心率：{avg_hr} bpm"
+                )
+            recent = activity_history.get("recent") or []
             if recent:
                 lines.append("- 最近记录：")
                 for r in recent:
-                    lines.append(
-                        f"  - {r['date']}：最佳 {r['best_weight']}kg × {r['best_reps']}，"
-                        f"总容量 {r['total_volume']}kg，{r['sets_count']} 组"
-                    )
-            else:
-                lines.append("- 近4周无该动作记录")
+                    parts: list[str] = []
+                    if r.get("duration_s") is not None:
+                        parts.append(f"时长 {_format_duration(r['duration_s'])}")
+                    if r.get("avg_hr") is not None:
+                        parts.append(f"平均心率 {r['avg_hr']} bpm")
+                    if r.get("max_hr") is not None:
+                        parts.append(f"最大心率 {r['max_hr']} bpm")
+                    if r.get("calories") is not None:
+                        parts.append(f"热量 {r['calories']} 千卡")
+                    lines.append(f"  - {r['date']}：{'，'.join(parts)}")
     else:
-        lines.append("近4周无同动作历史数据。")
+        lines.append(f"# 近4周同动作历史（截至 {workout.get('date') or '今日'}）")
+        if history:
+            for name, hist in history.items():
+                lines.append(f"## {name}")
+                lines.append(f"- 出现次数：{hist['count']}")
+                if hist.get("pr_weight") is not None:
+                    lines.append(f"- 个人纪录（PR）重量：{hist['pr_weight']} kg")
+                recent = hist.get("recent") or []
+                if recent:
+                    lines.append("- 最近记录：")
+                    for r in recent:
+                        lines.append(
+                            f"  - {r['date']}：最佳 {r['best_weight']}kg × {r['best_reps']}，"
+                            f"总容量 {r['total_volume']}kg，{r['sets_count']} 组"
+                        )
+                else:
+                    lines.append("- 近4周无该动作记录")
+        else:
+            lines.append("近4周无同动作历史数据。")
 
     lines.append("")
     lines.append("# 近7天恢复数据")
@@ -401,6 +539,11 @@ def generate_session_review(
             continue
         history[name] = query_movement_history(session, name, workout.date)
 
+    # V4-1 F1：garmin_only 且 tags 非空时，查询同类活动历史注入 prompt
+    activity_history: dict | None = None
+    if not movements and workout.tags:
+        activity_history = query_activity_history(session, workout.tags, workout.date)
+
     recovery = query_recovery_summary(session, workout.date)
 
     workout_dict = {
@@ -414,7 +557,9 @@ def generate_session_review(
         "movements": movements,
     }
 
-    messages = build_session_review_prompt(workout_dict, history, recovery)
+    messages = build_session_review_prompt(
+        workout_dict, history, recovery, activity_history=activity_history
+    )
 
     if chat_fn is None:
         chat_fn = lambda msgs: llm.chat(  # noqa: E731

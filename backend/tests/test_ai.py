@@ -13,6 +13,7 @@ from app.services.ai import (
     PROMPT_SECTIONS,
     build_session_review_prompt,
     generate_session_review,
+    query_activity_history,
     query_movement_history,
     query_recovery_summary,
     run_daily_reviews,
@@ -319,3 +320,216 @@ class TestSyncIntegration:
         assert len(runs) == 1
         assert runs[0].status == "failed"
         assert "模型超时" in runs[0].error
+
+
+# =====================================================================
+# V4-1 F1：同类活动历史（garmin_only 但 tags 非空）
+# =====================================================================
+
+
+class TestActivityTypeZh:
+    """activity_type_zh 映射函数三分支：命中/未命中/None"""
+
+    def test_hit_returns_chinese(self):
+        assert ai_mod.activity_type_zh("badminton") == "羽毛球"
+        assert ai_mod.activity_type_zh("running") == "跑步"
+        assert ai_mod.activity_type_zh("strength_training") == "力量训练"
+        assert ai_mod.activity_type_zh("treadmill_running") == "跑步机跑步"
+
+    def test_miss_returns_original(self):
+        assert ai_mod.activity_type_zh("unknown_xyz") == "unknown_xyz"
+        assert ai_mod.activity_type_zh("zumba") == "zumba"
+
+    def test_none_or_empty_returns_unknown(self):
+        assert ai_mod.activity_type_zh(None) == "未知类型"
+        assert ai_mod.activity_type_zh("") == "未知类型"
+        assert ai_mod.activity_type_zh("   ") == "未知类型"
+
+
+class TestQueryActivityHistory:
+    """query_activity_history：按 Workout.tags 精确匹配 + 4 周窗口 + 软删过滤"""
+
+    def test_filters_by_tags_and_window(self, session):
+        day = DAY
+        in_window_dates = [
+            day - timedelta(days=3),    # 2026-07-31
+            day - timedelta(days=10),   # 2026-07-24
+            day - timedelta(days=20),   # 2026-07-14
+        ]
+        in_window_specs = [
+            {"duration_s": 1800, "avg_hr": 110, "max_hr": 150, "calories": 200},
+            {"duration_s": 1900, "avg_hr": 115, "max_hr": 155, "calories": 250},
+            {"duration_s": 2000, "avg_hr": 120, "max_hr": 160, "calories": 300},
+        ]
+        for d, spec in zip(in_window_dates, in_window_specs):
+            session.add(Workout(date=d, tags="badminton", **spec))
+        # 窗口外（35 天前）：应忽略
+        session.add(Workout(date=day - timedelta(days=35), tags="badminton",
+                            duration_s=2000, calories=300, avg_hr=120, max_hr=160))
+        # 其他类型：应忽略
+        session.add(Workout(date=day - timedelta(days=5), tags="running",
+                            duration_s=1800, calories=250, avg_hr=130, max_hr=170))
+        # 软删：应忽略
+        session.add(Workout(date=day - timedelta(days=7), tags="badminton",
+                            duration_s=2400, calories=400, avg_hr=140, max_hr=180,
+                            deleted_at=datetime(2026, 8, 1, 12, 0, 0)))
+        session.commit()
+
+        result = query_activity_history(session, "badminton", day)
+
+        assert result["count"] == 3
+        assert len(result["recent"]) == 3
+        # recent 按日期倒序（最近→最远）
+        assert result["recent"][0]["date"] == "2026-07-31"
+        assert result["recent"][1]["date"] == "2026-07-24"
+        assert result["recent"][2]["date"] == "2026-07-14"
+        # 仅羽毛球明细字段
+        assert result["recent"][0]["duration_s"] == 1800
+        assert result["recent"][0]["avg_hr"] == 110
+        # 均值（int 取整）
+        expected_avg_dur = int((1800 + 1900 + 2000) / 3)  # 1900
+        expected_avg_hr = int((110 + 115 + 120) / 3)      # 115
+        assert result["avg_duration_s"] == expected_avg_dur
+        assert result["avg_hr"] == expected_avg_hr
+
+    def test_returns_empty_when_no_match(self, session):
+        result = query_activity_history(session, "badminton", DAY)
+        assert result["count"] == 0
+        assert result["avg_duration_s"] is None
+        assert result["avg_hr"] is None
+        assert result["recent"] == []
+
+    def test_ignores_records_with_missing_metrics(self, session):
+        # duration_s / avg_hr 全部为 None 时，均值字段为 None，recent 仍有序
+        for i in range(2):
+            session.add(Workout(
+                date=DAY - timedelta(days=3 + i), tags="tennis",
+                duration_s=None, avg_hr=None, max_hr=None, calories=None,
+            ))
+        session.commit()
+        result = query_activity_history(session, "tennis", DAY)
+        assert result["count"] == 2
+        assert result["avg_duration_s"] is None
+        assert result["avg_hr"] is None
+        assert len(result["recent"]) == 2
+
+
+class TestBuildPromptActivityHistory:
+    """build_session_review_prompt：garmin_only 注入同类活动历史段的契约"""
+
+    def _garmin_only_workout(self):
+        return {
+            "date": "2026-08-03",
+            "title": "午休羽毛球",
+            "tags": "badminton",
+            "duration_s": 1800,
+            "calories": 230,
+            "avg_hr": 120,
+            "max_hr": 150,
+            "movements": [],
+        }
+
+    def _activity_history(self, count=3):
+        return {
+            "count": count,
+            "avg_duration_s": 1900,
+            "avg_hr": 115,
+            "recent": [
+                {"date": "2026-07-31", "duration_s": 1800, "avg_hr": 110,
+                 "max_hr": 150, "calories": 200},
+                {"date": "2026-07-24", "duration_s": 1900, "avg_hr": 115,
+                 "max_hr": 155, "calories": 250},
+            ][:count] if count > 0 else [],
+        }
+
+    def test_garmin_only_injects_activity_history_section(self):
+        w = self._garmin_only_workout()
+        ah = self._activity_history(count=3)
+        messages = build_session_review_prompt(
+            w, {}, _recovery_dict(), activity_history=ah
+        )
+        user = messages[1]["content"]
+        # 新段标题：含中文映射名
+        assert "近4周同类活动（羽毛球）历史" in user
+        assert "出现次数：3" in user
+        # 平均时长走 _format_duration：1900/60=31 → "31 分钟"
+        assert "平均时长：31 分钟" in user
+        assert "平均心率：115 bpm" in user
+        # 旧段必须被替换掉（不能同时存在两段）
+        assert "近4周同动作历史" not in user
+        # 活动类型也走中文映射（不是 typeKey）
+        assert "活动类型：羽毛球" in user
+        assert "活动类型：badminton" not in user
+        # 明细：单项为 None 的片段省略
+        assert "2026-07-31：时长 30 分钟" in user
+        assert "平均心率 110 bpm" in user
+        assert "最大心率 150 bpm" in user
+        assert "热量 200 千卡" in user
+        # recovery 段保持不变（验证分支不影响后续节）
+        assert "近7天恢复数据" in user
+        assert "平均睡眠时长：7.2 小时" in user
+
+    def test_count_zero_renders_no_records_message(self):
+        w = self._garmin_only_workout()
+        ah = self._activity_history(count=0)
+        messages = build_session_review_prompt(
+            w, {}, _recovery_dict(), activity_history=ah
+        )
+        user = messages[1]["content"]
+        assert "近4周同类活动（羽毛球）历史" in user
+        assert "近4周无同类活动记录" in user
+        # 不应出现次数/明细行
+        assert "出现次数：0" not in user
+        assert "平均时长：" not in user
+        assert "最近记录：" not in user
+
+    def test_no_movements_without_activity_history_falls_back(self):
+        """无 movements 且 activity_history 未传入：沿用旧逻辑（向后兼容）。"""
+        w = _workout_dict(movements=[], tags="badminton")
+        messages = build_session_review_prompt(w, {}, _recovery_dict())
+        user = messages[1]["content"]
+        assert "近4周同动作历史" in user
+        assert "近4周无同动作历史数据" in user
+        assert "近4周同类活动" not in user
+
+    def test_movements_present_unchanged_prompt_structure(self):
+        """回归红线：有 movements 时 prompt 逐字节保持除 tags 行外一致。"""
+        w = _workout_dict()
+        messages = build_session_review_prompt(
+            w, _history_dict(), _recovery_dict()
+        )
+        user = messages[1]["content"]
+        # tags 行走中文映射
+        assert "活动类型：力量训练" in user
+        assert "活动类型：strength_training" not in user
+        # 旧历史段原样保留
+        assert "近4周同动作历史" in user
+        assert "个人纪录（PR）重量：5.0 kg" in user
+        # 不应注入同类活动段
+        assert "近4周同类活动" not in user
+
+    def test_recent_omits_none_fields(self):
+        """明细行：duration_s/avg_hr/max_hr/calories 任一为 None 时省略该片段。"""
+        w = self._garmin_only_workout()
+        ah = {
+            "count": 1,
+            "avg_duration_s": 1800,
+            "avg_hr": 120,
+            "recent": [
+                {"date": "2026-07-31", "duration_s": 1800, "avg_hr": None,
+                 "max_hr": None, "calories": 250},
+            ],
+        }
+        messages = build_session_review_prompt(
+            w, {}, _recovery_dict(), activity_history=ah
+        )
+        user = messages[1]["content"]
+        line = next(
+            (ln for ln in user.splitlines() if ln.startswith("  - 2026-07-31")),
+            None,
+        )
+        assert line is not None
+        assert "时长 30 分钟" in line
+        assert "热量 250 千卡" in line
+        assert "平均心率" not in line
+        assert "最大心率" not in line
