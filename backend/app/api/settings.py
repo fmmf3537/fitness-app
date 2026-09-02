@@ -3,6 +3,8 @@
 PUT 时先调该厂商轻量接口验证 Key 有效再加密保存；无效 Key 拒绝入库。
 V2-1：GET 返回各 provider 连续失败计数与建议备用模型（前端降级提示用）；
 PUT 支持不带 api_key 仅切换默认模型（要求该 provider 已配置 Key）。
+
+V4-3：新增 GET/PUT /api/settings/profile，管理性别 / 出生日期（皮脂钳公式所需）。
 """
 import re
 from datetime import date, datetime
@@ -14,7 +16,8 @@ from sqlalchemy.orm import Session
 from app.adapters import llm
 from app.api.auth import require_auth
 from app.db import get_session
-from app.models import LLMCall
+from app.models import LLMCall, Setting
+from app.services.skinfold import get_profile
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -123,3 +126,77 @@ def put_llm_settings(req: LLMSettingsPut, session: Session = Depends(get_session
     if req.set_default:
         llm.set_default_provider(session, req.provider)
     return {"ok": True, "provider": req.provider, "default_llm": llm.get_default_provider(session)}
+
+
+# ---------- V4-3 用户画像（性别 / 出生日期，皮脂钳公式所需） ----------
+
+
+_ALLOWED_GENDER = {"male", "female"}
+_AGE_MIN = 10
+_AGE_MAX = 120
+
+
+class ProfilePut(BaseModel):
+    """PUT /api/settings/profile 请求体：PATCH 语义，只更新传入字段。"""
+
+    gender: str | None = None
+    birth_date: str | None = None  # ISO 日期字符串
+
+
+def _calc_age(birth: date, today: date | None = None) -> int:
+    today = today or date.today()
+    return today.year - birth.year - (
+        (today.month, today.day) < (birth.month, birth.day)
+    )
+
+
+@router.get("/profile", dependencies=[Depends(require_auth)])
+def get_profile_api(session: Session = Depends(get_session)) -> dict:
+    """读取当前性别 / 出生日期；未设置返回 null。"""
+    return get_profile(session)
+
+
+@router.put("/profile", dependencies=[Depends(require_auth)])
+def put_profile(req: ProfilePut, session: Session = Depends(get_session)) -> dict:
+    """写入性别 / 出生日期（PATCH 语义：只更新传入字段）；不存在则创建 settings 单行。
+
+    - gender ∈ {male, female}；非允许值 → 400；
+    - birth_date 为合法 ISO 日期，且推算年龄 ∈ [10, 120]；否则 → 400。
+    """
+    if req.gender is None and req.birth_date is None:
+        raise HTTPException(status_code=400, detail="gender 与 birth_date 至少传一个")
+
+    new_birth: date | None = None
+    if req.birth_date is not None:
+        try:
+            new_birth = date.fromisoformat(req.birth_date)
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(
+                status_code=400, detail=f"birth_date 日期格式非法: {req.birth_date!r}"
+            ) from exc
+        age = _calc_age(new_birth)
+        if age < _AGE_MIN or age > _AGE_MAX:
+            raise HTTPException(
+                status_code=400,
+                detail=f"根据出生日期推算年龄 {age} 超出合理区间 [{_AGE_MIN}, {_AGE_MAX}]",
+            )
+
+    if req.gender is not None and req.gender not in _ALLOWED_GENDER:
+        raise HTTPException(
+            status_code=400,
+            detail=f"gender 非法: {req.gender!r}（仅支持 male / female）",
+        )
+
+    row = session.query(Setting).first()
+    if row is None:
+        row = Setting()
+        session.add(row)
+    if req.gender is not None:
+        row.gender = req.gender
+    if new_birth is not None:
+        row.birth_date = new_birth
+    session.commit()
+    return {
+        "gender": row.gender,
+        "birth_date": row.birth_date.isoformat() if row.birth_date else None,
+    }

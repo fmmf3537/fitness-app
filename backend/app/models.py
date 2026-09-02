@@ -32,6 +32,9 @@ class Setting(Base):
     default_llm: Mapped[str | None] = mapped_column(String(50))
     llm_keys_json_enc: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    # V4-3：性别与出生日期（皮脂钳体脂率公式所需），录入一次永久生效
+    gender: Mapped[str | None] = mapped_column(String(10))
+    birth_date: Mapped[date | None] = mapped_column(Date)
 
 
 class XunjiTrain(Base):
@@ -107,6 +110,27 @@ class BodyMetric(Base):
     note: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class SkinfoldRecord(Base):
+    """皮脂钳测量记录（V4-3）：同日同 method 幂等 upsert。"""
+
+    __tablename__ = "skinfold_record"
+    __table_args__ = (
+        UniqueConstraint("date", "method", name="uq_skinfold_record_date_method"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    date: Mapped[date] = mapped_column(Date)
+    method: Mapped[str] = mapped_column(String(20))  # jp3_male / jp3_female / dw4 / jp7
+    sites_json: Mapped[str] = mapped_column(Text)    # {"chest": 10.0, ...} 单位 mm
+    density: Mapped[float] = mapped_column(Float)    # 身体密度 g/cm³
+    bodyfat_result: Mapped[float] = mapped_column(Float)  # 体脂率 %（保留 2 位小数）
+    note: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
 
 
 class Workout(Base):

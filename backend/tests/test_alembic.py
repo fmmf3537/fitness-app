@@ -9,6 +9,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 
 EXPECTED_TABLES = {
     "settings",
+    "skinfold_record",
     "xunji_train",
     "garmin_activity",
     "garmin_daily",
@@ -59,7 +60,7 @@ def test_workout_soft_delete_columns_roundtrip(tmp_path):
     assert "excluded" in {c["name"] for c in insp.get_columns("garmin_activity")}
     assert "excluded" in {c["name"] for c in insp.get_columns("xunji_train")}
 
-    command.downgrade(cfg, "-1")
+    command.downgrade(cfg, "e4f5a6b7c8d9")  # 回退到 f5a6b7c8d9e0 之前
     insp = inspect(create_engine(db_url))
     assert "deleted_at" not in {c["name"] for c in insp.get_columns("workout")}
     assert "excluded" not in {c["name"] for c in insp.get_columns("garmin_activity")}
@@ -127,3 +128,41 @@ def test_upgrade_twice_is_stable(tmp_path):
     command.upgrade(cfg, "head")  # 重复执行不报错
     insp = inspect(create_engine(db_url))
     assert EXPECTED_TABLES <= set(insp.get_table_names())
+
+
+def test_skinfold_and_settings_profile_roundtrip(tmp_path):
+    """V4-3：skinfold_record 表 + settings.gender/birth_date，升级出现、回滚消失、再升级恢复。"""
+    db_url = f"sqlite:///{tmp_path}/mig.db"
+    cfg = _make_config(db_url)
+    command.upgrade(cfg, "head")
+    insp = inspect(create_engine(db_url))
+    assert "skinfold_record" in insp.get_table_names()
+    cols = {c["name"] for c in insp.get_columns("skinfold_record")}
+    assert {
+        "id",
+        "date",
+        "method",
+        "sites_json",
+        "density",
+        "bodyfat_result",
+        "note",
+        "created_at",
+        "updated_at",
+    } == cols
+    settings_cols = {c["name"] for c in insp.get_columns("settings")}
+    assert "gender" in settings_cols
+    assert "birth_date" in settings_cols
+
+    command.downgrade(cfg, "f5a6b7c8d9e0")  # 回退到 f5a6b7c8d9e0 之前
+    insp = inspect(create_engine(db_url))
+    assert "skinfold_record" not in insp.get_table_names()
+    settings_cols = {c["name"] for c in insp.get_columns("settings")}
+    assert "gender" not in settings_cols
+    assert "birth_date" not in settings_cols
+
+    command.upgrade(cfg, "head")  # 再次升级恢复
+    insp = inspect(create_engine(db_url))
+    assert "skinfold_record" in insp.get_table_names()
+    settings_cols = {c["name"] for c in insp.get_columns("settings")}
+    assert "gender" in settings_cols
+    assert "birth_date" in settings_cols

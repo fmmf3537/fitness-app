@@ -15,6 +15,7 @@ from app.api.plans import router as plans_router
 from app.api.posters import router as posters_router
 from app.api.screenshot import router as screenshot_router
 from app.api.settings import router as settings_router
+from app.api.skinfold import router as skinfold_router
 from app.api.stats import router as stats_router
 from app.api.sync import router as sync_router
 from app.api.workouts import router as workouts_router
@@ -49,6 +50,7 @@ app.include_router(backfill_router)
 app.include_router(fit_import_router)
 app.include_router(writeback_router)
 app.include_router(body_metrics_router)
+app.include_router(skinfold_router)
 app.include_router(screenshot_router)
 app.include_router(plans_router)
 app.include_router(posters_router)
