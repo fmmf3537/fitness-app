@@ -412,3 +412,65 @@ def export_report(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# =====================================================================
+# V4-5 F3：对话驱动重新生成（单 workout 粒度，同步执行）
+# =====================================================================
+
+
+@router.post("/session_review/{workout_id}/regenerate_with_feedback")
+def regenerate_session_review_with_feedback(
+    workout_id: int,
+    session: Session = Depends(get_session),
+) -> dict:
+    """V4-5 F3：根据「以上讨论」重新生成单 workout 的 session_review。
+
+    取该 workout 最新 session_review 的追问对话作为 feedback 注入 prompt，
+    删旧后重生成。同步执行（与 POST messages 同先例）。
+
+    - 200：返回新报告
+    - 404：workout 不存在/已软删
+    - 429：当日重生成次数已达上限
+    """
+    try:
+        report = ai_service.regenerate_session_review_with_feedback(
+            session, workout_id
+        )
+    except ai_service.RegenerateLimitError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from None
+    return {"report": _serialize_report(session, report)}
+
+
+@router.post("/next_advice/{workout_id}/regenerate_with_feedback")
+def regenerate_next_advice_with_feedback(
+    workout_id: int,
+    session: Session = Depends(get_session),
+) -> dict:
+    """V4-5 F3：根据「以上讨论」重新生成单 workout 的 next_advice。
+
+    取该 workout 最新 next_advice 的追问对话作为 feedback 注入 prompt，
+    删旧后重生成。同步执行（与 POST messages 同先例）。
+
+    - 200：返回新报告
+    - 404：workout 不存在/已软删，或该 workout 当前无 next_advice 报告
+    - 422：服务层返回 None（无计划缓存，旧报告已删）
+    - 429：当日重生成次数已达上限
+    """
+    try:
+        report = ai_service.regenerate_next_advice_with_feedback(
+            session, workout_id
+        )
+    except ai_service.RegenerateLimitError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from None
+
+    if report is None:
+        raise HTTPException(
+            status_code=422,
+            detail="无训记计划缓存，无法生成下次建议",
+        )
+    return {"report": _serialize_report(session, report)}

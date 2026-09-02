@@ -12,14 +12,14 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any, Callable
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.adapters import llm
-from app.models import AIReport, BodyMetric, GarminDaily, JobRun, Workout, XunjiPlan
+from app.models import AIReport, BodyMetric, GarminDaily, JobRun, LLMCall, Workout, XunjiPlan
 from app.movements import load_movement_names
 # V2-8：计划缓存解析原语提取到 services/plans.py 共享（禁止复制粘贴）
 from app.services import plans as plan_service
@@ -400,12 +400,16 @@ def build_session_review_prompt(
     history: dict[str, dict],
     recovery: dict,
     activity_history: dict | None = None,
+    *,
+    feedback: list[str] | None = None,
 ) -> list[dict]:
     """纯函数：组装单次训练点评 prompt。
 
     输出固定四节 Markdown 要求：完成质量 / 与历史对比 / 恢复评估 / 注意事项。
     新增 activity_history（可选）：当 workout 无 movements 且传入了同类活动历史时，
     「近4周同动作历史」整段替换为「近4周同类活动历史」段。
+    V4-5 F3：feedback 非空时在历史段之后、恢复数据段之前插入「用户反馈」段，
+    并在 system 末追加附加要求；feedback 为空/None 时输出与原版逐字节一致。
     """
     movements = workout.get("movements") or []
     lines: list[str] = []
@@ -543,6 +547,13 @@ def build_session_review_prompt(
         else:
             lines.append("近4周无同动作历史数据。")
 
+    # V4-5 F3：用户反馈段（来自本次训练后的追问对话，调用方已按"用户：/教练："格式化）
+    if feedback:
+        lines.append("")
+        lines.append("# 用户反馈（来自本次训练后的讨论，请结合进点评/建议）")
+        for line in feedback:
+            lines.append(f"- {line}")
+
     lines.append("")
     lines.append("# 近7天恢复数据")
     if recovery.get("days_count", 0) > 0:
@@ -589,6 +600,13 @@ def build_session_review_prompt(
         "recovery_fit=训练与恢复状态的匹配度。"
     )
 
+    # V4-5 F3：注入用户反馈时附加约束（要求点评与反馈相符、不矛盾）
+    if feedback:
+        system += (
+            "\n附加要求：用户反馈为训练者本人补充的第一手事实（如身体状态、临场情况），"
+            "你的输出须与之相符，不得与之矛盾。"
+        )
+
     return [
         {"role": "system", "content": system},
         {"role": "user", "content": "\n".join(lines)},
@@ -608,10 +626,16 @@ def generate_session_review(
     workout_id: int,
     *,
     chat_fn: Callable[[list[dict]], dict] | None = None,
+    feedback: list[str] | None = None,
+    purpose: str | None = None,
 ) -> AIReport:
     """为单个 workout 生成单次点评并落库 ai_report。
 
     chat_fn 用于测试注入；默认调用 adapters.llm.chat。
+    feedback（V4-5 F3）：透传给 builder 用于在 user 段注入用户反馈；非空时
+    prompt 会带「用户反馈」段与 system 附加要求。
+    purpose（V4-5 fix1）：透传给 llm.chat 用于记账 llm_call 行；重生成场景
+    传「session_review_regen:w{id}」使 _check_regen_limit 能真实计数。
     """
     workout = session.get(Workout, workout_id)
     if workout is None or workout.deleted_at is not None:
@@ -655,12 +679,13 @@ def generate_session_review(
     }
 
     messages = build_session_review_prompt(
-        workout_dict, history, recovery, activity_history=activity_history
+        workout_dict, history, recovery,
+        activity_history=activity_history, feedback=feedback,
     )
 
     if chat_fn is None:
         chat_fn = lambda msgs: llm.chat(  # noqa: E731
-            msgs, session=session, purpose="session_review"
+            msgs, session=session, purpose=purpose or "session_review"
         )
 
     # V3-4：正文后须附 session_review_v1 评分 JSON 块；解析失败重试 1 次，
@@ -774,6 +799,164 @@ def regenerate_session_reviews(
     ).delete(synchronize_session=False)
     session.commit()
     return run_daily_reviews(session, day_date, chat_fn=chat_fn)
+
+
+# =====================================================================
+# V4-5 F3：对话驱动重新生成（单 workout 粒度，注入追问对话作为反馈）
+# =====================================================================
+
+REGEN_FEEDBACK_WINDOW = 10  # 注入 prompt 的最近追问消息条数
+REGEN_DAILY_LIMIT = 5       # 每 workout 每日重生成上限（按服务器本地日期）
+
+
+class RegenerateLimitError(ValueError):
+    """超过每 workout 每日重生成上限。"""
+
+
+def _collect_feedback(session: Session, report: AIReport | None) -> list[str]:
+    """从 report 的追问对话收集 feedback 行。
+
+    report 为 None 时返回 []；否则取该报告 ReportChatMessage 最近
+    REGEN_FEEDBACK_WINDOW 条（按 id 正序取尾部），按角色格式化为
+    "用户：…" / "教练：…" 行。
+    """
+    if report is None:
+        return []
+    from app.models import ReportChatMessage
+
+    rows = list(
+        session.scalars(
+            select(ReportChatMessage)
+            .where(ReportChatMessage.report_id == report.id)
+            .order_by(ReportChatMessage.id)
+        )
+    )
+    if not rows:
+        return []
+    rows = rows[-REGEN_FEEDBACK_WINDOW:]
+    role_label = {"user": "用户", "assistant": "教练"}
+    lines: list[str] = []
+    for msg in rows:
+        label = role_label.get(msg.role, msg.role)
+        content = (msg.content or "").strip()
+        if not content:
+            continue
+        lines.append(f"{label}：{content}")
+    return lines
+
+
+def _check_regen_limit(session: Session, workout_id: int, report_type: str) -> None:
+    """校验当日（服务器本地日期）该 workout 该 type 的重生成次数。
+
+    V4-5 fix1：改统计 llm_call 表中 purpose == f"{report_type}_regen:w{workout_id}"
+    且 created_at >= 当日 00:00（本地）的行数。llm_call 行不随 ai_report 删除而消失，
+    且用量统计按 (provider, model) 分组、不按 purpose，故用专用 purpose 串记账
+    无副作用——真实使用中每点一次重生成 +1，连点 5 次后第 6 次即触发护栏。
+    行数 >= REGEN_DAILY_LIMIT 时抛 RegenerateLimitError（消息含「每日重生成上限 5 次」）。
+    """
+    today = date.today()
+    today_start = datetime.combine(today, time.min)
+    purpose = f"{report_type}_regen:w{workout_id}"
+    count = session.scalar(
+        select(func.count(LLMCall.id)).where(
+            LLMCall.purpose == purpose,
+            LLMCall.created_at >= today_start,
+        )
+    ) or 0
+    if count >= REGEN_DAILY_LIMIT:
+        raise RegenerateLimitError(
+            f"每日重生成上限 {REGEN_DAILY_LIMIT} 次，明天再来"
+        )
+
+
+def regenerate_session_review_with_feedback(
+    session: Session,
+    workout_id: int,
+    *,
+    chat_fn: Callable[[list[dict]], dict] | None = None,
+) -> AIReport:
+    """单 workout 删旧重生成 session_review + 对话反馈注入。
+
+    1. workout 不存在/已软删 → ValueError；
+    2. _check_regen_limit(type='session_review')；
+    3. 找该 workout 最新 session_review（created_at/id 倒序第一条），
+       _collect_feedback 收集反馈；
+    4. 删除该 workout 全部 session_review（仅该 type 且 workout_id 匹配）；
+    5. 调 generate_session_review(session, workout_id, chat_fn=chat_fn,
+       feedback=feedback) 落新报告并返回。
+    """
+    workout = session.get(Workout, workout_id)
+    if workout is None or workout.deleted_at is not None:
+        raise ValueError(f"workout {workout_id} 不存在")
+
+    _check_regen_limit(session, workout_id, "session_review")
+
+    latest = session.scalars(
+        select(AIReport)
+        .where(
+            AIReport.workout_id == workout_id,
+            AIReport.type == "session_review",
+        )
+        .order_by(AIReport.created_at.desc(), AIReport.id.desc())
+    ).first()
+    feedback = _collect_feedback(session, latest)
+
+    session.query(AIReport).filter(
+        AIReport.workout_id == workout_id,
+        AIReport.type == "session_review",
+    ).delete(synchronize_session="evaluate")
+    session.commit()
+
+    return generate_session_review(
+        session, workout_id, chat_fn=chat_fn, feedback=feedback,
+        purpose=f"session_review_regen:w{workout_id}",
+    )
+
+
+def regenerate_next_advice_with_feedback(
+    session: Session,
+    workout_id: int,
+    *,
+    chat_fn: Callable[[list[dict]], dict] | None = None,
+) -> AIReport | None:
+    """单 workout 删旧重生成 next_advice + 对话反馈注入。
+
+    1. workout 不存在/已软删 → ValueError；
+    2. _check_regen_limit(type='next_advice')；
+    3. 该 workout 当前无 next_advice 报告 → ValueError（API 层转 404）；
+    4. 找该 workout 最新 next_advice 并 _collect_feedback；
+    5. 删除该 workout 全部 next_advice；
+    6. 调 generate_next_advice(session, workout_id, chat_fn=chat_fn,
+       feedback=feedback)：无计划缓存返回 None（旧报告已删，由 API 层转 422）。
+    """
+    workout = session.get(Workout, workout_id)
+    if workout is None or workout.deleted_at is not None:
+        raise ValueError(f"workout {workout_id} 不存在")
+
+    _check_regen_limit(session, workout_id, "next_advice")
+
+    latest = session.scalars(
+        select(AIReport)
+        .where(
+            AIReport.workout_id == workout_id,
+            AIReport.type == "next_advice",
+        )
+        .order_by(AIReport.created_at.desc(), AIReport.id.desc())
+    ).first()
+    if latest is None:
+        raise ValueError("该训练暂无下次建议")
+    feedback = _collect_feedback(session, latest)
+
+    session.query(AIReport).filter(
+        AIReport.workout_id == workout_id,
+        AIReport.type == "next_advice",
+    ).delete(synchronize_session="evaluate")
+    session.commit()
+
+    return generate_next_advice(
+        session, workout_id, chat_fn=chat_fn, feedback=feedback,
+        purpose=f"next_advice_regen:w{workout_id}",
+    )
 
 
 # =====================================================================
@@ -955,8 +1138,14 @@ def build_next_advice_prompt(
     plan_day: dict,
     recovery: dict,
     movement_names: list[str] | tuple[str, ...],
+    *,
+    feedback: list[str] | None = None,
 ) -> list[dict]:
-    """纯函数：组装下次训练建议 prompt（动作名表注入 system 约束模型）。"""
+    """纯函数：组装下次训练建议 prompt（动作名表注入 system 约束模型）。
+
+    V4-5 F3：feedback 非空时在计划日段之后、恢复指标段之前插入「用户反馈」段，
+    并在 system 末追加附加要求；feedback 为空/None 时输出与原版逐字节一致。
+    """
     lines: list[str] = []
     lines.append(f"# 本次训练完成情况（{workout.get('date') or '未知日期'}）")
     if workout.get("title"):
@@ -992,6 +1181,13 @@ def build_next_advice_prompt(
         else:
             lines.append(f"- {mv.get('name') or '未命名动作'}")
 
+    # V4-5 F3：用户反馈段（来自本次训练后的追问对话，调用方已按"用户：/教练："格式化）
+    if feedback:
+        lines.append("")
+        lines.append("# 用户反馈（来自本次训练后的讨论，请结合进建议）")
+        for line in feedback:
+            lines.append(f"- {line}")
+
     lines.append("")
     lines.append("# 近7天恢复指标")
     if recovery.get("days_count", 0) > 0:
@@ -1025,6 +1221,13 @@ def build_next_advice_prompt(
         + "、".join(movement_names)
     )
 
+    # V4-5 F3：注入用户反馈时附加约束（要求建议与反馈相符、不矛盾）
+    if feedback:
+        system += (
+            "\n附加要求：用户反馈为训练者本人补充的第一手事实（如身体状态、临场情况），"
+            "你的输出须与之相符，不得与之矛盾。"
+        )
+
     return [
         {"role": "system", "content": system},
         {"role": "user", "content": "\n".join(lines)},
@@ -1036,11 +1239,16 @@ def generate_next_advice(
     workout_id: int,
     *,
     chat_fn: Callable[[list[dict]], dict] | None = None,
+    feedback: list[str] | None = None,
+    purpose: str | None = None,
 ) -> AIReport | None:
     """为单个 workout 生成下次训练建议并落库（type='next_advice'）。
 
     无计划缓存（找不到下一次训练日）时返回 None 且不调用模型；
     AI 输出未通过结构化校验（含非法动作名）时抛 NextAdviceParseError，不落库。
+    feedback（V4-5 F3）：透传给 builder 用于在 user 段注入用户反馈。
+    purpose（V4-5 fix1）：透传给 llm.chat 用于记账 llm_call 行；重生成场景
+    传「next_advice_regen:w{id}」使 _check_regen_limit 能真实计数。
     """
     workout = session.get(Workout, workout_id)
     if workout is None or workout.deleted_at is not None:
@@ -1063,12 +1271,12 @@ def generate_next_advice(
         "movements": movements,
     }
     messages = build_next_advice_prompt(
-        workout_dict, plan_day, recovery, load_movement_names()
+        workout_dict, plan_day, recovery, load_movement_names(), feedback=feedback
     )
 
     if chat_fn is None:
         chat_fn = lambda msgs: llm.chat(  # noqa: E731
-            msgs, session=session, purpose="next_advice"
+            msgs, session=session, purpose=purpose or "next_advice"
         )
 
     result = chat_fn(messages)
