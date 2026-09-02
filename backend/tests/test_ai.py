@@ -533,3 +533,420 @@ class TestBuildPromptActivityHistory:
         assert "热量 250 千卡" in line
         assert "平均心率" not in line
         assert "最大心率" not in line
+
+
+# =====================================================================
+# V4-2 F2：动作级 exetype 语义渲染 + 有效负荷折算 + 历史分组统计
+# =====================================================================
+
+
+class TestExetypeRendering:
+    """V4-2 F2：build_session_review_prompt 动作组次段——exetype 三分支渲染"""
+
+    def test_help_renders_with_assist_prefix(self):
+        wd = _workout_dict(movements=[
+            {"name": "引体向上", "exetype": "help",
+             "sets": [{"weight": 75, "unit": "kg", "reps": 8, "done": True}]},
+        ])
+        messages = build_session_review_prompt(wd, {}, _recovery_dict())
+        user = messages[1]["content"]
+        assert "辅助 75kg × 8" in user
+        # help 不应被误标为负重（双向防护）
+        assert "负重 +75" not in user
+
+    def test_plus_weight_renders_with_weight_prefix(self):
+        wd = _workout_dict(movements=[
+            {"name": "引体向上", "exetype": "plus_weight",
+             "sets": [{"weight": 80, "unit": "kg", "reps": 6, "done": True}]},
+        ])
+        messages = build_session_review_prompt(wd, {}, _recovery_dict())
+        user = messages[1]["content"]
+        assert "负重 +80kg × 6" in user
+        assert "辅助 80" not in user
+
+    def test_no_exetype_renders_plain(self):
+        """无 exetype 时渲染与 V4-1 完全一致（回归红线）。"""
+        wd = _workout_dict(movements=[
+            {"name": "杠铃划船",
+             "sets": [{"weight": 60, "unit": "kg", "reps": 10, "done": True}]},
+        ])
+        messages = build_session_review_prompt(wd, {}, _recovery_dict())
+        user = messages[1]["content"]
+        assert "60kg × 10" in user
+        assert "辅助 60" not in user
+        assert "负重 +60" not in user
+
+
+class TestExetypeEffectiveLoad:
+    """V4-2 F2：有效负荷折算（body_weight ∓ weight）"""
+
+    def test_help_with_body_weight_effective_load(self):
+        wd = _workout_dict(
+            body_weight=72.4,
+            movements=[
+                {"name": "引体向上", "exetype": "help",
+                 "sets": [{"weight": 75, "unit": "kg", "reps": 8, "done": True}]},
+            ],
+        )
+        messages = build_session_review_prompt(wd, {}, _recovery_dict())
+        user = messages[1]["content"]
+        assert "辅助 75kg × 8" in user
+        # 有效负荷 = 72.4 - 75 = -2.6
+        assert "（有效负荷 -2.6kg）" in user
+
+    def test_plus_weight_with_body_weight_effective_load(self):
+        wd = _workout_dict(
+            body_weight=72.4,
+            movements=[
+                {"name": "引体向上", "exetype": "plus_weight",
+                 "sets": [{"weight": 80, "unit": "kg", "reps": 6, "done": True}]},
+            ],
+        )
+        messages = build_session_review_prompt(wd, {}, _recovery_dict())
+        user = messages[1]["content"]
+        assert "负重 +80kg × 6" in user
+        # 有效负荷 = 72.4 + 80 = 152.4
+        assert "（有效负荷 152.4kg）" in user
+
+    def test_no_body_weight_keeps_semantic_omits_load(self):
+        """无 body_weight 时降级：有语义前缀但无折算（不报错不造数）。"""
+        wd = _workout_dict(movements=[
+            {"name": "引体向上", "exetype": "help",
+             "sets": [{"weight": 75, "unit": "kg", "reps": 8, "done": True}]},
+            {"name": "引体向上", "exetype": "plus_weight",
+             "sets": [{"weight": 80, "unit": "kg", "reps": 6, "done": True}]},
+        ])
+        messages = build_session_review_prompt(wd, {}, _recovery_dict())
+        user = messages[1]["content"]
+        assert "辅助 75kg × 8" in user
+        assert "负重 +80kg × 6" in user
+        assert "有效负荷" not in user
+
+
+class TestQueryExetypeGroupedHistory:
+    """V4-2 F2：query_movement_history 按 exetype 分组统计——辅助不污染负重 PR"""
+
+    def _make_history(self, session):
+        day = DAY
+        specs = [
+            (day - timedelta(days=7), "help", "90"),
+            (day - timedelta(days=14), "plus_weight", "80"),
+            (day - timedelta(days=21), "", "60"),
+        ]
+        for d, exetype, weight in specs:
+            mv_dict = {
+                "name": "引体向上",
+                "sets": [{"weight": weight, "unit": "kg", "reps": "8", "done": True}],
+            }
+            if exetype:
+                mv_dict["exetype"] = exetype
+            x = make_xunji_train(
+                session, d, localid=f"x{d.day}", title="背", movements=[mv_dict],
+            )
+            g = make_garmin_activity(session, d, activity_id=f"g{d.day}")
+            fuse_workout(session, d, xunji=x, garmin=g, match_status="auto_matched")
+
+    def test_default_group_excludes_help_and_plus_weight(self, session):
+        self._make_history(session)
+        hist = query_movement_history(session, "引体向上", DAY)
+        assert hist["exetype"] == ""
+        assert hist["count"] == 1
+        assert hist["pr_weight"] == 60.0
+        assert len(hist["recent"]) == 1
+        assert hist["recent"][0]["best_weight"] == 60.0
+
+    def test_help_group_pr_not_polluted_by_plus_weight(self, session):
+        self._make_history(session)
+        hist = query_movement_history(session, "引体向上", DAY, exetype="help")
+        assert hist["exetype"] == "help"
+        assert hist["count"] == 1
+        # 90kg 不混入，且 80（负重）也不混入
+        assert hist["pr_weight"] == 90.0
+        assert len(hist["recent"]) == 1
+        assert hist["recent"][0]["best_weight"] == 90.0
+
+    def test_plus_weight_group_pr_not_polluted_by_help(self, session):
+        self._make_history(session)
+        hist = query_movement_history(session, "引体向上", DAY, exetype="plus_weight")
+        assert hist["exetype"] == "plus_weight"
+        assert hist["count"] == 1
+        # 80kg 是本组 PR；90（辅助）不混入
+        assert hist["pr_weight"] == 80.0
+        assert len(hist["recent"]) == 1
+        assert hist["recent"][0]["best_weight"] == 80.0
+
+
+class TestExetypeHistoryEffectiveLoad:
+    """V4-2 F2：历史明细 effective_load 折算（含/不含体重记录）"""
+
+    def test_help_records_have_effective_load(self, session):
+        day = DAY
+        past = day - timedelta(days=7)
+        x = make_xunji_train(
+            session, past, localid="x1", title="背",
+            movements=[{
+                "name": "引体向上", "exetype": "help",
+                "sets": [{"weight": "90", "unit": "kg", "reps": "6", "done": True}],
+            }],
+        )
+        g = make_garmin_activity(session, past, activity_id="g1")
+        fuse_workout(session, past, xunji=x, garmin=g, match_status="auto_matched")
+        # 当天体重 70kg → 有效负荷 = 70 - 90 = -20
+        session.add(BodyMetric(date=past, type="weight", value=70.0, unit="kg"))
+        session.commit()
+
+        hist = query_movement_history(session, "引体向上", day, exetype="help")
+        assert len(hist["recent"]) == 1
+        assert hist["recent"][0]["effective_load"] == -20.0
+
+    def test_plus_weight_records_have_effective_load(self, session):
+        day = DAY
+        past = day - timedelta(days=7)
+        x = make_xunji_train(
+            session, past, localid="x1", title="背",
+            movements=[{
+                "name": "引体向上", "exetype": "plus_weight",
+                "sets": [{"weight": "20", "unit": "kg", "reps": "5", "done": True}],
+            }],
+        )
+        g = make_garmin_activity(session, past, activity_id="g1")
+        fuse_workout(session, past, xunji=x, garmin=g, match_status="auto_matched")
+        session.add(BodyMetric(date=past, type="weight", value=72.0, unit="kg"))
+        session.commit()
+
+        hist = query_movement_history(session, "引体向上", day, exetype="plus_weight")
+        assert len(hist["recent"]) == 1
+        # 72 + 20 = 92
+        assert hist["recent"][0]["effective_load"] == 92.0
+
+    def test_effective_load_none_when_no_body_metric(self, session):
+        day = DAY
+        past = day - timedelta(days=7)
+        x = make_xunji_train(
+            session, past, localid="x1", title="背",
+            movements=[{
+                "name": "引体向上", "exetype": "help",
+                "sets": [{"weight": "90", "unit": "kg", "reps": "6", "done": True}],
+            }],
+        )
+        g = make_garmin_activity(session, past, activity_id="g1")
+        fuse_workout(session, past, xunji=x, garmin=g, match_status="auto_matched")
+        # 不加体重记录
+
+        hist = query_movement_history(session, "引体向上", day, exetype="help")
+        assert len(hist["recent"]) == 1
+        assert hist["recent"][0]["effective_load"] is None
+
+    def test_default_group_effective_load_always_none(self, session):
+        """普通组（exetype=""）effective_load 始终为 None，不调体重查询。"""
+        day = DAY
+        past = day - timedelta(days=7)
+        x = make_xunji_train(
+            session, past, localid="x1", title="背",
+            movements=[{
+                "name": "引体向上",
+                "sets": [{"weight": "60", "unit": "kg", "reps": "10", "done": True}],
+            }],
+        )
+        g = make_garmin_activity(session, past, activity_id="g1")
+        fuse_workout(session, past, xunji=x, garmin=g, match_status="auto_matched")
+        session.add(BodyMetric(date=past, type="weight", value=72.0, unit="kg"))
+        session.commit()
+
+        hist = query_movement_history(session, "引体向上", day)
+        assert len(hist["recent"]) == 1
+        assert hist["recent"][0]["effective_load"] is None
+
+
+class TestExetypeIntegration:
+    """V4-2 F2：generate_session_review 集成——同名动作多 exetype 分段渲染"""
+
+    def test_separate_history_sections_for_same_name_different_exetype(self, session):
+        x = make_xunji_train(
+            session, DAY, localid="1", title="背",
+            movements=[
+                {"name": "引体向上", "exetype": "help",
+                 "sets": [{"weight": "75", "unit": "kg", "reps": "8", "done": True}]},
+                {"name": "引体向上", "exetype": "plus_weight",
+                 "sets": [{"weight": "80", "unit": "kg", "reps": "6", "done": True}]},
+            ],
+        )
+        g = make_garmin_activity(
+            session, DAY, activity_id="g1",
+            duration_s=3600, calories=400, avg_hr=118, max_hr=152,
+        )
+        w = fuse_workout(session, DAY, xunji=x, garmin=g, match_status="auto_matched")
+        # 加当天体重，使 help 折算：72.4 - 75 = -2.6
+        session.add(BodyMetric(date=DAY, type="weight", value=72.4, unit="kg"))
+        session.commit()
+
+        captured = []
+
+        def fake_chat(messages):
+            captured.append(messages)
+            return {
+                "content": (
+                    "## 完成质量\n不错\n## 与历史对比\n持平\n"
+                    '```json\n{"schema":"session_review_v1","score":82,'
+                    '"subscores":{"completion":85,"intensity":80,"recovery_fit":82},'
+                    '"one_liner":"稳定发挥"}\n```'
+                ),
+                "prompt_tokens": 100, "completion_tokens": 20,
+            }
+
+        generate_session_review(session, w.id, chat_fn=fake_chat)
+
+        assert captured, "chat_fn 未被调用"
+        user_msg = captured[0][1]["content"]
+        # 两个独立小节：辅助 vs 负重
+        assert "## 引体向上（辅助）" in user_msg
+        assert "## 引体向上（负重）" in user_msg
+        # help 渲染含「辅助」语义
+        assert "辅助 75kg × 8" in user_msg
+        # plus_weight 渲染含「负重 +」语义
+        assert "负重 +80kg × 6" in user_msg
+        # 有效负荷折算（72.4 - 75 = -2.6）
+        assert "（有效负荷 -2.6kg）" in user_msg
+        # 有效负荷折算（72.4 + 80 = 152.4）
+        assert "（有效负荷 152.4kg）" in user_msg
+
+    def test_pr_not_polluted_by_other_exetype(self, session):
+        """同名动作：历史中同时存在 help=90 与 plus_weight=80 时，
+        负重小节的 PR 只展示 80，不被 90 污染。"""
+        day = DAY
+        # 历史：30 天前 +7 天前 各造一条
+        for i, (exetype, weight) in enumerate(
+            [("help", "90"), ("plus_weight", "80")]
+        ):
+            d = day - timedelta(days=7 * (i + 1))
+            x = make_xunji_train(
+                session, d, localid=f"x{i}", title="背",
+                movements=[{
+                    "name": "引体向上", "exetype": exetype,
+                    "sets": [{"weight": weight, "unit": "kg", "reps": "5", "done": True}],
+                }],
+            )
+            g = make_garmin_activity(session, d, activity_id=f"g{i}")
+            fuse_workout(session, d, xunji=x, garmin=g, match_status="auto_matched")
+
+        # 本次：只做 plus_weight 的训练
+        x = make_xunji_train(
+            session, DAY, localid="today", title="背",
+            movements=[{
+                "name": "引体向上", "exetype": "plus_weight",
+                "sets": [{"weight": "82", "unit": "kg", "reps": "5", "done": True}],
+            }],
+        )
+        g = make_garmin_activity(
+            session, DAY, activity_id="gtoday",
+            duration_s=3600, calories=400, avg_hr=118, max_hr=152,
+        )
+        w = fuse_workout(session, DAY, xunji=x, garmin=g, match_status="auto_matched")
+        session.commit()
+
+        captured = []
+
+        def fake_chat(messages):
+            captured.append(messages)
+            return {
+                "content": (
+                    "## 完成质量\n不错\n## 与历史对比\n持平\n"
+                    '```json\n{"schema":"session_review_v1","score":82,'
+                    '"subscores":{"completion":85,"intensity":80,"recovery_fit":82},'
+                    '"one_liner":"稳定发挥"}\n```'
+                ),
+                "prompt_tokens": 100, "completion_tokens": 20,
+            }
+
+        generate_session_review(session, w.id, chat_fn=fake_chat)
+
+        user_msg = captured[0][1]["content"]
+        # 只存在负重小节（因为本次训练是 plus_weight）
+        assert "## 引体向上（负重）" in user_msg
+        # PR 行文案：负重组使用「PR 负重：+80.0」（80.0 是 PR），不被 help 90 污染
+        assert "个人纪录（PR）负重：+80.0 kg" in user_msg
+        # 不应出现 90
+        assert "+90" not in user_msg
+        assert "90 kg" not in user_msg
+
+
+class TestExetypePromptHistoryRendering:
+    """V4-2 F2：build_session_review_prompt 历史段——exetype 分支渲染"""
+
+    def test_help_history_pr_line_uses_assist_phrase(self):
+        """help 组 PR 行使用「最大辅助重量」文案，不混用「个人纪录（PR）重量」。"""
+        history = {
+            "引体向上（辅助）": {
+                "exetype": "help",
+                "count": 1,
+                "pr_weight": 90.0,
+                "recent": [
+                    {"date": "2026-07-27", "best_weight": 90.0, "best_reps": 6,
+                     "total_volume": 540.0, "sets_count": 1, "effective_load": -20.0},
+                ],
+            }
+        }
+        messages = build_session_review_prompt(_workout_dict(), history, _recovery_dict())
+        user = messages[1]["content"]
+        assert "最大辅助重量：90.0 kg" in user
+        assert "辅助重量越大越省力，勿与负重直接比较" in user
+        assert "个人纪录（PR）重量：" not in user
+        # recent 行加语义 + 有效负荷
+        assert "最佳 辅助 90.0kg × 6" in user
+        assert "（有效负荷 -20.0kg）" in user
+
+    def test_plus_weight_history_pr_line_uses_plus_phrase(self):
+        history = {
+            "引体向上（负重）": {
+                "exetype": "plus_weight",
+                "count": 1,
+                "pr_weight": 80.0,
+                "recent": [
+                    {"date": "2026-07-27", "best_weight": 80.0, "best_reps": 5,
+                     "total_volume": 400.0, "sets_count": 1, "effective_load": 152.4},
+                ],
+            }
+        }
+        messages = build_session_review_prompt(_workout_dict(), history, _recovery_dict())
+        user = messages[1]["content"]
+        assert "个人纪录（PR）负重：+80.0 kg" in user
+        assert "个人纪录（PR）重量：80" not in user
+        assert "最佳 负重 +80.0kg × 5" in user
+        assert "（有效负荷 152.4kg）" in user
+
+    def test_default_history_unchanged(self):
+        """普通组历史段渲染与 V4-1 完全一致。"""
+        history = _history_dict()
+        messages = build_session_review_prompt(_workout_dict(), history, _recovery_dict())
+        user = messages[1]["content"]
+        assert "个人纪录（PR）重量：5.0 kg" in user
+        assert "最大辅助重量" not in user
+        assert "PR 负重" not in user
+        assert "最佳 0.0kg × 10" in user  # 普通组 recent 原样
+
+    def test_normalize_exetype_utility(self):
+        from app.services.ai import _normalize_exetype
+        assert _normalize_exetype(None) == ""
+        assert _normalize_exetype("") == ""
+        assert _normalize_exetype("  ") == ""
+        assert _normalize_exetype("help") == "help"
+        assert _normalize_exetype("plus_weight") == "plus_weight"
+        assert _normalize_exetype(" help ") == "help"
+
+    def test_query_body_weight_returns_latest_on_or_before_day(self, session):
+        from app.services.ai import query_body_weight
+        day = DAY
+        # day 之前 1 天 + 2 天前各一条体重记录
+        session.add(BodyMetric(date=day - timedelta(days=1), type="weight",
+                                value=71.5, unit="kg"))
+        session.add(BodyMetric(date=day - timedelta(days=2), type="weight",
+                                value=72.0, unit="kg"))
+        session.add(BodyMetric(date=day + timedelta(days=1), type="weight",
+                                value=99.0, unit="kg"))
+        session.commit()
+        # 取 day 当天或最近一次（≤ day）→ 71.5
+        assert query_body_weight(session, day) == 71.5
+
+    def test_query_body_weight_none_when_no_record(self, session):
+        from app.services.ai import query_body_weight
+        assert query_body_weight(session, DAY) is None

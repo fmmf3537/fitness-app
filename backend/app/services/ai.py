@@ -87,6 +87,33 @@ def _float_or_none(value: Any) -> float | None:
     return None
 
 
+# V4-2 F2：动作级 exetype 语义（训记 movements 层级，区分辅助/负重/普通）
+EXETYPE_ZH: dict[str, str] = {"help": "辅助", "plus_weight": "负重"}
+
+
+def _normalize_exetype(value) -> str:
+    """归一化 exetype：None/空串/空白 → ""；其余 strip 后原样返回。"""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    return str(value)
+
+
+def query_body_weight(session: Session, day: date) -> float | None:
+    """取 day 当天或最近一次 body_metric(type='weight') 的 value；无记录返回 None。"""
+    row = (
+        session.query(BodyMetric)
+        .filter(
+            BodyMetric.type == "weight",
+            BodyMetric.date <= day,
+        )
+        .order_by(BodyMetric.date.desc(), BodyMetric.id.desc())
+        .first()
+    )
+    return float(row.value) if row is not None else None
+
+
 def _parse_movements(workout: Workout) -> list[dict]:
     if not workout.movements_json:
         return []
@@ -125,16 +152,23 @@ def query_movement_history(
     *,
     weeks: int = 4,
     limit: int = 3,
+    exetype: str | None = None,
 ) -> dict:
     """查询近 N 周某动作的历史摘要（最近几次 + PR）。
 
+    V4-2 F2：按 exetype 分组统计，默认（exetype=None）仅匹配 exetype 为空/缺失
+    的普通动作；传 "help"/"plus_weight" 匹配对应组。help/plus_weight 组会在
+    recent 明细写入 effective_load（体重 ∓ best_weight，无体重记录时为 None）。
+
     返回：
         {
+            "exetype": 归一化后的 exetype（"" / "help" / "plus_weight"），
             "count": 出现次数,
             "pr_weight": 最大重量（kg，浮点数）,
             "recent": [
                 {"date": "YYYY-MM-DD", "best_weight": float, "best_reps": int,
-                 "total_volume": float, "sets_count": int},
+                 "total_volume": float, "sets_count": int,
+                 "effective_load": float|None},
                 ...
             ]
         }
@@ -153,6 +187,7 @@ def query_movement_history(
         .all()
     )
 
+    target_exetype = _normalize_exetype(exetype) if exetype is not None else ""
     recent: list[dict] = []
     pr_weight: float = 0.0
     count = 0
@@ -160,6 +195,8 @@ def query_movement_history(
         movements = _parse_movements(w)
         for mv in movements:
             if (mv.get("name") or "").strip() != movement_name:
+                continue
+            if _normalize_exetype(mv.get("exetype")) != target_exetype:
                 continue
             sets = mv.get("sets") or []
             if not sets:
@@ -182,6 +219,12 @@ def query_movement_history(
                 if weight > pr_weight:
                     pr_weight = weight
             if valid_sets:
+                effective_load: float | None = None
+                if target_exetype in ("help", "plus_weight"):
+                    bw = query_body_weight(session, w.date)
+                    if bw is not None:
+                        delta = bw - best_weight if target_exetype == "help" else bw + best_weight
+                        effective_load = round(delta, 1)
                 recent.append(
                     {
                         "date": w.date.isoformat(),
@@ -189,12 +232,14 @@ def query_movement_history(
                         "best_reps": best_reps,
                         "total_volume": round(total_volume, 2),
                         "sets_count": valid_sets,
+                        "effective_load": effective_load,
                     }
                 )
             break  # 同一个 workout 中同名动作只计一次
 
     recent = sorted(recent, key=lambda x: x["date"], reverse=True)[:limit]
     return {
+        "exetype": target_exetype,
         "count": count,
         "pr_weight": round(pr_weight, 2) if pr_weight > 0 else None,
         "recent": recent,
@@ -380,9 +425,11 @@ def build_session_review_prompt(
     lines.append("")
     lines.append("## 动作组次")
     if movements:
+        body_weight = workout.get("body_weight")
         for mv in movements:
             sets = mv.get("sets") or []
             lines.append(f"- {mv.get('name') or '未命名动作'}：共 {len(sets)} 组")
+            exetype = _normalize_exetype(mv.get("exetype"))
             for i, s in enumerate(sets, 1):
                 weight = s.get("weight")
                 unit = s.get("unit") or "kg"
@@ -391,7 +438,24 @@ def build_session_review_prompt(
                 done = s.get("done")
                 part = f"  - 第{i}组："
                 if weight is not None and reps is not None:
-                    part += f"{weight}{unit} × {reps}"
+                    # V4-2 F2：exetype 语义前缀 + 有效负荷折算
+                    # 仅作用于 weight+reps 都有分支；reps-only/数据缺失保持原样
+                    base = f"{weight}{unit} × {reps}"
+                    weight_num = _float_or_none(weight)
+                    if exetype == "help":
+                        semantic = f"辅助 {base}"
+                        if body_weight is not None and weight_num is not None:
+                            part += f"{semantic}（有效负荷 {round(body_weight - weight_num, 1)}kg）"
+                        else:
+                            part += semantic
+                    elif exetype == "plus_weight":
+                        semantic = f"负重 +{base}"
+                        if body_weight is not None and weight_num is not None:
+                            part += f"{semantic}（有效负荷 {round(body_weight + weight_num, 1)}kg）"
+                        else:
+                            part += semantic
+                    else:
+                        part += base
                 elif reps is not None:
                     part += f"{reps} 次"
                 else:
@@ -442,16 +506,38 @@ def build_session_review_prompt(
             for name, hist in history.items():
                 lines.append(f"## {name}")
                 lines.append(f"- 出现次数：{hist['count']}")
+                # V4-2 F2：PR 行按 exetype 改写文案（普通组保持原样）
                 if hist.get("pr_weight") is not None:
-                    lines.append(f"- 个人纪录（PR）重量：{hist['pr_weight']} kg")
+                    hist_exetype = _normalize_exetype(hist.get("exetype"))
+                    if hist_exetype == "help":
+                        lines.append(
+                            f"- 最大辅助重量：{hist['pr_weight']} kg"
+                            "（辅助重量越大越省力，勿与负重直接比较）"
+                        )
+                    elif hist_exetype == "plus_weight":
+                        lines.append(f"- 个人纪录（PR）负重：+{hist['pr_weight']} kg")
+                    else:
+                        lines.append(f"- 个人纪录（PR）重量：{hist['pr_weight']} kg")
                 recent = hist.get("recent") or []
                 if recent:
                     lines.append("- 最近记录：")
                     for r in recent:
-                        lines.append(
-                            f"  - {r['date']}：最佳 {r['best_weight']}kg × {r['best_reps']}，"
+                        # V4-2 F2：recent 行按 exetype 加语义前缀 + 有效负荷
+                        hist_exetype = _normalize_exetype(hist.get("exetype"))
+                        if hist_exetype == "help":
+                            best_part = f"最佳 辅助 {r['best_weight']}kg × {r['best_reps']}"
+                        elif hist_exetype == "plus_weight":
+                            best_part = f"最佳 负重 +{r['best_weight']}kg × {r['best_reps']}"
+                        else:
+                            best_part = f"最佳 {r['best_weight']}kg × {r['best_reps']}"
+                        line = (
+                            f"  - {r['date']}：{best_part}，"
                             f"总容量 {r['total_volume']}kg，{r['sets_count']} 组"
                         )
+                        eff = r.get("effective_load")
+                        if hist_exetype in ("help", "plus_weight") and eff is not None:
+                            line += f"（有效负荷 {eff}kg）"
+                        lines.append(line)
                 else:
                     lines.append("- 近4周无该动作记录")
         else:
@@ -532,12 +618,19 @@ def generate_session_review(
         raise ValueError(f"workout {workout_id} 不存在")
 
     movements = _parse_movements(workout)
+    # V4-2 F2：按 (name, exetype) 分组查，避免辅助重量污染负重 PR
     history: dict[str, dict] = {}
+    seen: set[tuple[str, str]] = set()
     for mv in movements:
         name = (mv.get("name") or "").strip()
         if not name:
             continue
-        history[name] = query_movement_history(session, name, workout.date)
+        exetype = _normalize_exetype(mv.get("exetype"))
+        if (name, exetype) in seen:
+            continue
+        seen.add((name, exetype))
+        key = name if not exetype else f"{name}（{EXETYPE_ZH.get(exetype, exetype)}）"
+        history[key] = query_movement_history(session, name, workout.date, exetype=exetype)
 
     # V4-1 F1：garmin_only 且 tags 非空时，查询同类活动历史注入 prompt
     activity_history: dict | None = None
@@ -545,6 +638,9 @@ def generate_session_review(
         activity_history = query_activity_history(session, workout.tags, workout.date)
 
     recovery = query_recovery_summary(session, workout.date)
+
+    # V4-2 F2：体重注入 workout dict，供 prompt 做有效负荷折算（缺省视为 None）
+    body_weight = query_body_weight(session, workout.date)
 
     workout_dict = {
         "date": workout.date.isoformat(),
@@ -555,6 +651,7 @@ def generate_session_review(
         "avg_hr": workout.avg_hr,
         "max_hr": workout.max_hr,
         "movements": movements,
+        "body_weight": body_weight,
     }
 
     messages = build_session_review_prompt(
