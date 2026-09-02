@@ -282,3 +282,27 @@ class JobRun(Base):
     status: Mapped[str | None] = mapped_column(String(20))
     error: Mapped[str | None] = mapped_column(Text)
     detail_json: Mapped[str | None] = mapped_column(Text)
+
+
+class WorkoutSetHr(Base):
+    """逐组心率（V4-7）：按 workout+动作+组序 幂等重算。"""
+
+    __tablename__ = "workout_set_hr"
+    __table_args__ = (
+        UniqueConstraint("workout_id", "movement_name", "set_index",
+                         name="uq_workout_set_hr_wms"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    workout_id: Mapped[int] = mapped_column(ForeignKey("workout.id"))
+    movement_name: Mapped[str] = mapped_column(String(100))
+    set_index: Mapped[int] = mapped_column(Integer)        # 动作内组序，1-based
+    hr_avg: Mapped[int | None] = mapped_column(Integer)
+    hr_max: Mapped[int | None] = mapped_column(Integer)
+    hr_min: Mapped[int | None] = mapped_column(Integer)
+    hr_recovery_30s: Mapped[int | None] = mapped_column(Integer)  # 组后 30s 心率，无则 None
+    set_start: Mapped[datetime | None] = mapped_column(DateTime)  # GMT naive
+    set_end: Mapped[datetime | None] = mapped_column(DateTime)
+    confidence: Mapped[str] = mapped_column(String(10))    # high / low
+    match_method: Mapped[str] = mapped_column(String(30))  # order / order_category_mismatch
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

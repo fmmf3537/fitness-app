@@ -22,6 +22,7 @@ EXPECTED_TABLES = {
     "job_run",
     "backfill_progress",
     "report_chat_message",
+    "workout_set_hr",
 }
 
 
@@ -166,3 +167,42 @@ def test_skinfold_and_settings_profile_roundtrip(tmp_path):
     settings_cols = {c["name"] for c in insp.get_columns("settings")}
     assert "gender" in settings_cols
     assert "birth_date" in settings_cols
+
+
+def test_workout_set_hr_table_roundtrip(tmp_path):
+    """V4-7：workout_set_hr 表，升级出现、回滚 a6b7c8d9e0f1 消失、再升级恢复。"""
+    db_url = f"sqlite:///{tmp_path}/mig.db"
+    cfg = _make_config(db_url)
+    command.upgrade(cfg, "head")
+    insp = inspect(create_engine(db_url))
+    assert "workout_set_hr" in insp.get_table_names()
+    cols = {c["name"] for c in insp.get_columns("workout_set_hr")}
+    assert {
+        "id",
+        "workout_id",
+        "movement_name",
+        "set_index",
+        "hr_avg",
+        "hr_max",
+        "hr_min",
+        "hr_recovery_30s",
+        "set_start",
+        "set_end",
+        "confidence",
+        "match_method",
+        "created_at",
+    } == cols
+    uqs = insp.get_unique_constraints("workout_set_hr")
+    assert any(
+        uq.get("name") == "uq_workout_set_hr_wms"
+        and set(uq.get("column_names") or []) == {"workout_id", "movement_name", "set_index"}
+        for uq in uqs
+    )
+
+    command.downgrade(cfg, "a6b7c8d9e0f1")  # 回退到 V4-3 之前
+    insp = inspect(create_engine(db_url))
+    assert "workout_set_hr" not in insp.get_table_names()
+
+    command.upgrade(cfg, "head")  # 再次升级恢复
+    insp = inspect(create_engine(db_url))
+    assert "workout_set_hr" in insp.get_table_names()

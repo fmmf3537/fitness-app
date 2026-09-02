@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.api.auth import require_auth
 from app.db import get_session
 from app.models import GarminActivity, Workout, XunjiTrain
+from app.services.set_hr import get_or_compute_set_hr
 from app.services.workouts import delete_workout, list_deleted_workouts, restore_workout
 
 router = APIRouter(
@@ -136,6 +137,23 @@ def workout_detail(workout_id: int, session: Session = Depends(get_session)) -> 
         session.get(GarminActivity, w.garmin_activity_id) if w.garmin_activity_id else None
     )
     garmin_raw = _parse_json(activity.raw_json if activity else None)
+    # V4-7 逐组心率：懒计算；任何异常（含 raw_json 损坏）降级为 []，不阻塞详情
+    try:
+        set_hr_rows = get_or_compute_set_hr(session, w)
+        set_hr_payload = [
+            {
+                "movement_name": r.movement_name,
+                "set_index": r.set_index,
+                "hr_avg": r.hr_avg,
+                "hr_max": r.hr_max,
+                "hr_min": r.hr_min,
+                "hr_recovery_30s": r.hr_recovery_30s,
+                "confidence": r.confidence,
+            }
+            for r in set_hr_rows
+        ]
+    except Exception:
+        set_hr_payload = []
     return {
         "id": w.id,
         "date": w.date.isoformat(),
@@ -148,6 +166,7 @@ def workout_detail(workout_id: int, session: Session = Depends(get_session)) -> 
         "max_hr": w.max_hr,
         "movements": _parse_json(w.movements_json) or [],
         "heart_rate": extract_heart_rate_series(activity.raw_json if activity else None),
+        "set_hr": set_hr_payload,
         "xunji_raw": _parse_json(train.raw_json if train else None),
         "garmin_raw": garmin_raw,
     }
