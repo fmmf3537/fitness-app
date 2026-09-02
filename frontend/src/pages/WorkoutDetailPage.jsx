@@ -31,10 +31,15 @@ function SummaryCard({ workout }) {
   )
 }
 
-function MovementsTable({ movements }) {
+function MovementsTable({ movements, setHr }) {
   if (!movements || movements.length === 0) {
     return <p className="text-sm text-gray-500">无动作数据</p>
   }
+  const hrMap = new Map(
+    (setHr || []).map((r) => [`${r.movement_name}|${r.set_index}`, r]),
+  )
+  const showHr = Array.isArray(setHr) && setHr.length > 0
+  const fmt = (v) => (v == null ? '-' : v)
   return (
     <div className="space-y-4">
       {movements.map((mv, idx) => (
@@ -48,20 +53,40 @@ function MovementsTable({ movements }) {
                 <th className="py-1">重量 × 次数</th>
                 <th className="py-1">RPE</th>
                 <th className="py-1">完成</th>
+                {showHr && <th className="py-1">心率 均/峰/恢复</th>}
               </tr>
             </thead>
             <tbody>
-              {(mv.sets || []).map((s, i) => (
-                <tr key={i} className="border-t border-gray-100">
-                  <td className="py-1">{i + 1}</td>
-                  <td className="py-1">
-                    {s.weight}
-                    {s.unit} × {s.reps}
-                  </td>
-                  <td className="py-1">{s.rpe != null ? `RPE ${s.rpe}` : '-'}</td>
-                  <td className="py-1">{s.done ? '✓' : '✗'}</td>
-                </tr>
-              ))}
+              {(mv.sets || []).map((s, i) => {
+                const row = showHr ? hrMap.get(`${mv.name}|${i + 1}`) : null
+                const cellText = row
+                  ? `${row.confidence === 'low' ? '~' : ''}${fmt(row.hr_avg)}/${fmt(row.hr_max)}/${fmt(row.hr_recovery_30s)}`
+                  : '-'
+                const title =
+                  row && row.confidence === 'low'
+                    ? '低置信度：佳明动作识别与训记动作不一致，心率仅供参考'
+                    : '组中心率 均值/峰值/组后30s恢复（bpm）'
+                return (
+                  <tr key={i} className="border-t border-gray-100">
+                    <td className="py-1">{i + 1}</td>
+                    <td className="py-1">
+                      {s.weight}
+                      {s.unit} × {s.reps}
+                    </td>
+                    <td className="py-1">{s.rpe != null ? `RPE ${s.rpe}` : '-'}</td>
+                    <td className="py-1">{s.done ? '✓' : '✗'}</td>
+                    {showHr && (
+                      <td
+                        className="py-1"
+                        data-testid="set-hr-cell"
+                        title={title}
+                      >
+                        {cellText}
+                      </td>
+                    )}
+                  </tr>
+                )
+              })}
             </tbody>
             </table>
           </div>
@@ -160,7 +185,7 @@ export default function WorkoutDetailPage() {
       <div className="mt-4">
         {tab === 'fused' && (
           <div className="space-y-4">
-            <MovementsTable movements={workout.movements} />
+            <MovementsTable movements={workout.movements} setHr={workout.set_hr} />
             {workout.heart_rate && workout.heart_rate.length > 0 ? (
               <div className="rounded-lg bg-white p-4 shadow">
                 <HeartRateChart data={workout.heart_rate} />

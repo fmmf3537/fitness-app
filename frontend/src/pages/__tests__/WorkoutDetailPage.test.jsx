@@ -106,6 +106,131 @@ describe('WorkoutDetailPage', () => {
     expect(await screen.findByText('无心率数据')).toBeInTheDocument()
   })
 
+  describe('逐组心率列（V4-8）', () => {
+    it('有 set_hr 数据时显示心率列', async () => {
+      globalThis.fetch = vi.fn(() =>
+        Promise.resolve(
+          mockResponse({
+            ...WORKOUT,
+            set_hr: [
+              {
+                movement_name: '卧推',
+                set_index: 1,
+                hr_avg: 102,
+                hr_max: 104,
+                hr_min: 100,
+                hr_recovery_30s: 88,
+                confidence: 'high',
+              },
+            ],
+          }),
+        ),
+      )
+      renderPage()
+      expect(await screen.findByText('心率 均/峰/恢复')).toBeInTheDocument()
+      expect(screen.getByText('102/104/88')).toBeInTheDocument()
+    })
+
+    it('低置信度行加 ~ 前缀', async () => {
+      globalThis.fetch = vi.fn(() =>
+        Promise.resolve(
+          mockResponse({
+            ...WORKOUT,
+            set_hr: [
+              {
+                movement_name: '卧推',
+                set_index: 1,
+                hr_avg: 102,
+                hr_max: 104,
+                hr_min: 100,
+                hr_recovery_30s: 88,
+                confidence: 'low',
+              },
+            ],
+          }),
+        ),
+      )
+      renderPage()
+      expect(await screen.findByText('~102/104/88')).toBeInTheDocument()
+    })
+
+    it('hr_recovery_30s 为 null 时该槽位降级为 -', async () => {
+      globalThis.fetch = vi.fn(() =>
+        Promise.resolve(
+          mockResponse({
+            ...WORKOUT,
+            set_hr: [
+              {
+                movement_name: '卧推',
+                set_index: 1,
+                hr_avg: 102,
+                hr_max: 104,
+                hr_min: 100,
+                hr_recovery_30s: null,
+                confidence: 'high',
+              },
+            ],
+          }),
+        ),
+      )
+      renderPage()
+      expect(await screen.findByText('102/104/-')).toBeInTheDocument()
+    })
+
+    it('workout 无 set_hr 字段时整列不显示', async () => {
+      renderPage()
+      await screen.findByText('卧推')
+      expect(screen.queryByText('心率 均/峰/恢复')).toBeNull()
+      expect(screen.queryAllByTestId('set-hr-cell')).toHaveLength(0)
+    })
+
+    it('set_hr 为空数组时同 undefined，整列不显示', async () => {
+      globalThis.fetch = vi.fn(() =>
+        Promise.resolve(mockResponse({ ...WORKOUT, set_hr: [] })),
+      )
+      renderPage()
+      await screen.findByText('卧推')
+      expect(screen.queryByText('心率 均/峰/恢复')).toBeNull()
+      expect(screen.queryAllByTestId('set-hr-cell')).toHaveLength(0)
+    })
+
+    it('多组部分匹配：未匹配组显示 -，匹配组显示数值', async () => {
+      globalThis.fetch = vi.fn(() =>
+        Promise.resolve(
+          mockResponse({
+            ...WORKOUT,
+            movements: [
+              {
+                name: '卧推',
+                sets: [
+                  { weight: 60, unit: 'kg', reps: 10, time: 0, done: true, rpe: 8 },
+                  { weight: 60, unit: 'kg', reps: 8, time: 0, done: true, rpe: 9 },
+                ],
+              },
+            ],
+            set_hr: [
+              {
+                movement_name: '卧推',
+                set_index: 2,
+                hr_avg: 130,
+                hr_max: 140,
+                hr_min: 125,
+                hr_recovery_30s: 110,
+                confidence: 'high',
+              },
+            ],
+          }),
+        ),
+      )
+      renderPage()
+      await screen.findByText('卧推')
+      const cells = screen.getAllByTestId('set-hr-cell')
+      expect(cells).toHaveLength(2)
+      expect(cells[0]).toHaveTextContent('-')
+      expect(cells[1]).toHaveTextContent('130/140/110')
+    })
+  })
+
   describe('删除训练（V3-11）', () => {
     function renderWithHome() {
       return render(
