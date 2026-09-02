@@ -5,7 +5,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$SliceId,
     [Parameter(Mandatory = $true)][string]$PromptFile,
-    [string]$Model = 'minimax-cn/MiniMax-M3'
+    [string]$Model = 'minimax-cn-coding-plan/MiniMax-M3'
 )
 
 $ErrorActionPreference = 'Stop'
