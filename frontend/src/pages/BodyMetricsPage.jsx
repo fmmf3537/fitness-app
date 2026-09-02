@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../api/client'
 import BodyImageImport from '../components/BodyImageImport'
+import SkinfoldPanel from '../components/SkinfoldPanel'
 import TrendChart from '../components/TrendChart'
 import useIsMobile from '../hooks/useIsMobile'
 import {
@@ -47,6 +48,8 @@ export default function BodyMetricsPage() {
   // V3-9 体脂秤图片导入面板
   const [showImport, setShowImport] = useState(false)
   const [importMsg, setImportMsg] = useState('')
+  // V4-4 皮脂钳测量面板
+  const [showSkinfold, setShowSkinfold] = useState(false)
   // 指标趋势切换器：默认体重
   const [trendType, setTrendType] = useState('weight')
 
@@ -178,6 +181,21 @@ export default function BodyMetricsPage() {
                 load()
               }}
             />
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+        <button
+          data-testid="open-skinfold"
+          onClick={() => setShowSkinfold((v) => !v)}
+          className="rounded-md bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-700"
+        >
+          {showSkinfold ? '收起皮脂钳测量' : '皮脂钳测量'}
+        </button>
+        {showSkinfold && (
+          <div className="mt-3">
+            <SkinfoldPanel onSaved={() => load()} />
           </div>
         )}
       </div>

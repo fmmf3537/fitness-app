@@ -11,6 +11,13 @@ export default function SettingsPage() {
   const [error, setError] = useState('')
   const [deleted, setDeleted] = useState([])
 
+  // V4-4：个人资料（性别 + 出生日期，皮脂钳公式所需）
+  const [profile, setProfile] = useState(null)
+  const [profileGender, setProfileGender] = useState('')
+  const [profileBirthDate, setProfileBirthDate] = useState('')
+  const [profileSaving, setProfileSaving] = useState(false)
+  const [profileLoadError, setProfileLoadError] = useState('')
+
   const loadSettings = useCallback(() => {
     return api('/api/settings/llm')
       .then((data) => setSettings(data))
@@ -24,6 +31,16 @@ export default function SettingsPage() {
       .catch(() => setDeleted([]))
   }, [])
 
+  const loadProfile = useCallback(() => {
+    return api('/api/settings/profile')
+      .then((data) => {
+        setProfile(data)
+        setProfileGender(data.gender || '')
+        setProfileBirthDate(data.birth_date || '')
+      })
+      .catch((err) => setProfileLoadError(err.status === 401 ? '未登录' : err.message))
+  }, [])
+
   useEffect(() => {
     setError('')
     loadSettings()
@@ -31,7 +48,8 @@ export default function SettingsPage() {
       .then((data) => setUsage(data))
       .catch((err) => setError(err.status === 401 ? '未登录' : err.message))
     loadDeleted()
-  }, [loadSettings, loadDeleted])
+    loadProfile()
+  }, [loadSettings, loadDeleted, loadProfile])
 
   const handleRestore = (id) => {
     setError('')
@@ -57,6 +75,28 @@ export default function SettingsPage() {
         loadSettings()
       })
       .catch((err) => setError(err.status === 401 ? '未登录' : err.message))
+  }
+
+  // V4-4：保存个人资料（性别 + 出生日期）；PATCH 语义一起传
+  const handleSaveProfile = () => {
+    setProfileSaving(true)
+    setError('')
+    setMessage('')
+    const payload = {}
+    if (profileGender) payload.gender = profileGender
+    if (profileBirthDate) payload.birth_date = profileBirthDate
+    api('/api/settings/profile', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    })
+      .then((data) => {
+        setProfile(data)
+        setProfileGender(data.gender || '')
+        setProfileBirthDate(data.birth_date || '')
+        setMessage('个人资料已保存')
+      })
+      .catch((err) => setError(err.status === 401 ? '未登录' : err.detail || err.message))
+      .finally(() => setProfileSaving(false))
   }
 
   const handleSave = (name) => {
@@ -107,6 +147,53 @@ export default function SettingsPage() {
           </button>
         </div>
       )}
+
+      <section
+        data-testid="profile-section"
+        className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm"
+      >
+        <h2 className="mb-1 text-sm font-medium text-gray-900">个人资料</h2>
+        <p className="mb-3 text-xs text-gray-500">
+          性别与出生日期用于皮脂钳体脂率等公式计算，录入一次即可
+        </p>
+        {profileLoadError && (
+          <p data-testid="profile-load-error" className="mb-2 text-xs text-red-600">{profileLoadError}</p>
+        )}
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <label className="text-gray-700">
+            性别
+            <select
+              data-testid="profile-gender"
+              value={profileGender}
+              onChange={(e) => setProfileGender(e.target.value)}
+              className="ml-2 rounded-md border border-gray-300 px-2 py-1 text-sm"
+            >
+              <option value="">未设置</option>
+              <option value="male">男</option>
+              <option value="female">女</option>
+            </select>
+          </label>
+          <label className="text-gray-700">
+            出生日期
+            <input
+              type="date"
+              data-testid="profile-birth-date"
+              value={profileBirthDate}
+              onChange={(e) => setProfileBirthDate(e.target.value)}
+              className="ml-2 rounded-md border border-gray-300 px-2 py-1 text-sm"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={handleSaveProfile}
+            disabled={profileSaving || !profileGender || !profileBirthDate}
+            data-testid="profile-save"
+            className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {profileSaving ? '保存中…' : '保存'}
+          </button>
+        </div>
+      </section>
 
       <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
         <h2 className="mb-3 text-sm font-medium text-gray-900">LLM Key 配置</h2>

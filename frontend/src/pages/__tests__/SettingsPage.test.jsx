@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import SettingsPage from '../SettingsPage'
@@ -69,7 +69,14 @@ const USAGE = {
   ],
 }
 
-function installFetch({ putStatus = 200, settings = LLM_SETTINGS, deleted = [] } = {}) {
+function installFetch({
+  putStatus = 200,
+  settings = LLM_SETTINGS,
+  deleted = [],
+  profile = { gender: null, birth_date: null },
+  profilePutStatus = 200,
+} = {}) {
+  const putBodies = []
   globalThis.fetch = vi.fn((url, options = {}) => {
     if (url === '/api/workouts/deleted') {
       return Promise.resolve(mockResponse({ workouts: deleted }))
@@ -88,8 +95,21 @@ function installFetch({ putStatus = 200, settings = LLM_SETTINGS, deleted = [] }
     if (url.startsWith('/api/settings/llm/usage')) {
       return Promise.resolve(mockResponse(USAGE))
     }
+    if (url === '/api/settings/profile' && options.method === 'PUT') {
+      putBodies.push(JSON.parse(options.body))
+      if (profilePutStatus >= 400) {
+        return Promise.resolve(
+          mockResponse({ detail: '出生日期非法' }, profilePutStatus),
+        )
+      }
+      return Promise.resolve(mockResponse(profile))
+    }
+    if (url === '/api/settings/profile') {
+      return Promise.resolve(mockResponse(profile))
+    }
     return Promise.resolve(mockResponse({ detail: 'not found' }, 404))
   })
+  return { putBodies }
 }
 
 describe('SettingsPage', () => {
@@ -274,5 +294,37 @@ describe('SettingsPage', () => {
     render(<SettingsPage />)
     await screen.findByTestId('llm-provider-deepseek')
     expect(screen.queryByTestId('llm-fallback-banner')).not.toBeInTheDocument()
+  })
+
+  // ---------- V4-4：个人资料（性别 + 出生日期，皮脂钳公式所需）----------
+
+  it('profile GET 返回 male + 日期 → 输入框正确回显', async () => {
+    installFetch({ profile: { gender: 'male', birth_date: '1990-04-15' } })
+    render(<SettingsPage />)
+
+    expect(await screen.findByTestId('profile-section')).toBeInTheDocument()
+    expect(screen.getByTestId('profile-gender')).toHaveValue('male')
+    expect(screen.getByTestId('profile-birth-date')).toHaveValue('1990-04-15')
+  })
+
+  it('profile 保存：PUT body 含 gender/birth_date → 显示「个人资料已保存」', async () => {
+    const { putBodies } = installFetch({
+      profile: { gender: null, birth_date: null },
+    })
+    const user = userEvent.setup()
+    render(<SettingsPage />)
+    await screen.findByTestId('profile-section')
+
+    // 日期输入在 jsdom 下用 fireEvent.change 更稳定
+    await user.selectOptions(screen.getByTestId('profile-gender'), 'male')
+    fireEvent.change(screen.getByTestId('profile-birth-date'), {
+      target: { value: '1990-04-15' },
+    })
+    await user.click(screen.getByTestId('profile-save'))
+
+    expect(await screen.findByText(/个人资料已保存/)).toBeInTheDocument()
+    expect(putBodies).toContainEqual(
+      expect.objectContaining({ gender: 'male', birth_date: '1990-04-15' }),
+    )
   })
 })
