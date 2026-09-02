@@ -19,7 +19,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.adapters import llm
-from app.models import AIReport, BodyMetric, GarminDaily, JobRun, LLMCall, Workout, XunjiPlan
+from app.models import AIReport, BodyMetric, GarminDaily, JobRun, LLMCall, Workout, WorkoutSetHr, XunjiPlan
 from app.movements import load_movement_names
 # V2-8：计划缓存解析原语提取到 services/plans.py 共享（禁止复制粘贴）
 from app.services import plans as plan_service
@@ -402,6 +402,7 @@ def build_session_review_prompt(
     activity_history: dict | None = None,
     *,
     feedback: list[str] | None = None,
+    set_hr: list[dict] | None = None,
 ) -> list[dict]:
     """纯函数：组装单次训练点评 prompt。
 
@@ -410,6 +411,9 @@ def build_session_review_prompt(
     「近4周同动作历史」整段替换为「近4周同类活动历史」段。
     V4-5 F3：feedback 非空时在历史段之后、恢复数据段之前插入「用户反馈」段，
     并在 system 末追加附加要求；feedback 为空/None 时输出与原版逐字节一致。
+    V4-9 F4：set_hr 非空时在「## 动作组次」段之后、历史段之前插入「## 逐组心率」
+    摘要段（每动作：组心率均值/峰值/组后30s恢复序列），供 AI 分析组间强度衰减与
+    恢复；set_hr 为空/None 时输出与原版逐字节一致（同样遵守 V4-5 feedback 惯例）。
     """
     movements = workout.get("movements") or []
     lines: list[str] = []
@@ -471,6 +475,39 @@ def build_session_review_prompt(
                 lines.append(part)
     else:
         lines.append("- 无动作数据")
+
+    # V4-9 F4：逐组心率摘要段（有数据才注入；None/空 → 输出与原版逐字节一致）
+    if set_hr and movements:
+        by_movement: dict[str, list[dict]] = {}
+        for r in set_hr:
+            by_movement.setdefault(r.get("movement_name"), []).append(r)
+        seg: list[str] = []
+        for mv in movements:
+            rows = by_movement.get(mv.get("name"))
+            if not rows:
+                continue
+            rows = sorted(rows, key=lambda r: r.get("set_index") or 0)
+
+            def _seq(key, _rows=rows):
+                return " → ".join(
+                    str(r.get(key)) if r.get(key) is not None else "-" for r in _rows
+                )
+
+            seg.append(f"- {mv.get('name')}：")
+            seg.append(f"  - 组中心率均值：{_seq('hr_avg')} bpm")
+            seg.append(f"  - 组中心率峰值：{_seq('hr_max')} bpm")
+            if any(r.get("hr_recovery_30s") is not None for r in rows):
+                seg.append(f"  - 组后30秒恢复心率：{_seq('hr_recovery_30s')} bpm")
+            low = [r.get("set_index") for r in rows if r.get("confidence") == "low"]
+            if low:
+                seg.append(
+                    f"  - 注：第 {'、'.join(str(i) for i in low)} 组为低置信匹配"
+                    "（佳明动作识别与训记不一致），数据仅供参考"
+                )
+        if seg:
+            lines.append("")
+            lines.append("## 逐组心率（佳明实测，供分析组间强度变化与恢复）")
+            lines.extend(seg)
 
     lines.append("")
     if not movements and activity_history is not None:
@@ -663,6 +700,29 @@ def generate_session_review(
 
     recovery = query_recovery_summary(session, workout.date)
 
+    # V4-9 F4：查询逐组心率注入 prompt（仅有动作的训练；无行则不传，prompt 保持原样）
+    set_hr_payload: list[dict] | None = None
+    if movements:
+        set_hr_rows = (
+            session.query(WorkoutSetHr)
+            .filter(WorkoutSetHr.workout_id == workout_id)
+            .order_by(WorkoutSetHr.movement_name, WorkoutSetHr.set_index)
+            .all()
+        )
+        if set_hr_rows:
+            set_hr_payload = [
+                {
+                    "movement_name": r.movement_name,
+                    "set_index": r.set_index,
+                    "hr_avg": r.hr_avg,
+                    "hr_max": r.hr_max,
+                    "hr_min": r.hr_min,
+                    "hr_recovery_30s": r.hr_recovery_30s,
+                    "confidence": r.confidence,
+                }
+                for r in set_hr_rows
+            ]
+
     # V4-2 F2：体重注入 workout dict，供 prompt 做有效负荷折算（缺省视为 None）
     body_weight = query_body_weight(session, workout.date)
 
@@ -681,6 +741,7 @@ def generate_session_review(
     messages = build_session_review_prompt(
         workout_dict, history, recovery,
         activity_history=activity_history, feedback=feedback,
+        set_hr=set_hr_payload,
     )
 
     if chat_fn is None:
