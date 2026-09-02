@@ -1,11 +1,24 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '../api/client'
+import ReportChatSection from './ReportChatSection'
 import SimpleMarkdown from './SimpleMarkdown'
 import { formatParams, groupSuggestions, parseNextAdvice } from '../utils/nextAdvice'
 import { buildChanges } from '../utils/writeback'
 
 const MANUAL_GUIDE =
   '训记 App 操作路径：打开训记 App → 计划 → 找到对应训练日 → 长按动作修改重量/组数/次数后保存。'
+
+// V4-6：统一的中文护栏提示（按 status 映射）。next_advice 端点 422 表示"旧建议已清理、无训记计划缓存"。
+const REGEN_ERROR_MAP = {
+  429: '今日重生成次数已达上限（5 次），明天再来',
+  422: '无训记计划缓存，暂时无法生成下次建议（旧建议已清理）',
+  404: '无法重新生成：记录不存在',
+}
+
+function regenErrorMessage(err) {
+  const status = err?.status
+  return REGEN_ERROR_MAP[status] || err?.message || '重新生成失败，请稍后重试'
+}
 
 function formatValue(v) {
   if (v === null || v === undefined) return '—'
@@ -151,6 +164,9 @@ function SuggestionCard({ suggestion, index, autoWritable, workout }) {
 export default function NextAdviceSection({ workout }) {
   const [report, setReport] = useState(null)
   const [loaded, setLoaded] = useState(false)
+  const [regenLoading, setRegenLoading] = useState(false)
+  const [regenError, setRegenError] = useState('')
+  const [regenSuccess, setRegenSuccess] = useState('')
 
   useEffect(() => {
     if (!workout?.id || !workout?.date) return
@@ -170,6 +186,12 @@ export default function NextAdviceSection({ workout }) {
     }
   }, [workout?.id, workout?.date])
 
+  useEffect(() => {
+    if (!regenSuccess) return
+    const t = setTimeout(() => setRegenSuccess(''), 3000)
+    return () => clearTimeout(t)
+  }, [regenSuccess])
+
   const { markdown, advice } = useMemo(
     () => parseNextAdvice(report?.content_md),
     [report],
@@ -179,6 +201,26 @@ export default function NextAdviceSection({ workout }) {
   if (!loaded) return null
   if (!report) {
     return <p className="text-sm text-gray-500">暂无下次训练建议</p>
+  }
+
+  const handleRegen = async () => {
+    if (regenLoading) return
+    const ok = window.confirm('将根据以上讨论重新生成下次建议并覆盖当前内容，确认继续？')
+    if (!ok) return
+    setRegenLoading(true)
+    setRegenError('')
+    try {
+      const data = await api(
+        `/api/ai-reports/next_advice/${workout.id}/regenerate_with_feedback`,
+        { method: 'POST' },
+      )
+      if (data?.report) setReport(data.report)
+      setRegenSuccess('已根据讨论重新生成')
+    } catch (err) {
+      setRegenError(regenErrorMessage(err))
+    } finally {
+      setRegenLoading(false)
+    }
   }
 
   return (
@@ -214,6 +256,27 @@ export default function NextAdviceSection({ workout }) {
             )}
           </div>
         </div>
+      )}
+
+      <ReportChatSection reportId={report.id} />
+      <button
+        type="button"
+        data-testid="regen-advice-btn"
+        disabled={regenLoading}
+        onClick={handleRegen}
+        className="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+      >
+        {regenLoading ? '重新生成中…' : '重新生成下次建议'}
+      </button>
+      {regenSuccess && (
+        <p data-testid="regen-success" className="text-xs text-green-600">
+          {regenSuccess}
+        </p>
+      )}
+      {regenError && (
+        <p data-testid="regen-error" className="text-xs text-red-600">
+          {regenError}
+        </p>
       )}
     </section>
   )

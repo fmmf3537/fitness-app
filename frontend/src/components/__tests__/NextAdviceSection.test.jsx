@@ -228,4 +228,84 @@ describe('NextAdviceSection', () => {
     expect(screen.getByText(/计划对照/)).toBeInTheDocument()
     expect(screen.queryByTestId('auto-writable-block')).not.toBeInTheDocument()
   })
+
+  // V4-6：有报告时显示重新生成按钮 + 对话区；无报告时不显示
+  it('有报告时显示「重新生成下次建议」按钮与内嵌对话区入口', async () => {
+    render(<NextAdviceSection workout={WORKOUT} />)
+    expect(await screen.findByTestId('regen-advice-btn')).toBeInTheDocument()
+    expect(screen.getByTestId('chat-expand-btn')).toBeInTheDocument()
+  })
+
+  it('无报告时按钮与对话区入口均不出现', async () => {
+    globalThis.fetch = vi.fn(() => Promise.resolve(mockResponse({ reports: [] })))
+    render(<NextAdviceSection workout={WORKOUT} />)
+    expect(await screen.findByText('暂无下次训练建议')).toBeInTheDocument()
+    expect(screen.queryByTestId('regen-advice-btn')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('chat-expand-btn')).not.toBeInTheDocument()
+  })
+
+  it('confirm 确认后调用 next_advice regenerate 接口并刷新建议内容', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    const NEW_REPORT = {
+      ...REPORT,
+      id: 99,
+      content_md: '## 新建议\n已重新生成内容',
+    }
+    let resolveRegen
+    globalThis.fetch = vi.fn((url, opts = {}) => {
+      if (
+        opts?.method === 'POST' &&
+        url?.includes?.('/api/ai-reports/next_advice/10/regenerate_with_feedback')
+      ) {
+        return new Promise((resolve) => {
+          resolveRegen = () => resolve(mockResponse({ report: NEW_REPORT }))
+        })
+      }
+      return Promise.resolve(mockResponse({ reports: [REPORT] }))
+    })
+
+    render(<NextAdviceSection workout={WORKOUT} />)
+    const btn = await screen.findByTestId('regen-advice-btn')
+    await user.click(btn)
+
+    // 请求中：按钮禁用
+    expect(btn).toBeDisabled()
+    expect(window.confirm).toHaveBeenCalledWith(
+      '将根据以上讨论重新生成下次建议并覆盖当前内容，确认继续？',
+    )
+
+    const regenCall = globalThis.fetch.mock.calls.find(
+      ([url, opts]) =>
+        url === '/api/ai-reports/next_advice/10/regenerate_with_feedback' &&
+        opts?.method === 'POST',
+    )
+    expect(regenCall).toBeTruthy()
+
+    // 放行响应
+    resolveRegen()
+
+    // 成功：新内容上屏 + 成功提示
+    expect(await screen.findByText('已重新生成内容')).toBeInTheDocument()
+    expect(screen.getByTestId('regen-success')).toHaveTextContent('已根据讨论重新生成')
+    expect(screen.getByTestId('regen-advice-btn')).not.toBeDisabled()
+  })
+
+  it('POST 422 时显示无训记计划缓存提示', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    globalThis.fetch = vi.fn((url, opts = {}) => {
+      if (opts?.method === 'POST' && url?.includes?.('/regenerate_with_feedback')) {
+        return Promise.resolve(mockResponse({}, 422))
+      }
+      return Promise.resolve(mockResponse({ reports: [REPORT] }))
+    })
+
+    render(<NextAdviceSection workout={WORKOUT} />)
+    await user.click(await screen.findByTestId('regen-advice-btn'))
+
+    const err = await screen.findByTestId('regen-error')
+    expect(err.textContent).toContain('无训记计划缓存')
+  })
 })
