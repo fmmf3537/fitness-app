@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
 import BottomSheet from '../components/BottomSheet'
 import ReportChatSection from '../components/ReportChatSection'
@@ -8,6 +8,7 @@ import SimpleMarkdown from '../components/SimpleMarkdown'
 import useIsMobile from '../hooks/useIsMobile'
 
 const REGEN_POLL_INTERVAL_MS = 3000
+const MAX_POLLS = 60
 
 function formatDateInput(date) {
   return date.toISOString().slice(0, 10)
@@ -84,6 +85,12 @@ export default function AIReportsPage() {
   const [regenerating, setRegenerating] = useState(false)
   const [regenError, setRegenError] = useState('')
 
+  const cancelledRef = useRef(false)
+  useEffect(() => {
+    cancelledRef.current = false
+    return () => { cancelledRef.current = true }
+  }, [])
+
   const load = useCallback(
     (keepSelection = false) => {
       setLoading(true)
@@ -121,17 +128,23 @@ export default function AIReportsPage() {
         method: 'POST',
         body: JSON.stringify({ date: targetDate }),
       })
-      // 轮询直至后台任务结束
-      for (;;) {
+      // 轮询直至后台任务结束（最多 3 分钟；卸载后立即退出）
+      let polls = 0
+      while (polls++ < MAX_POLLS) {
+        if (cancelledRef.current) break
         await new Promise((resolve) => setTimeout(resolve, REGEN_POLL_INTERVAL_MS))
+        if (cancelledRef.current) break
         const st = await api(
           `/api/ai-reports/session-review/regenerate/status?date=${targetDate}`,
         )
-        if (!st.running) {
-          if (st.error) setRegenError(st.error)
+        if (st.error) {
+          setRegenError(st.error)
           break
         }
+        if (!st.running) break
       }
+      if (cancelledRef.current) return
+      if (polls >= MAX_POLLS) setRegenError('生成超时（超过 3 分钟），请稍后重试')
       const list = await load(true)
       // 重新选中该日新的 session_review（旧 id 已删除）
       const next = (list || []).find(
@@ -139,6 +152,7 @@ export default function AIReportsPage() {
       )
       setSelected(next || null)
     } catch (err) {
+      if (cancelledRef.current) return
       setRegenError(
         err.status === 409 ? '该日期点评正在重新生成中，请稍候' : err.message || '重新生成失败',
       )
