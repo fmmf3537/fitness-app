@@ -11,12 +11,15 @@
 """
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, time, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
 from app.models import AIReport, GarminActivity, MatchCandidate, Workout, XunjiTrain
 from app.services.fuse import _extract_movements, fuse_workout
+
+logger = logging.getLogger(__name__)
 
 OVERLAP_THRESHOLD = 0.6
 CLOSE_DELTA = timedelta(minutes=30)
@@ -213,6 +216,6 @@ def _refresh_stale_workouts(session: Session, day: date, *, chat_fn=None) -> lis
     try:
         run_daily_reviews(session, day, chat_fn=chat_fn)
         run_daily_next_advices(session, day, chat_fn=chat_fn)
-    except Exception:  # noqa: BLE001 - AI 重生成失败不阻断匹配，daily_sync AI 阶段会重试
-        pass
+    except Exception as exc:  # noqa: BLE001 - AI 重生成失败不阻断匹配，daily_sync AI 阶段会重试
+        logger.warning("AI 报告重生成失败（day=%s）：%s", day, exc)
     return refreshed

@@ -9,12 +9,16 @@ provider 取 settings 当前默认（与报告生成同一来源）。
 """
 from typing import Callable
 
+import logging
+
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.adapters import llm
 from app.models import AIReport, ReportChatMessage
+
+logger = logging.getLogger(__name__)
 
 MAX_CONTENT_LENGTH = 1000  # 单条用户消息上限（字）
 HISTORY_WINDOW = 20  # 携带的历史消息窗口
@@ -200,7 +204,8 @@ def post_message(
     completion_tokens = result.get("completion_tokens") or 0
     try:
         provider = llm.get_default_provider(session)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - provider 读取失败回退默认，不计费偏差容忍
+        logger.warning("读取默认 provider 失败，回退 %s：%s", llm.DEFAULT_PROVIDER, exc)
         provider = llm.DEFAULT_PROVIDER
     model = result.get("model") or llm.PROVIDERS[provider]["default_model"]
     cost = llm.compute_cost(provider, prompt_tokens, completion_tokens)

@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from datetime import date, datetime, timedelta
 from typing import Any, Callable
@@ -22,6 +23,8 @@ from app.models import JobRun
 from app.services.ai import run_daily_next_advices, run_daily_reviews
 from app.services.matcher import match_day
 
+logger = logging.getLogger(__name__)
+
 # 指数退避（秒）：失败后最多重试 3 次（共 4 次尝试）
 RETRY_DELAYS = [1, 4, 16]
 
@@ -33,9 +36,11 @@ def _run_with_retry(fn: Callable[[], Any], *, sleep: Callable[[float], None] = t
         attempts += 1
         try:
             return fn(), attempts
-        except Exception:
+        except Exception as exc:
             if attempts > len(RETRY_DELAYS):
                 raise
+            logger.warning("同步步骤失败，%ds 后重试（第 %d 次）：%s",
+                           RETRY_DELAYS[attempts - 1], attempts + 1, exc)
             sleep(RETRY_DELAYS[attempts - 1])
 
 
