@@ -35,6 +35,8 @@ class Setting(Base):
     # V4-3：性别与出生日期（皮脂钳体脂率公式所需），录入一次永久生效
     gender: Mapped[str | None] = mapped_column(String(10))
     birth_date: Mapped[date | None] = mapped_column(Date)
+    # V5：记忆提炼默认 provider（空 = 用当前默认 LLM）
+    memory_default_provider: Mapped[str | None] = mapped_column(String(50))
 
 
 class XunjiTrain(Base):
@@ -305,4 +307,67 @@ class WorkoutSetHr(Base):
     set_end: Mapped[datetime | None] = mapped_column(DateTime)
     confidence: Mapped[str] = mapped_column(String(10))    # high / low
     match_method: Mapped[str] = mapped_column(String(30))  # order / order_category_mismatch
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class CoachPreference(Base):
+    """教练须知（L1 正式清单，手动维护 + AI 采纳）。"""
+
+    __tablename__ = "coach_preference"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    content: Mapped[str] = mapped_column(Text)
+    category: Mapped[str | None] = mapped_column(String(30))  # manual / ai_suggested
+    tags: Mapped[str | None] = mapped_column(String(200))     # 逗号分隔
+    source: Mapped[str | None] = mapped_column(String(30))    # user / weekly_review / daily_distill
+    active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class CoachPreferenceDraft(Base):
+    """AI 提炼草稿（L1 待确认，D1）。"""
+
+    __tablename__ = "coach_preference_draft"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    content: Mapped[str] = mapped_column(Text)
+    tags: Mapped[str | None] = mapped_column(String(200))
+    source: Mapped[str | None] = mapped_column(String(30))   # sys_prompt / daily_distill / weekly_review
+    status: Mapped[str] = mapped_column(String(20), default="pending")  # pending / accepted / rejected / merged
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class CoachMemory(Base):
+    """对话记忆摘要（L2）。"""
+
+    __tablename__ = "coach_memory"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    summary: Mapped[str] = mapped_column(Text)
+    tags: Mapped[str | None] = mapped_column(String(200))
+    source: Mapped[str | None] = mapped_column(String(20))   # report_chat / coach_chat
+    ref_report_id: Mapped[int | None] = mapped_column(Integer)
+    ref_chat_id: Mapped[int | None] = mapped_column(Integer)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class CoachChatMessage(Base):
+    """独立聊天消息（D7 持久对话）。"""
+
+    __tablename__ = "coach_chat_message"
+    __table_args__ = (
+        UniqueConstraint("client_request_id", name="uq_coach_chat_message_crid"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    role: Mapped[str] = mapped_column(String(10))      # user / assistant
+    content: Mapped[str] = mapped_column(Text)
+    model: Mapped[str | None] = mapped_column(String(100))
+    prompt_tokens: Mapped[int | None] = mapped_column(Integer)
+    completion_tokens: Mapped[int | None] = mapped_column(Integer)
+    cost_estimate: Mapped[float | None] = mapped_column(Float)
+    client_request_id: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
