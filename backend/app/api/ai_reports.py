@@ -2,6 +2,7 @@
 V3-4 评分字段透出 + session_review 重新生成；V3-8 报告追问对话。"""
 import datetime
 import json
+import logging
 import threading
 from typing import Literal
 
@@ -18,11 +19,57 @@ from app.services import ai as ai_service
 from app.services import export as export_service
 from app.services import report_chat as report_chat_service
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(
     prefix="/api/ai-reports",
     tags=["ai-reports"],
     dependencies=[Depends(require_auth)],
 )
+
+
+def _memory_refs_for_report(
+    session: Session, report: AIReport, workout: Workout | None
+) -> dict:
+    """V5-7：轻量重算本次注入的记忆条数（不调 LLM）。"""
+    memory_refs = {"l1_count": 0, "l2_count": 0, "l3_count": 0}
+    try:
+        from app.services.coach_memory import list_preferences, search_memory
+        from app.services.longterm_stats import query_longterm_stats
+        from app.services.memory_distill import build_query_tags
+
+        anchor = workout.date if workout else report.period_start
+        if anchor is None:
+            return memory_refs
+        report_type = report.type or "session_review"
+
+        prefs = list_preferences(session, active_only=True)
+        l1_count = len([p for p in prefs if p.content])
+
+        wd = {"date": anchor.isoformat(), "movements": [], "tags": None}
+        tags = build_query_tags(wd, report_type)
+        memories = search_memory(session, tags, limit=5)
+        l2_count = len([m for m in memories if m.summary])
+
+        try:
+            if report_type in ("weekly", "monthly"):
+                from app.services.longterm_stats import filter_period_l3
+
+                l3 = filter_period_l3(query_longterm_stats(session, anchor))
+            else:
+                l3 = query_longterm_stats(session, anchor)
+        except Exception:  # noqa: BLE001
+            l3 = None
+        l3_count = len(l3) if isinstance(l3, dict) else 0
+
+        memory_refs = {
+            "l1_count": l1_count,
+            "l2_count": l2_count,
+            "l3_count": l3_count,
+        }
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("V5-7 memory_refs 解析失败：%s", exc)
+    return memory_refs
 
 
 def _serialize_report(session: Session, report: AIReport) -> dict:
@@ -45,6 +92,7 @@ def _serialize_report(session: Session, report: AIReport) -> dict:
         "one_liner": report.one_liner,
         "subscores": _parse_subscores(report.subscores_json),
         "created_at": report.created_at.isoformat() if report.created_at else None,
+        "memory_refs": _memory_refs_for_report(session, report, workout),
     }
 
 

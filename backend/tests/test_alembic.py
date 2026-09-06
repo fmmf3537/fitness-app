@@ -23,6 +23,10 @@ EXPECTED_TABLES = {
     "backfill_progress",
     "report_chat_message",
     "workout_set_hr",
+    "coach_preference",
+    "coach_preference_draft",
+    "coach_memory",
+    "coach_chat_message",
 }
 
 
@@ -206,3 +210,47 @@ def test_workout_set_hr_table_roundtrip(tmp_path):
     command.upgrade(cfg, "head")  # 再次升级恢复
     insp = inspect(create_engine(db_url))
     assert "workout_set_hr" in insp.get_table_names()
+
+
+def test_coach_memory_tables_and_settings_column_roundtrip(tmp_path):
+    """V5-1：4 张 coach_* 表 + settings.memory_default_provider，显式回退 b7c8d9e0f1a2。"""
+    db_url = f"sqlite:///{tmp_path}/mig.db"
+    cfg = _make_config(db_url)
+    command.upgrade(cfg, "head")
+    insp = inspect(create_engine(db_url))
+    tables = set(insp.get_table_names())
+    for name in (
+        "coach_preference",
+        "coach_preference_draft",
+        "coach_memory",
+        "coach_chat_message",
+    ):
+        assert name in tables
+    settings_cols = {c["name"] for c in insp.get_columns("settings")}
+    assert "memory_default_provider" in settings_cols
+
+    command.downgrade(cfg, "b7c8d9e0f1a2")
+    insp = inspect(create_engine(db_url))
+    tables = set(insp.get_table_names())
+    for name in (
+        "coach_preference",
+        "coach_preference_draft",
+        "coach_memory",
+        "coach_chat_message",
+    ):
+        assert name not in tables
+    settings_cols = {c["name"] for c in insp.get_columns("settings")}
+    assert "memory_default_provider" not in settings_cols
+
+    command.upgrade(cfg, "head")
+    insp = inspect(create_engine(db_url))
+    tables = set(insp.get_table_names())
+    for name in (
+        "coach_preference",
+        "coach_preference_draft",
+        "coach_memory",
+        "coach_chat_message",
+    ):
+        assert name in tables
+    settings_cols = {c["name"] for c in insp.get_columns("settings")}
+    assert "memory_default_provider" in settings_cols

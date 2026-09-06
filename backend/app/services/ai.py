@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import date, datetime, time, timedelta
 from typing import Any, Callable
@@ -25,6 +26,8 @@ from app.movements import load_movement_names
 from app.services import plans as plan_service
 from app.services.plans import normalize_plan_movement as _normalize_plan_movement
 from app.services.plans import parse_json as _parse_json
+
+logger = logging.getLogger(__name__)
 
 PROMPT_SECTIONS = ("完成质量", "与历史对比", "恢复评估", "注意事项")
 
@@ -403,6 +406,7 @@ def build_session_review_prompt(
     *,
     feedback: list[str] | None = None,
     set_hr: list[dict] | None = None,
+    memory_section: str = "",
 ) -> list[dict]:
     """纯函数：组装单次训练点评 prompt。
 
@@ -414,6 +418,7 @@ def build_session_review_prompt(
     V4-9 F4：set_hr 非空时在「## 动作组次」段之后、历史段之前插入「## 逐组心率」
     摘要段（每动作：组心率均值/峰值/组后30s恢复序列），供 AI 分析组间强度衰减与
     恢复；set_hr 为空/None 时输出与原版逐字节一致（同样遵守 V4-5 feedback 惯例）。
+    V5-2：memory_section 非空时追加到 user 段末尾；空/None 时输出与原版逐字节一致。
     """
     movements = workout.get("movements") or []
     lines: list[str] = []
@@ -621,6 +626,11 @@ def build_session_review_prompt(
     if recovery.get("training_readiness") is None:
         lines.append("- 训练准备度：当前未接入该数据源，将结合睡眠/HRV/身体电量综合评估")
 
+    # V5-2：长期记忆段追加到 user 末尾（空/None 时不改动，保持逐字节一致）
+    if memory_section:
+        lines.append("")
+        lines.append(memory_section)
+
     system = (
         "你是一位资深力量训练教练。请根据用户本次训练、近4周同动作历史、"
         "近7天睡眠/HRV/身体电量/压力/静息心率/体重趋势，撰写单次训练点评。"
@@ -738,10 +748,23 @@ def generate_session_review(
         "body_weight": body_weight,
     }
 
+    # V5-2 / V5-3：注入长期记忆段（含 l3 前 12 周统计）
+    from app.services.memory_distill import compose_memory_section_for
+    from app.services.longterm_stats import query_longterm_stats
+    try:
+        l3 = query_longterm_stats(session, workout.date)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("V5-3 longterm_stats 失败，l3=None：%s", exc)
+        l3 = None
+    memory_section = compose_memory_section_for(
+        session, workout_dict, "session_review", l3=l3,
+    )
+
     messages = build_session_review_prompt(
         workout_dict, history, recovery,
         activity_history=activity_history, feedback=feedback,
         set_hr=set_hr_payload,
+        memory_section=memory_section,
     )
 
     if chat_fn is None:
@@ -1201,11 +1224,13 @@ def build_next_advice_prompt(
     movement_names: list[str] | tuple[str, ...],
     *,
     feedback: list[str] | None = None,
+    memory_section: str = "",
 ) -> list[dict]:
     """纯函数：组装下次训练建议 prompt（动作名表注入 system 约束模型）。
 
     V4-5 F3：feedback 非空时在计划日段之后、恢复指标段之前插入「用户反馈」段，
     并在 system 末追加附加要求；feedback 为空/None 时输出与原版逐字节一致。
+    V5-2：memory_section 非空时追加到 user 段末尾；空/None 时输出与原版逐字节一致。
     """
     lines: list[str] = []
     lines.append(f"# 本次训练完成情况（{workout.get('date') or '未知日期'}）")
@@ -1266,6 +1291,11 @@ def build_next_advice_prompt(
             lines.append(f"- 平均压力：{recovery['stress_avg']}")
     else:
         lines.append("- 近7天无恢复数据")
+
+    # V5-2：长期记忆段追加到 user 末尾（空/None 时不改动，保持逐字节一致）
+    if memory_section:
+        lines.append("")
+        lines.append(memory_section)
 
     system = (
         "你是一位资深力量训练教练。请对照训记官方计划的下一次训练日，结合本次训练完成情况"
@@ -1331,8 +1361,20 @@ def generate_next_advice(
         "max_hr": workout.max_hr,
         "movements": movements,
     }
+    # V5-2 / V5-3：注入长期记忆段（含 l3 前 12 周统计）
+    from app.services.memory_distill import compose_memory_section_for
+    from app.services.longterm_stats import query_longterm_stats
+    try:
+        l3 = query_longterm_stats(session, workout.date)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("V5-3 longterm_stats 失败，l3=None：%s", exc)
+        l3 = None
+    memory_section = compose_memory_section_for(
+        session, workout_dict, "next_advice", l3=l3,
+    )
     messages = build_next_advice_prompt(
-        workout_dict, plan_day, recovery, load_movement_names(), feedback=feedback
+        workout_dict, plan_day, recovery, load_movement_names(),
+        feedback=feedback, memory_section=memory_section,
     )
 
     if chat_fn is None:
@@ -2025,8 +2067,13 @@ def build_weekly_prompt(
     recovery: dict,
     pr_events: list[dict],
     prev_review: dict | None,
+    *,
+    memory_section: str = "",
 ) -> list[dict]:
-    """纯函数：组装周复盘 prompt（含上周建议回读，供模型自评执行情况）。"""
+    """纯函数：组装周复盘 prompt（含上周建议回读，供模型自评执行情况）。
+
+    V5-2：memory_section 非空时追加到 user 段末尾；空/None 时输出与原版逐字节一致。
+    """
     lines: list[str] = []
     lines.append(f"# 本周训练汇总（{summary['start']} ~ {summary['end']}）")
     _append_summary_lines(lines, summary)
@@ -2054,6 +2101,11 @@ def build_weekly_prompt(
     else:
         lines.append("上周无复盘报告（本周为首次复盘）。")
 
+    # V5-2：长期记忆段追加到 user 末尾
+    if memory_section:
+        lines.append("")
+        lines.append(memory_section)
+
     system = (
         "你是一位资深力量训练教练。请根据本周训练汇总、PR 事件、睡眠与 HRV 趋势，"
         "以及上周复盘中的建议，撰写周复盘报告。输出为 Markdown，必须且只能包含以下章节"
@@ -2073,8 +2125,13 @@ def build_monthly_prompt(
     plan_completion: dict,
     body_composition: dict,
     recovery: dict,
+    *,
+    memory_section: str = "",
 ) -> list[dict]:
-    """纯函数：组装月复盘 prompt（含计划完成率与体成分变化）。"""
+    """纯函数：组装月复盘 prompt（含计划完成率与体成分变化）。
+
+    V5-2：memory_section 非空时追加到 user 段末尾；空/None 时输出与原版逐字节一致。
+    """
     lines: list[str] = []
     lines.append(f"# 本月训练汇总（{summary['start']} ~ {summary['end']}）")
     _append_summary_lines(lines, summary)
@@ -2111,6 +2168,11 @@ def build_monthly_prompt(
     lines.append("")
     _append_recovery_lines(lines, recovery, "本月睡眠与恢复概况")
 
+    # V5-2：长期记忆段追加到 user 末尾
+    if memory_section:
+        lines.append("")
+        lines.append(memory_section)
+
     system = (
         "你是一位资深力量训练教练。请根据本月训练汇总、训记计划完成率、体成分变化"
         "与睡眠恢复概况，撰写月复盘报告。输出为 Markdown，必须且只能包含以下章节"
@@ -2132,20 +2194,45 @@ def _generate_period_review(
     chat_fn: Callable[[list[dict]], dict] | None = None,
 ) -> AIReport:
     """周/月复盘共用生成流程：组装 prompt → 调用模型 → 落库 ai_report。"""
+    # V5-2 / V5-3：周/月无具体 workout；l3 锚点 = start，查前 12 周不含本期
+    from app.services.memory_distill import compose_memory_section_for
+    from app.services.longterm_stats import filter_period_l3, query_longterm_stats
+
     if report_type == "weekly":
         start, end = week_range(period_start)
         summary = query_period_training_summary(session, start, end)
         recovery = query_recovery_summary(session, end, days=7)
         pr_events = query_pr_events(session, start, end)
         prev = query_previous_review(session, "weekly", start)
-        messages = build_weekly_prompt(summary, recovery, pr_events, prev)
+        try:
+            l3 = filter_period_l3(query_longterm_stats(session, start))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("V5-3 longterm_stats 失败，l3=None：%s", exc)
+            l3 = None
+        memory_section = compose_memory_section_for(
+            session, {}, report_type, l3=l3,
+        )
+        messages = build_weekly_prompt(
+            summary, recovery, pr_events, prev, memory_section=memory_section,
+        )
     else:
         start, end = month_range(period_start)
         summary = query_period_training_summary(session, start, end)
         recovery = query_recovery_summary(session, end, days=30)
         plan_completion = query_plan_completion(session, start, end)
         body_composition = query_body_composition(session, start, end)
-        messages = build_monthly_prompt(summary, plan_completion, body_composition, recovery)
+        try:
+            l3 = filter_period_l3(query_longterm_stats(session, start))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("V5-3 longterm_stats 失败，l3=None：%s", exc)
+            l3 = None
+        memory_section = compose_memory_section_for(
+            session, {}, report_type, l3=l3,
+        )
+        messages = build_monthly_prompt(
+            summary, plan_completion, body_composition, recovery,
+            memory_section=memory_section,
+        )
 
     if chat_fn is None:
         chat_fn = lambda msgs: llm.chat(  # noqa: E731

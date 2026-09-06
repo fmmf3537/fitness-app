@@ -14,6 +14,8 @@ import BackfillPage from './pages/BackfillPage'
 import ScreenshotImportPage from './pages/ScreenshotImportPage'
 import FitImportPage from './pages/FitImportPage'
 import PlansPage from './pages/PlansPage'
+import CoachChatPage from './pages/CoachChatPage'
+import CoachPreferencesPage from './pages/CoachPreferencesPage'
 import SettingsPage from './pages/SettingsPage'
 
 export default function App() {
@@ -35,6 +37,8 @@ export default function App() {
             <Route path="/screenshot-import" element={<ScreenshotImportPage />} />
             <Route path="/fit-import" element={<FitImportPage />} />
             <Route path="/plans" element={<PlansPage />} />
+            <Route path="/coach" element={<CoachChatPage />} />
+            <Route path="/coach-preferences" element={<CoachPreferencesPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>
         </Route>

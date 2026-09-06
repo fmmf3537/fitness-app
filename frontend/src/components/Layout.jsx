@@ -18,6 +18,8 @@ const NAV_LINKS = [
   { to: '/screenshot-import', label: '截图补录' },
   { to: '/fit-import', label: '文件导入' },
   { to: '/settings', label: '设置' },
+  { to: '/coach-preferences', label: '教练须知' },
+  { to: '/coach', label: '跟教练聊聊' },
 ]
 
 // 移动端汉堡菜单仅保留次级入口；五个主入口由 BottomTabs 承载

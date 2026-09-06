@@ -950,3 +950,279 @@ class TestExetypePromptHistoryRendering:
     def test_query_body_weight_none_when_no_record(self, session):
         from app.services.ai import query_body_weight
         assert query_body_weight(session, DAY) is None
+
+
+# ---------- V5-2：memory_section 字节级一致纪律 ----------
+
+
+class TestMemorySectionByteIdentical:
+    """V5-2：memory_section='' 时与原版逐字节一致；非空时追加到 user 末尾。"""
+
+    def test_build_session_review_prompt_empty_memory_section_byte_identical(self):
+        workout = _workout_dict()
+        history = _history_dict()
+        recovery = _recovery_dict()
+        out = build_session_review_prompt(workout, history, recovery)
+        out2 = build_session_review_prompt(workout, history, recovery, memory_section="")
+        assert out == out2
+        out3 = build_session_review_prompt(workout, history, recovery, memory_section=None)
+        assert out == out3
+
+    def test_build_session_review_prompt_with_memory_section(self):
+        workout = _workout_dict()
+        history = _history_dict()
+        recovery = _recovery_dict()
+        mem = "## 记忆\n- 须记"
+        out = build_session_review_prompt(
+            workout, history, recovery, memory_section=mem
+        )
+        user_msg = out[1]["content"]
+        assert mem in user_msg
+        assert user_msg.endswith(mem)
+        base_user = build_session_review_prompt(workout, history, recovery)[1]["content"]
+        assert user_msg[: len(base_user)] == base_user
+
+    def test_build_next_advice_prompt_empty_memory_section_byte_identical(self):
+        from app.services.ai import build_next_advice_prompt
+
+        workout = _workout_dict()
+        plan_day = {
+            "plan_ref": "platform:1",
+            "plan_name": "计划",
+            "date": "2026-08-05",
+            "movements": [{"name": "引体向上", "sets": [{"weight": 0, "reps": 8}]}],
+        }
+        recovery = {"days_count": 3, "avg_sleep_hours": 7.0}
+        names = ("引体向上", "杠铃划船")
+        out = build_next_advice_prompt(workout, plan_day, recovery, names)
+        out2 = build_next_advice_prompt(
+            workout, plan_day, recovery, names, memory_section=""
+        )
+        assert out == out2
+
+    def test_build_next_advice_prompt_with_memory_section(self):
+        from app.services.ai import build_next_advice_prompt
+
+        workout = _workout_dict()
+        plan_day = {
+            "plan_ref": "platform:1",
+            "plan_name": "计划",
+            "date": "2026-08-05",
+            "movements": [{"name": "引体向上", "sets": [{"weight": 0, "reps": 8}]}],
+        }
+        recovery = {"days_count": 3, "avg_sleep_hours": 7.0}
+        names = ("引体向上", "杠铃划船")
+        mem = "## 记忆\n- 须记"
+        out = build_next_advice_prompt(
+            workout, plan_day, recovery, names, memory_section=mem
+        )
+        user_msg = out[1]["content"]
+        assert user_msg.endswith(mem)
+        base_user = build_next_advice_prompt(workout, plan_day, recovery, names)[1][
+            "content"
+        ]
+        assert user_msg[: len(base_user)] == base_user
+
+    def test_build_weekly_prompt_empty_memory_section_byte_identical(self):
+        from app.services.ai import build_weekly_prompt
+
+        summary = {
+            "start": "2026-08-03",
+            "end": "2026-08-09",
+            "workout_count": 2,
+            "training_days": 2,
+            "total_volume_kg": 1000.0,
+            "total_duration_s": 7200,
+            "total_calories": 600,
+            "part_distribution": [{"part": "胸", "sets": 4, "volume_kg": 500.0}],
+            "workouts": [],
+        }
+        recovery = {"days_count": 3, "avg_sleep_hours": 7.0, "hrv_status": "balanced"}
+        out = build_weekly_prompt(summary, recovery, [], None)
+        out2 = build_weekly_prompt(summary, recovery, [], None, memory_section="")
+        assert out == out2
+
+    def test_build_weekly_prompt_with_memory_section(self):
+        from app.services.ai import build_weekly_prompt
+
+        summary = {
+            "start": "2026-08-03",
+            "end": "2026-08-09",
+            "workout_count": 2,
+            "training_days": 2,
+            "total_volume_kg": 1000.0,
+            "total_duration_s": 7200,
+            "total_calories": 600,
+            "part_distribution": [{"part": "胸", "sets": 4, "volume_kg": 500.0}],
+            "workouts": [],
+        }
+        recovery = {"days_count": 3, "avg_sleep_hours": 7.0, "hrv_status": "balanced"}
+        mem = "## 记忆\n- 须记"
+        out = build_weekly_prompt(summary, recovery, [], None, memory_section=mem)
+        user_msg = out[1]["content"]
+        assert user_msg.endswith(mem)
+        base_user = build_weekly_prompt(summary, recovery, [], None)[1]["content"]
+        assert user_msg[: len(base_user)] == base_user
+
+    def test_build_monthly_prompt_empty_memory_section_byte_identical(self):
+        from app.services.ai import build_monthly_prompt
+
+        summary = {
+            "start": "2026-08-01",
+            "end": "2026-08-31",
+            "workout_count": 8,
+            "training_days": 8,
+            "total_volume_kg": 8000.0,
+            "total_duration_s": 28800,
+            "total_calories": 2400,
+            "part_distribution": [{"part": "腿", "sets": 10, "volume_kg": 3000.0}],
+            "workouts": [],
+        }
+        plan = {
+            "planned_days": 0,
+            "completed_days": 0,
+            "rate": None,
+            "missed_dates": [],
+            "plan_name": None,
+        }
+        body = {"weight": None, "bodyfat": None}
+        recovery = {"days_count": 7, "avg_sleep_hours": 7.0}
+        out = build_monthly_prompt(summary, plan, body, recovery)
+        out2 = build_monthly_prompt(
+            summary, plan, body, recovery, memory_section=""
+        )
+        assert out == out2
+
+    def test_build_monthly_prompt_with_memory_section(self):
+        from app.services.ai import build_monthly_prompt
+
+        summary = {
+            "start": "2026-08-01",
+            "end": "2026-08-31",
+            "workout_count": 8,
+            "training_days": 8,
+            "total_volume_kg": 8000.0,
+            "total_duration_s": 28800,
+            "total_calories": 2400,
+            "part_distribution": [{"part": "腿", "sets": 10, "volume_kg": 3000.0}],
+            "workouts": [],
+        }
+        plan = {
+            "planned_days": 0,
+            "completed_days": 0,
+            "rate": None,
+            "missed_dates": [],
+            "plan_name": None,
+        }
+        body = {"weight": None, "bodyfat": None}
+        recovery = {"days_count": 7, "avg_sleep_hours": 7.0}
+        mem = "## 记忆\n- 须记"
+        out = build_monthly_prompt(
+            summary, plan, body, recovery, memory_section=mem
+        )
+        user_msg = out[1]["content"]
+        assert user_msg.endswith(mem)
+        base_user = build_monthly_prompt(summary, plan, body, recovery)[1]["content"]
+        assert user_msg[: len(base_user)] == base_user
+
+
+# ---------- V5-3：generator 注入 l3 ----------
+
+
+class TestGeneratorInjectsL3:
+    """V5-3：session_review / weekly 路径把 query_longterm_stats 结果传入 memory 段。"""
+
+    def test_generate_session_review_includes_l3(self, session):
+        from unittest.mock import patch
+
+        from app.services.coach_memory import build_memory_section as real_bms
+
+        day = DAY
+        x = make_xunji_train(
+            session,
+            day,
+            localid="l3-sr",
+            title="胸",
+            movements=[
+                {
+                    "name": "卧推",
+                    "sets": [{"weight": "60", "unit": "kg", "reps": "8", "done": True}],
+                }
+            ],
+        )
+        g = make_garmin_activity(session, day, activity_id="g-l3-sr")
+        w = fuse_workout(session, day, xunji=x, garmin=g, match_status="auto_matched")
+
+        l3_payload = {"训练频率": "2 次/周（24 个训练日，共 12 周）", "总容量": "5000 kg（40 次有效组）"}
+        captured = {}
+
+        def spy_bms(l1, l2, l3=None):
+            captured["l3"] = l3
+            return real_bms(l1, l2, l3)
+
+        def fake_chat(messages):
+            return {
+                "content": (
+                    "## 完成质量\nok\n## 与历史对比\nok\n"
+                    "## 恢复评估\nok\n## 注意事项\nok\n\n"
+                    "```json\n"
+                    '{"schema":"session_review_v1","score":80,'
+                    '"subscores":{"completion":80,"intensity":80,"recovery_fit":80},'
+                    '"one_liner":"不错"}\n```'
+                ),
+                "prompt_tokens": 1,
+                "completion_tokens": 1,
+            }
+
+        with patch(
+            "app.services.longterm_stats.query_longterm_stats",
+            return_value=l3_payload,
+        ), patch(
+            "app.services.memory_distill.build_memory_section",
+            side_effect=spy_bms,
+        ):
+            generate_session_review(session, w.id, chat_fn=fake_chat)
+
+        assert captured.get("l3") == l3_payload
+        assert captured["l3"]  # 非空 dict
+
+    def test_weekly_review_includes_l3(self, session):
+        from unittest.mock import patch
+
+        from app.services.ai import generate_weekly_review
+        from app.services.coach_memory import build_memory_section as real_bms
+
+        l3_payload = {
+            "训练频率": "3 次/周（36 个训练日，共 12 周）",
+            "总容量": "12000 kg（100 次有效组）",
+            "部位分布": "胸 5000 kg / 腿 4000 kg",
+            "平均时长": "60 分钟/次",  # period 路径应过滤掉
+        }
+        captured = {}
+
+        def spy_bms(l1, l2, l3=None):
+            captured["l3"] = l3
+            return real_bms(l1, l2, l3)
+
+        def fake_chat(messages):
+            return {
+                "content": "## 周复盘\nok",
+                "prompt_tokens": 1,
+                "completion_tokens": 1,
+            }
+
+        with patch(
+            "app.services.longterm_stats.query_longterm_stats",
+            return_value=l3_payload,
+        ), patch(
+            "app.services.memory_distill.build_memory_section",
+            side_effect=spy_bms,
+        ):
+            generate_weekly_review(session, DAY, chat_fn=fake_chat)
+
+        assert captured.get("l3") is not None
+        assert captured["l3"]
+        assert "训练频率" in captured["l3"]
+        assert "总容量" in captured["l3"]
+        assert "部位分布" in captured["l3"]
+        assert "平均时长" not in captured["l3"]  # weekly 仅三项

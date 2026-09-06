@@ -125,6 +125,9 @@ export default function ReportChatSection({ reportId }) {
         data-testid="chat-thread"
         className="mb-3 max-h-80 space-y-2 overflow-y-auto pr-1"
       >
+        <p className="text-xs text-gray-400" data-testid="chat-memory-hint">
+          AI 回答会参考你的长期记忆（须知 / 对话要点 / 训练统计）
+        </p>
         {messages.length === 0 && !sending && (
           <p className="text-xs text-gray-500">
             对报告有疑问？直接提问，教练会结合报告内容解答。

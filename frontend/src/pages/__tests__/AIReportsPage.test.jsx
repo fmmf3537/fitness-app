@@ -300,6 +300,43 @@ describe('AIReportsPage', () => {
     await user.click(await screen.findByTestId('regen-report-btn'))
     expect(await screen.findByText(/正在重新生成中/)).toBeInTheDocument()
   })
+
+  // ================= V5-7：参考记忆提示 =================
+
+  it('test_displays_memory_refs_when_present', async () => {
+    const withRefs = {
+      reports: [
+        {
+          ...REPORTS.reports[0],
+          memory_refs: { l1_count: 3, l2_count: 5, l3_count: 7 },
+        },
+      ],
+    }
+    globalThis.fetch = vi.fn(() => Promise.resolve(mockResponse(withRefs)))
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<AIReportsPage />)
+    await user.click(await screen.findByTestId('report-card-1'))
+    expect(await screen.findByTestId('memory-refs')).toHaveTextContent(
+      '参考了 3 条须知 · 5 条对话记忆 · 7 项统计',
+    )
+  })
+
+  it('test_hides_memory_refs_when_all_zero', async () => {
+    const zeroRefs = {
+      reports: [
+        {
+          ...REPORTS.reports[0],
+          memory_refs: { l1_count: 0, l2_count: 0, l3_count: 0 },
+        },
+      ],
+    }
+    globalThis.fetch = vi.fn(() => Promise.resolve(mockResponse(zeroRefs)))
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<AIReportsPage />)
+    await user.click(await screen.findByTestId('report-card-1'))
+    await screen.findByTestId('report-detail')
+    expect(screen.queryByTestId('memory-refs')).not.toBeInTheDocument()
+  })
 })
 
 describe('AIReportsPage 移动端（底部抽屉）', () => {
