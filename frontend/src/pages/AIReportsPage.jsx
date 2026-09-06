@@ -45,6 +45,17 @@ function ReportDetail({ report, onRegenerate, regenerating, regenError }) {
           tokens：{report.prompt_tokens || 0} / {report.completion_tokens || 0}
           {report.cost_estimate != null && ` · 约 ¥${report.cost_estimate.toFixed(6)}`}
         </p>
+        {report.memory_refs &&
+          (report.memory_refs.l1_count +
+            report.memory_refs.l2_count +
+            report.memory_refs.l3_count) >
+            0 && (
+            <p className="text-xs text-gray-500" data-testid="memory-refs">
+              参考了 {report.memory_refs.l1_count} 条须知 ·{' '}
+              {report.memory_refs.l2_count} 条对话记忆 ·{' '}
+              {report.memory_refs.l3_count} 项统计
+            </p>
+          )}
         {report.type === 'session_review' && (
           <div className="mt-2">
             {/* V3-5：分享海报（抽屉与桌面详情共用此组件，未传 workout 时按 workout_id 拉取） */}
