@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.auth import require_auth
+from app.api.coach_chat import router as coach_chat_api_router
 from app.db import get_session
 from app.services import coach_memory as svc
 
@@ -113,3 +114,4 @@ def reject_draft(
 router = APIRouter()
 router.include_router(preferences_router)
 router.include_router(drafts_router)
+router.include_router(coach_chat_api_router)
