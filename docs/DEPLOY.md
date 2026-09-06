@@ -290,4 +290,27 @@ print(sorted(insp.get_table_names()))
 #    - 手机 Chrome 进 https://fitness.example.com → 顶栏 + 底部 Tab 都看到新功能
 #    - APK 清 app 数据后重开 → 同样看到新功能
 #    - 「桌面版网站」切换测试（验证 mobile/responsive 切换无 bug）
+
+### 12.7 服务器上"本地 commit 及时 push"，防分叉累积
+
+切片流水线模式下，服务器（DSH agent 跑命令的机器）偶尔会因以下场景产生**未推送**的本地 commit：
+
+- 服务器做了环境适配（如 `4fffcfd` 腾讯云 pip 镜像加速）
+- 服务器跑 `git pull` 之前**已有**本地 ahead（如 `9eb20a3` merge V5）
+- 服务器跑分支操作时产生了 merge commit（如 `6690f09`）
+
+**风险**：未推送的本地 commit 累积，下次 `git pull` 时 `ort` 仍能自动 merge，但**易冲突 + 历史线性下降 + 排查困难**。
+
+**最佳实践**：
+
+```bash
+# 服务器上：commit 后立即普通 push（不要 force）
+git push origin main
+
+# 配合 §12.6 的 git status 自检：发现 ?? 多出来 → 检查是否有未跟踪文件忘记 commit
+```
+
+**踩坑教训**（2026-09 V5 收尾阶段）：服务器 `4fffcfd 腾讯云 pip`（环境适配）+ `9eb20a3 merge V5`（之前 ahead）累积为 ahead 2；远端 `fe9fb06 fix(V5)` + `9f7594d docs` 累积为 behind 1。`git pull` 时虽然 `ort` 成功，但**已构成典型 ahead/behind 分叉**——本来可以在任一次 commit 后立即 push 避免。
+
+**推荐**：在服务器 crontab 或 commit-msg hook 里增加"commit 后 1 小时内未 push 提醒"，避免再次发生。本次处理用 `git pull --no-rebase origin main` 配合 `ort` 策略已完成重整（merge commit `6690f09`），下次仍需 `git push origin main` 让 GitHub 同步此 merge 点。
 ```
