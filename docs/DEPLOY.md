@@ -169,3 +169,125 @@ python3 scripts/migrate_sqlite_to_pg.py \
 | backend 启动即退出 | `docker compose logs backend`：生产校验缺 `APP_PASSWORD/FERNET_KEY`，或迁移失败 |
 | 佳明无数据 | `docker compose logs backend` 找 401/429；按 §5 重登；token 卷是否挂载 |
 | 备份没生成 | `docker compose logs backup`；手动跑 `docker compose exec backup backup.sh` |
+
+---
+
+## 12. 切片流水线开发的增量部署（V5+）
+
+切片流水线（V4-V5 验证过的 V5-1~V5-7 + 后续 V6+）的特征：**每周交付 1~2 个 commit，每个 commit 改 1~10 个文件**。部署应与 commit 同步滚动升级，避免积累 5+ 个 commit 再"大批部署"（中途问题难溯源）。
+
+### 12.1 部署粒度判定
+
+每个 commit 自带"改动文件清单"（Cursor 交付报告 §1）。按改动落在 backend / frontend 决定重建范围：
+
+| Commit 类型 | 涉及表 / 迁移 | 涉及前端组件 | 重建范围 | 何时重建 |
+|---|---|---|---|---|
+| `feat(VN-x)` 改 backend services/api | ✓ alembic 迁移 | — | backend | 必跑 alembic 迁移 |
+| `feat(VN-x)` 改 backend services/api | ✗ 无迁移 | — | backend | 仅镜像重启 |
+| `feat(VN-x)` 改 frontend pages/components | — | ✓ | **仅 frontend**（不用动 backend） | 当次 |
+| `fix(VN)` 改任意文件 | — | — | 视改动落点 | 同上 |
+
+### 12.2 标准部署流程（切片后端有迁移）
+
+```bash
+cd /path/to/fitness-app
+git pull origin main
+
+# 1. 看 commit 范围，决定重建哪些服务
+git log origin/main --oneline | head -5
+
+# 2. 重建（按需）
+docker compose up -d --build backend    # 含 alembic 迁移（容器内自动 alembic upgrade head）
+docker compose up -d --build frontend   # 仅前端组件改动
+# 或一次重建多个：
+docker compose up -d --build backend frontend
+
+# 3. 验证（防 layer cache 命中导致 dist 没更新）
+docker compose exec frontend ls -la /usr/share/nginx/html/assets/ | head -5
+curl -sI http://localhost:8080/ | head -3
+curl -s http://localhost:8080/health   # → ok
+
+# 4. 备份前先确认迁移成功（V5+ 已有 alembic roundtrip 测试 CI）
+docker compose exec backend alembic current
+# 应：c8d9e0f1a2b3 (head)  ← 最近 head
+
+# 5. 如果看到前端新功能但手机还是旧版 → 清 APK 数据或重 build APK
+```
+
+### 12.3 前端 Layer Cache 故障排查
+
+如果 `docker compose up -d --build frontend` 后浏览器仍显示旧版：
+
+```bash
+# 检查容器内 dist 的 Last-Modified
+docker compose exec frontend ls -la /usr/share/nginx/html/assets/
+
+# 对比服务器 bundle MD5 与本机 dist MD5
+docker compose exec frontend md5sum /usr/share/nginx/html/assets/index-*.js
+md5sum frontend/dist/assets/index-*.js  # 本机
+
+# 如果不同 → layer cache 命中了旧 dist
+docker compose build --no-cache frontend
+docker compose up -d --force-recreate frontend
+```
+
+`--no-cache` 强制重跑所有 Dockerfile 步骤（包括 `npm run build`），耗时约 3-5 分钟。`--force-recreate` 删除旧容器 + 重建 volume。
+
+### 12.4 移动端（Capacitor APK）部署
+
+详见 [§0 / ANDROID.md](ANDROID.md)。要点：
+
+- 本项目 `capacitor.config.ts` 配了 `server.url` 直连生产服务器 → 服务端 `frontend` 容器更新后，**手机无需重新打包 APK**（Capacitor WebView 每次启动从服务器拉最新 bundle）
+- 手机 WebView 缓存导致新功能看不到时：清 app 数据（设置 → 应用 → 健身看板 → 存储 → 清除数据）
+- 若 APK build 时嵌入的 `server.url` 是旧地址（例如 IP 变了、端口改了），必须重新 build APK：`npm run build && npx cap sync android && gradlew assembleRelease`
+
+### 12.5 移动端导航（V5+ 必看）
+
+**所有新增页面必须同时出现在 3 处**（这是 V5 期间发现的真坑，2026-09 修了 `fe9fb06` commit）：
+
+| 位置 | 文件 | 作用 |
+|---|---|---|
+| `NAV_LINKS` | `frontend/src/components/Layout.jsx` | **桌面端**顶栏导航（`isMobile=false` 才渲染） |
+| `TABS` | `frontend/src/components/BottomTabs.jsx` | **移动端**底部 Tab（`isMobile=true` 才渲染，固定 5-7 个主入口） |
+| `SECONDARY_LINKS` | `frontend/src/components/Layout.jsx` | 移动端汉堡菜单（次级入口，如「复盘中心」「待确认队列」） |
+
+**踩坑历史**：V5-5（教练须知）和 V5-6（跟教练聊聊）只改了 `NAV_LINKS`（桌面顶栏），没加 `TABS` 或 `SECONDARY_LINKS`。手机用户 `isMobile=true` → 顶部 nav 隐藏 → 底部 Tab 没有这两条 → 汉堡菜单也没有 → 看上去"新功能消失了"。**实际是提示词疏漏**。
+
+提示词模板红线：每个 `feat(VN-x)` 前端切片必须显式列出 3 处修改：
+
+```
+红线：所有新增页面必须同时出现在 3 处（NAV_LINKS / TABS / SECONDARY_LINKS），
+否则移动端用户看不到入口（已在 V5 期间踩坑，参考 commit fe9fb06）。
+```
+
+### 12.6 部署后自检 checklist
+
+```bash
+# 1. 健康检查
+curl -s http://localhost:8080/health   # → {"status":"ok"}
+
+# 2. 后端 alembic head
+docker compose exec backend alembic current
+# 应输出最新 head（V5+ 是 c8d9e0f1a2b3）
+
+# 3. 前端 bundle 是最新
+curl -sI http://localhost:8080/assets/index-*.js | grep Last-Modified
+# 应是刚才 rebuild 时间（UTC）
+
+# 4. 数据库新表已建（V5+）
+docker compose exec backend python -c "
+from app.db import SessionLocal
+from sqlalchemy import inspect
+s = SessionLocal()
+insp = inspect(s.bind)
+print(sorted(insp.get_table_names()))
+" | tr ',' '\n' | grep -E 'coach_|workout_set_hr|body_metric'
+# 应输出 coach_preference / coach_preference_draft / coach_memory / coach_chat_message / workout_set_hr
+
+# 5. 生产 lint / type check 不必每次跑（CI 已覆盖）
+
+# 6. 手机端测试（每次发版必做）
+#    - 手机 Chrome 进 https://fitness.example.com → 顶栏 + 底部 Tab 都看到新功能
+#    - APK 清 app 数据后重开 → 同样看到新功能
+#    - 「桌面版网站」切换测试（验证 mobile/responsive 切换无 bug）
+```

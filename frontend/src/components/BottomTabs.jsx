@@ -61,11 +61,27 @@ const UserIcon = () => (
   </Icon>
 )
 
+// V5：教练须知 + 跟教练聊聊（SVG icon）
+const BookIcon = () => (
+  <Icon>
+    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+  </Icon>
+)
+
+const ChatIcon = () => (
+  <Icon>
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+  </Icon>
+)
+
 const TABS = [
   { to: '/', label: '训练日历', end: true, Icon: CalendarIcon },
   { to: '/plans', label: '训练计划', Icon: PlansIcon },
   { to: '/ai-reports', label: 'AI报告', Icon: SparklesIcon },
   { to: '/trends', label: '趋势', Icon: TrendIcon },
+  { to: '/coach-preferences', label: '教练须知', Icon: BookIcon },
+  { to: '/coach', label: '聊天', Icon: ChatIcon },
   { to: '/settings', label: '我的', Icon: UserIcon },
 ]
 
