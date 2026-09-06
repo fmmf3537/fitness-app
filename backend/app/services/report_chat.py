@@ -53,15 +53,18 @@ def _truncate_report_content(content: str, limit: int = REPORT_CONTENT_LIMIT) ->
     return "……（报告前文已截断）\n" + content[-limit:]
 
 
-def build_system_prompt(report: AIReport) -> str:
-    """教练人设 + 报告元信息 + 报告全文。"""
+def build_system_prompt(report: AIReport, *, memory_section: str = "") -> str:
+    """教练人设 + 报告元信息 + 报告全文。
+
+    V5-2：memory_section 非空时追加到 system 字符串末尾；空/None 时与原版逐字节一致。
+    """
     type_label = _TYPE_LABELS.get(report.type, report.type or "-")
     meta_lines = [
         f"报告类型：{type_label}（{report.type}）",
         f"日期：{report.period_start.isoformat() if report.period_start else '-'}",
         f"评分：{report.score if report.score is not None else '无'}",
     ]
-    return (
+    base = (
         "你是一位专业、亲切的 AI 健身教练。用户正在阅读你之前生成的一份训练报告，"
         "并对其中内容有疑问。请基于报告全文，用中文简洁、具体地解答用户的追问，"
         "必要时给出可执行的补充建议；不要编造报告中没有的数据，"
@@ -71,6 +74,9 @@ def build_system_prompt(report: AIReport) -> str:
         + "\n\n【报告全文】\n"
         + _truncate_report_content(report.content_md or "")
     )
+    if memory_section:
+        return base + "\n\n" + memory_section
+    return base
 
 
 def build_messages(
@@ -79,9 +85,13 @@ def build_messages(
     user_content: str,
     *,
     window: int = HISTORY_WINDOW,
+    memory_section: str = "",
 ) -> list[dict]:
     """system → 最近 window 条历史 → 新用户消息。"""
-    messages = [{"role": "system", "content": build_system_prompt(report)}]
+    messages = [{
+        "role": "system",
+        "content": build_system_prompt(report, memory_section=memory_section),
+    }]
     for msg in history[-window:]:
         messages.append({"role": msg.role, "content": msg.content})
     messages.append({"role": "user", "content": user_content})
@@ -191,7 +201,10 @@ def post_message(
             .order_by(ReportChatMessage.id)
         )
     )
-    messages = build_messages(report, history, content)
+    # V5-2：报告追问注入长期记忆（chat tag）
+    from app.services.memory_distill import compose_memory_section_for
+    memory_section = compose_memory_section_for(session, {}, "chat")
+    messages = build_messages(report, history, content, memory_section=memory_section)
 
     if chat_fn is None:
         chat_fn = lambda msgs: llm.chat(  # noqa: E731

@@ -149,6 +149,15 @@ def daily_sync(day, *, session: Session | None = None, xunji=None, garmin=None,
                     },
                 )
 
+        # V5-2：同步主流程之后挂钩 L2 每日记忆提炼（失败不阻断）
+        try:
+            from app.services.memory_distill import distill_daily_memory
+            md_result = distill_daily_memory(session, day_date)
+            detail["memory_distill"] = md_result
+        except Exception as exc:
+            logger.warning("V5-2 memory_distill 钩子失败，不阻断 daily_sync：%s", exc)
+            detail["memory_distill_failed"] = True
+
         result = {
             "date": datestr,
             "status": "failed" if failed_step else "success",

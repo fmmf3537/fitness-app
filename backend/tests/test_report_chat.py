@@ -196,3 +196,24 @@ def test_cascade_delete_messages_with_report(session):
 
     remaining = session.query(ReportChatMessage).filter_by(report_id=report.id).count()
     assert remaining == 0
+
+
+# ---------- V5-2：build_system_prompt memory_section ----------
+
+
+def test_build_system_prompt_with_memory_section(session):
+    from app.services.report_chat import build_system_prompt
+
+    report = make_report(session)
+    base = build_system_prompt(report)
+    mem = "## 记忆\n- 偏好：膝盖旧伤"
+    with_mem = build_system_prompt(report, memory_section=mem)
+    assert with_mem == base + "\n\n" + mem
+
+
+def test_build_system_prompt_empty_memory_section_byte_identical(session):
+    from app.services.report_chat import build_system_prompt
+
+    report = make_report(session)
+    assert build_system_prompt(report, memory_section="") == build_system_prompt(report)
+    assert build_system_prompt(report) == build_system_prompt(report, memory_section=None)

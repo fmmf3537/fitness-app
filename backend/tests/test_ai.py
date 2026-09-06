@@ -950,3 +950,177 @@ class TestExetypePromptHistoryRendering:
     def test_query_body_weight_none_when_no_record(self, session):
         from app.services.ai import query_body_weight
         assert query_body_weight(session, DAY) is None
+
+
+# ---------- V5-2：memory_section 字节级一致纪律 ----------
+
+
+class TestMemorySectionByteIdentical:
+    """V5-2：memory_section='' 时与原版逐字节一致；非空时追加到 user 末尾。"""
+
+    def test_build_session_review_prompt_empty_memory_section_byte_identical(self):
+        workout = _workout_dict()
+        history = _history_dict()
+        recovery = _recovery_dict()
+        out = build_session_review_prompt(workout, history, recovery)
+        out2 = build_session_review_prompt(workout, history, recovery, memory_section="")
+        assert out == out2
+        out3 = build_session_review_prompt(workout, history, recovery, memory_section=None)
+        assert out == out3
+
+    def test_build_session_review_prompt_with_memory_section(self):
+        workout = _workout_dict()
+        history = _history_dict()
+        recovery = _recovery_dict()
+        mem = "## 记忆\n- 须记"
+        out = build_session_review_prompt(
+            workout, history, recovery, memory_section=mem
+        )
+        user_msg = out[1]["content"]
+        assert mem in user_msg
+        assert user_msg.endswith(mem)
+        base_user = build_session_review_prompt(workout, history, recovery)[1]["content"]
+        assert user_msg[: len(base_user)] == base_user
+
+    def test_build_next_advice_prompt_empty_memory_section_byte_identical(self):
+        from app.services.ai import build_next_advice_prompt
+
+        workout = _workout_dict()
+        plan_day = {
+            "plan_ref": "platform:1",
+            "plan_name": "计划",
+            "date": "2026-08-05",
+            "movements": [{"name": "引体向上", "sets": [{"weight": 0, "reps": 8}]}],
+        }
+        recovery = {"days_count": 3, "avg_sleep_hours": 7.0}
+        names = ("引体向上", "杠铃划船")
+        out = build_next_advice_prompt(workout, plan_day, recovery, names)
+        out2 = build_next_advice_prompt(
+            workout, plan_day, recovery, names, memory_section=""
+        )
+        assert out == out2
+
+    def test_build_next_advice_prompt_with_memory_section(self):
+        from app.services.ai import build_next_advice_prompt
+
+        workout = _workout_dict()
+        plan_day = {
+            "plan_ref": "platform:1",
+            "plan_name": "计划",
+            "date": "2026-08-05",
+            "movements": [{"name": "引体向上", "sets": [{"weight": 0, "reps": 8}]}],
+        }
+        recovery = {"days_count": 3, "avg_sleep_hours": 7.0}
+        names = ("引体向上", "杠铃划船")
+        mem = "## 记忆\n- 须记"
+        out = build_next_advice_prompt(
+            workout, plan_day, recovery, names, memory_section=mem
+        )
+        user_msg = out[1]["content"]
+        assert user_msg.endswith(mem)
+        base_user = build_next_advice_prompt(workout, plan_day, recovery, names)[1][
+            "content"
+        ]
+        assert user_msg[: len(base_user)] == base_user
+
+    def test_build_weekly_prompt_empty_memory_section_byte_identical(self):
+        from app.services.ai import build_weekly_prompt
+
+        summary = {
+            "start": "2026-08-03",
+            "end": "2026-08-09",
+            "workout_count": 2,
+            "training_days": 2,
+            "total_volume_kg": 1000.0,
+            "total_duration_s": 7200,
+            "total_calories": 600,
+            "part_distribution": [{"part": "胸", "sets": 4, "volume_kg": 500.0}],
+            "workouts": [],
+        }
+        recovery = {"days_count": 3, "avg_sleep_hours": 7.0, "hrv_status": "balanced"}
+        out = build_weekly_prompt(summary, recovery, [], None)
+        out2 = build_weekly_prompt(summary, recovery, [], None, memory_section="")
+        assert out == out2
+
+    def test_build_weekly_prompt_with_memory_section(self):
+        from app.services.ai import build_weekly_prompt
+
+        summary = {
+            "start": "2026-08-03",
+            "end": "2026-08-09",
+            "workout_count": 2,
+            "training_days": 2,
+            "total_volume_kg": 1000.0,
+            "total_duration_s": 7200,
+            "total_calories": 600,
+            "part_distribution": [{"part": "胸", "sets": 4, "volume_kg": 500.0}],
+            "workouts": [],
+        }
+        recovery = {"days_count": 3, "avg_sleep_hours": 7.0, "hrv_status": "balanced"}
+        mem = "## 记忆\n- 须记"
+        out = build_weekly_prompt(summary, recovery, [], None, memory_section=mem)
+        user_msg = out[1]["content"]
+        assert user_msg.endswith(mem)
+        base_user = build_weekly_prompt(summary, recovery, [], None)[1]["content"]
+        assert user_msg[: len(base_user)] == base_user
+
+    def test_build_monthly_prompt_empty_memory_section_byte_identical(self):
+        from app.services.ai import build_monthly_prompt
+
+        summary = {
+            "start": "2026-08-01",
+            "end": "2026-08-31",
+            "workout_count": 8,
+            "training_days": 8,
+            "total_volume_kg": 8000.0,
+            "total_duration_s": 28800,
+            "total_calories": 2400,
+            "part_distribution": [{"part": "腿", "sets": 10, "volume_kg": 3000.0}],
+            "workouts": [],
+        }
+        plan = {
+            "planned_days": 0,
+            "completed_days": 0,
+            "rate": None,
+            "missed_dates": [],
+            "plan_name": None,
+        }
+        body = {"weight": None, "bodyfat": None}
+        recovery = {"days_count": 7, "avg_sleep_hours": 7.0}
+        out = build_monthly_prompt(summary, plan, body, recovery)
+        out2 = build_monthly_prompt(
+            summary, plan, body, recovery, memory_section=""
+        )
+        assert out == out2
+
+    def test_build_monthly_prompt_with_memory_section(self):
+        from app.services.ai import build_monthly_prompt
+
+        summary = {
+            "start": "2026-08-01",
+            "end": "2026-08-31",
+            "workout_count": 8,
+            "training_days": 8,
+            "total_volume_kg": 8000.0,
+            "total_duration_s": 28800,
+            "total_calories": 2400,
+            "part_distribution": [{"part": "腿", "sets": 10, "volume_kg": 3000.0}],
+            "workouts": [],
+        }
+        plan = {
+            "planned_days": 0,
+            "completed_days": 0,
+            "rate": None,
+            "missed_dates": [],
+            "plan_name": None,
+        }
+        body = {"weight": None, "bodyfat": None}
+        recovery = {"days_count": 7, "avg_sleep_hours": 7.0}
+        mem = "## 记忆\n- 须记"
+        out = build_monthly_prompt(
+            summary, plan, body, recovery, memory_section=mem
+        )
+        user_msg = out[1]["content"]
+        assert user_msg.endswith(mem)
+        base_user = build_monthly_prompt(summary, plan, body, recovery)[1]["content"]
+        assert user_msg[: len(base_user)] == base_user
