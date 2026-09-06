@@ -16,7 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.adapters import llm
-from app.models import AIReport, ReportChatMessage
+from app.models import AIReport, ReportChatMessage, Workout
 
 logger = logging.getLogger(__name__)
 
@@ -201,9 +201,22 @@ def post_message(
             .order_by(ReportChatMessage.id)
         )
     )
-    # V5-2：报告追问注入长期记忆（chat tag）
+    # V5-2 / V5-3：报告追问注入长期记忆（含 l3）
     from app.services.memory_distill import compose_memory_section_for
-    memory_section = compose_memory_section_for(session, {}, "chat")
+    from app.services.longterm_stats import query_longterm_stats
+
+    # AIReport 无 workout relationship；session_review 用 workout.date，否则 period_start
+    anchor = report.period_start
+    if report.type == "session_review" and report.workout_id:
+        workout = session.get(Workout, report.workout_id)
+        if workout is not None:
+            anchor = workout.date
+    try:
+        l3 = query_longterm_stats(session, anchor) if anchor is not None else None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("V5-3 longterm_stats 失败，l3=None：%s", exc)
+        l3 = None
+    memory_section = compose_memory_section_for(session, {}, "chat", l3=l3)
     messages = build_messages(report, history, content, memory_section=memory_section)
 
     if chat_fn is None:

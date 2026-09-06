@@ -319,6 +319,51 @@ class TestComposeMemorySectionFor:
     def test_empty_returns_empty_string(self, session):
         assert compose_memory_section_for(session, {}, "weekly") == ""
 
+    def test_with_l3_section(self, session):
+        session.add(
+            CoachPreference(content="须知：右膝旧伤", tags="膝盖", source="user", active=True)
+        )
+        session.add(
+            CoachMemory(
+                summary="历史：深蹲减负",
+                tags="深蹲,膝盖",
+                source="report_chat",
+                ref_report_id=1,
+                active=True,
+            )
+        )
+        session.commit()
+        l3 = {"训练频率": "3 次/周（36 个训练日，共 12 周）", "总容量": "12000 kg（100 次有效组）"}
+        section = compose_memory_section_for(
+            session,
+            {"movements": [{"name": "深蹲"}], "tags": "strength_training"},
+            "session_review",
+            l3=l3,
+        )
+        assert "## 用户长期记忆（AI 参考）" in section
+        assert "须知：" in section
+        assert "历史对话要点：" in section
+        assert "长期统计：" in section
+        assert "训练频率：3 次/周（36 个训练日，共 12 周）" in section
+
+    def test_l3_none_omits_section(self, session):
+        session.add(
+            CoachPreference(content="须知一条", tags="通用", source="user", active=True)
+        )
+        session.commit()
+        section = compose_memory_section_for(session, {}, "chat", l3=None)
+        assert "须知：" in section
+        assert "长期统计：" not in section
+
+    def test_l3_empty_dict_omits_section(self, session):
+        session.add(
+            CoachPreference(content="须知一条", tags="通用", source="user", active=True)
+        )
+        session.commit()
+        section = compose_memory_section_for(session, {}, "chat", l3={})
+        assert "须知：" in section
+        assert "长期统计：" not in section
+
 
 # ---------- 11. generate_session_review 注入 ----------
 

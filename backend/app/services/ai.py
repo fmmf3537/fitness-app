@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import date, datetime, time, timedelta
 from typing import Any, Callable
@@ -25,6 +26,8 @@ from app.movements import load_movement_names
 from app.services import plans as plan_service
 from app.services.plans import normalize_plan_movement as _normalize_plan_movement
 from app.services.plans import parse_json as _parse_json
+
+logger = logging.getLogger(__name__)
 
 PROMPT_SECTIONS = ("完成质量", "与历史对比", "恢复评估", "注意事项")
 
@@ -745,9 +748,17 @@ def generate_session_review(
         "body_weight": body_weight,
     }
 
-    # V5-2：注入长期记忆段
+    # V5-2 / V5-3：注入长期记忆段（含 l3 前 12 周统计）
     from app.services.memory_distill import compose_memory_section_for
-    memory_section = compose_memory_section_for(session, workout_dict, "session_review")
+    from app.services.longterm_stats import query_longterm_stats
+    try:
+        l3 = query_longterm_stats(session, workout.date)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("V5-3 longterm_stats 失败，l3=None：%s", exc)
+        l3 = None
+    memory_section = compose_memory_section_for(
+        session, workout_dict, "session_review", l3=l3,
+    )
 
     messages = build_session_review_prompt(
         workout_dict, history, recovery,
@@ -1350,9 +1361,17 @@ def generate_next_advice(
         "max_hr": workout.max_hr,
         "movements": movements,
     }
-    # V5-2：注入长期记忆段
+    # V5-2 / V5-3：注入长期记忆段（含 l3 前 12 周统计）
     from app.services.memory_distill import compose_memory_section_for
-    memory_section = compose_memory_section_for(session, workout_dict, "next_advice")
+    from app.services.longterm_stats import query_longterm_stats
+    try:
+        l3 = query_longterm_stats(session, workout.date)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("V5-3 longterm_stats 失败，l3=None：%s", exc)
+        l3 = None
+    memory_section = compose_memory_section_for(
+        session, workout_dict, "next_advice", l3=l3,
+    )
     messages = build_next_advice_prompt(
         workout_dict, plan_day, recovery, load_movement_names(),
         feedback=feedback, memory_section=memory_section,
@@ -2175,8 +2194,9 @@ def _generate_period_review(
     chat_fn: Callable[[list[dict]], dict] | None = None,
 ) -> AIReport:
     """周/月复盘共用生成流程：组装 prompt → 调用模型 → 落库 ai_report。"""
-    # V5-2：周/月无具体 workout，喂空 dict（仅带 date）按 report_type 聚合 tag
+    # V5-2 / V5-3：周/月无具体 workout；l3 锚点 = start，查前 12 周不含本期
     from app.services.memory_distill import compose_memory_section_for
+    from app.services.longterm_stats import filter_period_l3, query_longterm_stats
 
     if report_type == "weekly":
         start, end = week_range(period_start)
@@ -2184,8 +2204,13 @@ def _generate_period_review(
         recovery = query_recovery_summary(session, end, days=7)
         pr_events = query_pr_events(session, start, end)
         prev = query_previous_review(session, "weekly", start)
+        try:
+            l3 = filter_period_l3(query_longterm_stats(session, start))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("V5-3 longterm_stats 失败，l3=None：%s", exc)
+            l3 = None
         memory_section = compose_memory_section_for(
-            session, {"date": end.isoformat()}, report_type,
+            session, {}, report_type, l3=l3,
         )
         messages = build_weekly_prompt(
             summary, recovery, pr_events, prev, memory_section=memory_section,
@@ -2196,8 +2221,13 @@ def _generate_period_review(
         recovery = query_recovery_summary(session, end, days=30)
         plan_completion = query_plan_completion(session, start, end)
         body_composition = query_body_composition(session, start, end)
+        try:
+            l3 = filter_period_l3(query_longterm_stats(session, start))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("V5-3 longterm_stats 失败，l3=None：%s", exc)
+            l3 = None
         memory_section = compose_memory_section_for(
-            session, {"date": end.isoformat()}, report_type,
+            session, {}, report_type, l3=l3,
         )
         messages = build_monthly_prompt(
             summary, plan_completion, body_composition, recovery,

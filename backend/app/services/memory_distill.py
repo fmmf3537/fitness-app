@@ -381,11 +381,13 @@ def compose_memory_section_for(
     session: Session,
     workout_dict: dict | None,
     report_type: str,
+    *,
+    l3: dict | None = None,  # V5-3
 ) -> str:
     """build_query_tags + search_memory + list_preferences + build_memory_section。
 
     空数据返回 ""；检索/偏好查询失败时兜底返回 ""（不阻断主流程）。
-    L3 本切片传 None。
+    l3 由调用方预计算并传入（V5-3）。
     """
     try:
         query_tags = build_query_tags(workout_dict or {}, report_type)
@@ -393,7 +395,7 @@ def compose_memory_section_for(
         prefs = list_preferences(session, active_only=True)
         l1 = [p.content for p in prefs if p.content]
         l2 = [m.summary for m in memories if m.summary]
-        return build_memory_section(l1, l2, None)
+        return build_memory_section(l1, l2, l3)  # l3 直接传入
     except Exception as exc:  # noqa: BLE001
-        logger.warning("V5-2 compose_memory_section_for 失败，返回空段：%s", exc)
+        logger.warning("V5-3 compose_memory_section_for 失败，返回空段：%s", exc)
         return ""
