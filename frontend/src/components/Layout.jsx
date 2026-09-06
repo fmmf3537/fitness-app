@@ -22,7 +22,7 @@ const NAV_LINKS = [
   { to: '/coach', label: '跟教练聊聊' },
 ]
 
-// 移动端汉堡菜单仅保留次级入口；五个主入口由 BottomTabs 承载
+// 移动端汉堡菜单仅保留次级入口；主入口（含 V5 教练须知 / 聊天）由 BottomTabs 承载
 const SECONDARY_LINKS = [
   { to: '/candidates', label: '待确认队列', badge: true },
   { to: '/reviews', label: '复盘中心' },
