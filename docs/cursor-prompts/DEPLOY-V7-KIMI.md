@@ -38,7 +38,7 @@
 cd <项目路径>
 git status --short --branch          # 工作区必须干净；有未推送本地 commit 先报告给我（DEPLOY.md §12.7 教训）
 git fetch origin
-git log --oneline origin/main -1     # 确认 == f390175；不是就停下报告
+git log --oneline origin/main -1     # 确认 == f390175 或 55e39b7（后者仅多本提示词文档）；都不是就停下报告
 CURRENT=$(git rev-parse HEAD)        # 代码回滚点
 docker compose exec backend alembic current   # 数据库回滚锚点（本次不应变化）
 echo "rollback: commit=$CURRENT" | tee /tmp/rollback_anchor.txt
