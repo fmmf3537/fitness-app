@@ -37,7 +37,7 @@
 cd ~/fitness-app
 git status --short --branch          # 工作区必须干净
 git fetch origin
-git log --oneline origin/main -1     # 确认 == 7d659c3；不是就停下报告
+git log --oneline origin/main -1     # 确认 == 7d659c3 或其后 docs-only 提交（如 252b5a5）；明显不符才停下报告
 CURRENT=$(git rev-parse HEAD)        # 应为 ff1e2f2；不是也停下报告
 docker compose exec backend alembic current   # 应为 c8d9e0f1a2b3 (head)
 echo "rollback: commit=$CURRENT" > /tmp/rollback_anchor.txt
