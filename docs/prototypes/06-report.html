@@ -1,0 +1,105 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = { theme: { extend: { fontFamily: { sans: ['-apple-system','PingFang SC','Microsoft YaHei','sans-serif'] } } } }
+</script>
+</head>
+<body class="bg-gray-50 font-sans text-gray-900">
+<div class="relative flex min-h-[915px] w-full max-w-[412px] flex-col">
+
+  <div class="flex items-center justify-between bg-white px-6 pt-4 text-xs font-medium">
+    <span>9:41</span>
+    <span class="flex items-center gap-1">
+      <svg width="16" height="12" viewBox="0 0 16 12" fill="currentColor"><rect x="0" y="7" width="3" height="5" rx="1"/><rect x="4.5" y="5" width="3" height="7" rx="1"/><rect x="9" y="2.5" width="3" height="9.5" rx="1"/><rect x="13" y="0" width="3" height="12" rx="1"/></svg>
+      <svg width="24" height="12" viewBox="0 0 25 12" fill="none" stroke="currentColor"><rect x="0.5" y="0.5" width="21" height="11" rx="3"/><rect x="2.5" y="2.5" width="15" height="7" rx="1.5" fill="currentColor" stroke="none"/><path d="M23.5 4v4a2 2 0 0 0 0-4z" fill="currentColor" stroke="none"/></svg>
+    </span>
+  </div>
+
+  <header class="border-b border-gray-100 bg-white px-4 pb-3 pt-2">
+    <div class="flex items-center justify-between">
+      <span class="text-lg font-bold">本周复盘</span>
+      <button class="min-h-[44px] rounded-lg px-3 text-sm font-medium text-gray-600 active:bg-gray-100">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="flex-1 space-y-3 px-4 py-4">
+
+    <!-- 评分 + 摘要：元信息折叠 -->
+    <section class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <span class="inline-flex items-center rounded-full bg-green-100 px-2.5 py-1 text-xs font-semibold text-green-700">82 分 · 良好</span>
+          <span class="text-xs text-gray-600">9/8 – 9/14</span>
+        </div>
+        <button class="min-h-[44px] rounded-lg px-2 text-xs font-medium text-indigo-600 active:bg-indigo-50">重新生成</button>
+      </div>
+      <!-- 折叠的工程元信息（原直接铺展示：模型 / tokens / ¥0.000123） -->
+      <details class="mt-2">
+        <summary class="min-h-[36px] cursor-pointer text-xs text-gray-600">技术详情（模型 / tokens / 成本）</summary>
+        <p class="mt-1 rounded-lg bg-gray-50 p-2 text-xs text-gray-600">deepseek-chat · 2,140 tokens · 成本 &lt;¥0.01</p>
+      </details>
+    </section>
+
+    <!-- 正文：标题层级修复（h2 起，有尺寸梯度） -->
+    <section class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+      <h2 class="text-base font-bold">本周概览</h2>
+      <p class="mt-2 text-sm leading-6 text-gray-700">完成 4 次训练，总容量较上周 +12%。下肢推类进步明显，上肢拉类容量连续两周下降。</p>
+      <h3 class="mt-4 text-sm font-bold">做得好的</h3>
+      <p class="mt-1.5 text-sm leading-6 text-gray-700">深蹲 100kg 5×5 全部完成且 RPE 稳定在 8，动作速度没有明显下降，可以按计划加重。</p>
+      <h3 class="mt-4 text-sm font-bold">需要关注</h3>
+      <p class="mt-1.5 text-sm leading-6 text-gray-700">两次训练前睡眠不足 6 小时，强度日均表现欠佳。引体向上容量下降 18%，建议检查是否因疲劳跳过辅助组。</p>
+    </section>
+
+    <!-- 下周建议 -->
+    <section class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+      <h2 class="text-base font-bold">下周建议</h2>
+      <ul class="mt-2 space-y-2 text-sm leading-6 text-gray-700">
+        <li class="flex gap-2"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-indigo-500"></span>深蹲 102.5kg 3×5，观察末组速度</li>
+        <li class="flex gap-2"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-indigo-500"></span>引体向上补 2 组辅助容量</li>
+        <li class="flex gap-2"><span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-indigo-500"></span>强度日前保证 7 小时睡眠</li>
+      </ul>
+    </section>
+
+    <!-- 追问入口：与全站风格一致的文字+图标按钮 -->
+    <button class="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50/50 text-sm font-medium text-indigo-700 active:bg-indigo-100">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      就这份复盘追问教练
+    </button>
+    <p class="text-center text-xs text-gray-600">▲ 去除 emoji（原"💬 追问 AI 教练"），改用统一线性图标</p>
+
+    <!-- 分享海报 -->
+    <button class="min-h-[44px] w-full rounded-xl border border-gray-300 bg-white text-sm font-medium text-gray-700 shadow-sm active:bg-gray-100">分享本周海报</button>
+  </main>
+
+  <!-- 底部 5 Tab -->
+  <nav class="sticky bottom-0 flex border-t border-gray-200 bg-white pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-1">
+    <a class="flex flex-1 flex-col items-center gap-0.5 py-1.5 text-xs font-medium text-indigo-600">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      日历
+    </a>
+    <a class="flex flex-1 flex-col items-center gap-0.5 py-1.5 text-xs font-medium text-gray-600">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/></svg>
+      计划
+    </a>
+    <a class="flex flex-1 flex-col items-center gap-0.5 py-1.5 text-xs font-medium text-gray-600">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+      趋势
+    </a>
+    <a class="flex flex-1 flex-col items-center gap-0.5 py-1.5 text-xs font-medium text-gray-600">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      教练
+    </a>
+    <a class="flex flex-1 flex-col items-center gap-0.5 py-1.5 text-xs font-medium text-gray-600">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      我的
+    </a>
+  </nav>
+</div>
+</body>
+</html>

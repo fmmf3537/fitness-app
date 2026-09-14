@@ -1,1 +1,10 @@
 @import "tailwindcss";
+
+/* ===== 语义色约定（UIX-01 设计地基）=====
+ * 主操作色：indigo-600（唯一主按钮色；green/emerald/amber 不再作按钮底色）
+ * 危险操作：red-600（默认描边按钮 Button variant="danger"，实心仅 ConfirmDialog 确认键）
+ * 成功反馈：green-600/700 仅文字与 Badge，不作按钮底色
+ * 警告提示：amber 仅提示条与 Badge
+ * 正文辅助文字下限：gray-600（gray-400/500 对比度不达 WCAG AA，仅可用于纯装饰）
+ * 组件唯一来源：src/components/ui/（Button/Card/Badge/PillGroup/Skeleton/Toast/ConfirmDialog/EmptyState/ErrorState）
+ */
