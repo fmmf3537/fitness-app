@@ -1,8 +1,15 @@
 # Kimi Code CLI 生产部署提示词 — V7（UIX-01~09 前端大版本）
 
 > 用法：SSH 登录生产服务器 → 启动 kimi code cli → 把下面 ```text 代码块整段粘贴进去。
-> 执行前只需替换 2 个占位符：`<项目路径>`（服务器上仓库目录）、`<你的域名>`。
+> 执行前只需替换 2 个占位符：`<项目路径>` 和 `<服务器IP>`。
 > 目标版本已锁定：`origin/main` @ `f390175`（2026-09-14 已推送 GitHub）。
+>
+> **`<项目路径>` 填法**：服务器上仓库所在的本地目录（如 `/opt/fitness-app` 或 `~/fitness-app`），
+> 不是 GitHub 网址——CLI 会在该目录里执行 `git` / `docker compose` 命令。
+>
+> **`<服务器IP>` 填法**：仅用于标识站点访问入口，所有命令实际走 localhost/容器网络，不依赖域名解析。
+> 无域名 IP 访问（DEPLOY.md §6，`SITE_ADDRESS=:80`）就填 `http://1.2.3.4`；
+> 若 Caddy 监听非 80 端口则带端口，如 `http://1.2.3.4:8080`；有域名则填 `https://fitness.example.com`。
 
 ## 本次版本快照（供你核对，不需要替换）
 
@@ -20,9 +27,9 @@
 硬性原则：不丢任何数据、不动卷、全程可回滚。任何一步失败立即停止并报告，不要自作主张修复后继续。
 
 ## 环境
-- 项目路径：<项目路径>（docker compose 项目，5 个服务：postgres/backend/frontend/backup/caddy）
+- 项目路径：<服务器上的仓库目录，如 /opt/fitness-app 或 ~/fitness-app——不是 GitHub 网址>（docker compose 项目，5 个服务：postgres/backend/frontend/backup/caddy）
 - 目标版本：origin/main，应为 f390175
-- 站点：https://<你的域名>
+- 站点：http://<服务器IP>（无域名 IP 访问模式，DEPLOY.md §6；仅作验收入口标识，命令全部走 localhost）
 - 部署手册：仓库内 docs/DEPLOY.md（§12 是增量部署流程，先读 §12.1/§12.3/§12.6 再动手）
 
 ## 绝对禁止（红线）
