@@ -6,11 +6,17 @@ import PosterPreviewModal from './PosterPreviewModal'
 
 /**
  * V3-5/V3-6 「分享海报」按钮：生成 → 预览弹层 → 分享（原生）/ 下载（浏览器）。
- * props：report（必需）。
+ * props：report（必需）；fallbackTitle / label 可选。
  * V3-6：海报数据统一由 GET /api/posters/data?report_id= 一次装配；
  *       report.score 为 null 时提示「重新生成点评可解锁评分海报」（不阻断分享）。
+ * 周复盘无 workout 时 buildPosterData 标题为「训练记录」，传入 fallbackTitle 则覆盖。
  */
-export default function SharePosterButton({ report, testId = 'share-poster-btn' }) {
+export default function SharePosterButton({
+  report,
+  testId = 'share-poster-btn',
+  fallbackTitle,
+  label = '分享海报',
+}) {
   const [generating, setGenerating] = useState(false)
   const [dataUrl, setDataUrl] = useState('')
   const [posterDate, setPosterDate] = useState('')
@@ -25,6 +31,10 @@ export default function SharePosterButton({ report, testId = 'share-poster-btn' 
     try {
       const payload = await api(`/api/posters/data?report_id=${report.id}`)
       const data = buildPosterData(payload)
+      // 无 workout 时标题兜底为「训练记录」；调用方传入 fallbackTitle 则覆盖（文案级，非定制模板）
+      if (fallbackTitle && data.title === '训练记录') {
+        data.title = fallbackTitle
+      }
       const url = renderPosterDataUrl(data)
       setDataUrl(url)
       setPosterDate(data.date || report?.date || '')
@@ -60,9 +70,9 @@ export default function SharePosterButton({ report, testId = 'share-poster-btn' 
           data-testid={testId}
           disabled={generating}
           onClick={handleGenerate}
-          className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+          className="min-h-[44px] rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-4 text-sm font-medium text-gray-700 dark:text-gray-300 shadow-sm active:bg-gray-100 dark:active:bg-gray-800 disabled:opacity-50"
         >
-          {generating ? '生成中…' : '分享海报'}
+          {generating ? '生成中…' : label}
         </button>
         {report?.score == null && (
           <span data-testid="share-poster-hint" className="text-xs text-gray-400">

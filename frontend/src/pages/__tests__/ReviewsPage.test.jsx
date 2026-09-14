@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import ReviewsPage from '../ReviewsPage'
+import ScoreBadge from '../../components/ScoreBadge'
 import { ToastProvider } from '../../components/ui/Toast'
 import { installMatchMedia } from '../../test/mockMatchMedia'
 
@@ -31,6 +32,7 @@ const WEEKLY = {
       prompt_tokens: 500,
       completion_tokens: 300,
       cost_estimate: 0.002,
+      score: 82,
       content_md:
         '## 本周概览\n本周训练 3 次，总容量 4520 kg。\n' +
         '```echarts\n{"series":[{"type":"pie"}]}\n```\n' +
@@ -138,6 +140,16 @@ describe('ReviewsPage', () => {
     expect(screen.getByTestId('export-pdf')).toBeInTheDocument()
     expect(screen.getByTestId('review-tech-details')).toBeInTheDocument()
     expect(screen.getByTestId('report-detail').textContent).toContain('模型：deepseek-chat')
+    expect(screen.getByTestId('report-detail')).toHaveTextContent('82 分 · 良好')
+    expect(screen.getByTestId('report-detail')).toHaveTextContent('8/3 – 8/9')
+    expect(screen.getByTestId('chat-expand-btn')).toHaveTextContent(
+      '就这份复盘追问教练',
+    )
+    expect(screen.getByTestId('share-poster-btn')).toHaveTextContent('分享本周海报')
+    expect(screen.getAllByTestId('review-section-card')).toHaveLength(2)
+    // 列表卡默认 ScoreBadge 不含等级文字
+    expect(screen.getByTestId('report-card-1').textContent).toContain('82 分')
+    expect(screen.getByTestId('report-card-1').textContent).not.toContain('良好')
     // 列表卡不再展示 tokens 元信息
     expect(screen.getByTestId('report-card-1').textContent).not.toMatch(/tokens/)
     expect(screen.getByTestId('report-card-1').textContent).toContain('周复盘')
@@ -249,6 +261,11 @@ describe('ReviewsPage 移动端（底部抽屉）', () => {
 
     expect(await screen.findByTestId('bottom-sheet')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '本周概览' })).toBeInTheDocument()
+    expect(screen.getByTestId('report-detail')).toHaveTextContent('82 分 · 良好')
+    expect(screen.getByTestId('chat-expand-btn')).toHaveTextContent(
+      '就这份复盘追问教练',
+    )
+    expect(screen.getByTestId('share-poster-btn')).toHaveTextContent('分享本周海报')
 
     await user.click(screen.getByTestId('export-md'))
     await vi.waitFor(() => {
@@ -287,5 +304,24 @@ describe('ReviewsPage 移动端（底部抽屉）', () => {
 
     await user.click(screen.getByTestId('sheet-prev'))
     expect(screen.getByRole('heading', { name: '本周概览' })).toBeInTheDocument()
+  })
+})
+
+describe('ScoreBadge verdict', () => {
+  it('默认关闭时仅显示分数，与既有调用逐字一致', () => {
+    render(<ScoreBadge score={82} />)
+    expect(screen.getByText('82 分')).toBeInTheDocument()
+    expect(screen.queryByText(/良好/)).not.toBeInTheDocument()
+  })
+
+  it('verdict 开启时追加同阈值等级文字', () => {
+    const { rerender } = render(<ScoreBadge score={90} verdict />)
+    expect(screen.getByText('90 分 · 优秀')).toBeInTheDocument()
+    rerender(<ScoreBadge score={82} verdict />)
+    expect(screen.getByText('82 分 · 良好')).toBeInTheDocument()
+    rerender(<ScoreBadge score={60} verdict />)
+    expect(screen.getByText('60 分 · 一般')).toBeInTheDocument()
+    rerender(<ScoreBadge score={59} verdict />)
+    expect(screen.getByText('59 分 · 待加强')).toBeInTheDocument()
   })
 })

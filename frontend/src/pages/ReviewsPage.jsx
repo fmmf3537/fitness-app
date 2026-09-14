@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, download } from '../api/client'
 import BottomSheet from '../components/BottomSheet'
-import ReviewContent from '../components/ReviewContent'
+import ReportChatSection from '../components/ReportChatSection'
+import ReviewSections from '../components/ReviewSections'
 import ScoreBadge from '../components/ScoreBadge'
+import SharePosterButton from '../components/SharePosterButton'
 import Button from '../components/ui/Button'
 import EmptyState from '../components/ui/EmptyState'
 import ErrorState from '../components/ui/ErrorState'
@@ -22,45 +24,93 @@ const TYPE_LABELS = {
   monthly: '月复盘',
 }
 
-/** 复盘详情：头部元信息 + 导出按钮 + ReviewContent，桌面分栏与移动端抽屉复用。 */
+/** 本地解析 YYYY-MM-DD 年月日，避免 Date 当 UTC 解析导致日期偏移 */
+function parseIsoDateParts(iso) {
+  if (!iso || typeof iso !== 'string') return null
+  const m = iso.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)
+  if (!m) return null
+  return { month: Number(m[2]), day: Number(m[3]) }
+}
+
+/** 周期紧凑格式 M/D – M/D（去前导零）；来源 docs/prototypes/06-report.html 评分卡头 */
+function formatPeriodRange(start, end) {
+  const startParts = parseIsoDateParts(start)
+  if (!startParts) return ''
+  const startText = `${startParts.month}/${startParts.day}`
+  const endParts = parseIsoDateParts(end)
+  if (!endParts) return startText
+  return `${startText} – ${endParts.month}/${endParts.day}`
+}
+
+/**
+ * 海报兜底标题：周复盘 M/D–M/D / 月复盘 N月。
+ * 周期段复用 formatPeriodRange，去掉 en-dash 两侧空格（与评分卡头同源、海报标题无空格）。
+ */
+function formatPosterFallbackTitle(report) {
+  if (report?.type === 'monthly') {
+    const parts = parseIsoDateParts(report.date)
+    return parts ? `月复盘 ${parts.month}月` : '月复盘'
+  }
+  const range = formatPeriodRange(report?.date, report?.period_end).replace(
+    ' – ',
+    '–',
+  )
+  return range ? `周复盘 ${range}` : '周复盘'
+}
+
+/** 复盘详情：评分卡头 + 正文分卡 + 追问 CTA + 周海报，桌面分栏与移动端抽屉复用。 */
 function ReviewDetail({ report, onExport }) {
+  const periodText = formatPeriodRange(report.date, report.period_end)
+  const posterLabel =
+    report.type === 'monthly' ? '分享本月海报' : '分享本周海报'
   return (
-    <div
-      data-testid="report-detail"
-      className="max-w-none rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-6 shadow-sm"
-    >
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-2 border-b border-gray-100 dark:border-gray-800 pb-4 text-sm text-gray-500">
-        <div>
-          <p>
-            周期：{report.date || '-'} ~ {report.period_end || '-'}
+    <div data-testid="report-detail" className="space-y-3">
+      <section className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <ScoreBadge score={report.score} verdict={true} />
+            {periodText ? (
+              <span className="text-xs text-gray-600 dark:text-gray-400">
+                {periodText}
+              </span>
+            ) : null}
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="secondary"
+              testId="export-md"
+              onClick={() => onExport('md')}
+            >
+              导出 Markdown
+            </Button>
+            <Button
+              variant="secondary"
+              testId="export-pdf"
+              onClick={() => onExport('pdf')}
+            >
+              导出 PDF
+            </Button>
+          </div>
+        </div>
+        <details data-testid="review-tech-details" className="mt-1">
+          <summary className="min-h-[36px] cursor-pointer text-xs text-gray-600 dark:text-gray-400">
+            技术详情（模型 / tokens / 成本）
+          </summary>
+          <p className="mt-1 rounded-lg bg-gray-50 dark:bg-gray-950 p-2 text-xs text-gray-600 dark:text-gray-400">
+            {`模型：${report.model || '-'} · tokens：${report.prompt_tokens || 0}/${report.completion_tokens || 0} · 成本：${fmtCost(report.cost_estimate)}`}
           </p>
-          <details data-testid="review-tech-details" className="mt-1">
-            <summary className="min-h-[36px] cursor-pointer text-xs text-gray-600 dark:text-gray-400">
-              技术详情（模型 / tokens / 成本）
-            </summary>
-            <p className="mt-1 rounded-lg bg-gray-50 dark:bg-gray-950 p-2 text-xs text-gray-600 dark:text-gray-400">
-              {`模型：${report.model || '-'} · tokens：${report.prompt_tokens || 0}/${report.completion_tokens || 0} · 成本：${fmtCost(report.cost_estimate)}`}
-            </p>
-          </details>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            variant="secondary"
-            testId="export-md"
-            onClick={() => onExport('md')}
-          >
-            导出 Markdown
-          </Button>
-          <Button
-            variant="secondary"
-            testId="export-pdf"
-            onClick={() => onExport('pdf')}
-          >
-            导出 PDF
-          </Button>
-        </div>
+        </details>
+      </section>
+      <ReviewSections text={report.content_md || '无内容'} />
+      <ReportChatSection reportId={report.id} />
+      {/* 包装为块级全宽：组件本身保持 shrink 以免挤占训练点评页标题行 */}
+      <div className="w-full [&>span]:flex [&>span]:w-full [&>span>button]:w-full">
+        <SharePosterButton
+          report={report}
+          fallbackTitle={formatPosterFallbackTitle(report)}
+          label={posterLabel}
+        />
       </div>
-      <ReviewContent text={report.content_md || '无内容'} />
     </div>
   )
 }

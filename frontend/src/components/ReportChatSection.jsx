@@ -48,8 +48,8 @@ function ChatExpandIcon() {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
-      width="16"
-      height="16"
+      width="18"
+      height="18"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -200,10 +200,10 @@ export default function ReportChatSection({ reportId }) {
         type="button"
         data-testid="chat-expand-btn"
         onClick={() => setExpanded(true)}
-        className="mt-4 flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 px-4 py-3 text-sm font-medium text-indigo-700 hover:bg-indigo-100 dark:hover:bg-indigo-950/50"
+        className="mt-4 flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50/50 dark:bg-indigo-950/50 text-sm font-medium text-indigo-700 dark:text-indigo-300 active:bg-indigo-100 dark:active:bg-indigo-900"
       >
         <ChatExpandIcon />
-        追问 AI 教练
+        就这份复盘追问教练
       </button>
     )
   }
