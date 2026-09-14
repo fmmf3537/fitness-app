@@ -261,12 +261,12 @@ describe('BodyMetricsPage', () => {
       const trend = options.find(
         (o) => o?.xAxis?.type === 'category' && o?.series?.[0]?.name === '体重',
       )
-      expect(dual?.xAxis.axisLabel).toEqual({ rotate: 45, fontSize: 10, formatter: '{MM}-{dd}' })
+      expect(dual?.xAxis.axisLabel).toEqual({ rotate: 30, fontSize: 10, formatter: '{MM}-{dd}' })
       expect(dual?.legend?.type).toBe('scroll')
-      expect(trend?.grid).toEqual({ left: 40, right: 12, top: 56, bottom: 48 })
-      expect(trend?.xAxis.axisLabel.rotate).toBe(45)
+      expect(trend?.grid).toEqual({ left: 8, right: 8, top: 56, bottom: 44, containLabel: true })
+      expect(trend?.xAxis.axisLabel.rotate).toBe(30)
       expect(trend?.xAxis.axisLabel.formatter('2026-08-03')).toBe('08-03')
-      expect(trend?.yAxis.name).toBeUndefined()
+      expect(trend?.yAxis.name).toBe('kg')
     })
   })
 

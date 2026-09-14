@@ -121,11 +121,11 @@ describe('TrendsPage', () => {
     // 须轮询等待 effect 刷新后再读 option，否则高负载时读到空 mock.results 偶发 TypeError
     await vi.waitFor(() => {
       const [volume, bodypart] = lastOptions(4)
-      expect(volume?.grid).toEqual({ left: 40, right: 12, top: 56, bottom: 48 })
-      expect(volume?.xAxis.axisLabel.rotate).toBe(45)
+      expect(volume?.grid).toEqual({ left: 8, right: 8, top: 56, bottom: 44, containLabel: true })
+      expect(volume?.xAxis.axisLabel.rotate).toBe(30)
       expect(volume?.xAxis.axisLabel.fontSize).toBe(10)
       expect(volume?.xAxis.axisLabel.formatter('2026-07-13')).toBe('07-13')
-      expect(volume?.yAxis.name).toBeUndefined()
+      expect(volume?.yAxis.name).toBe('吨')
       expect(bodypart?.legend?.type).toBe('scroll')
     })
   })
