@@ -336,7 +336,9 @@ git push origin main
 - preflight 2 项 [FAIL] 经确认为 IP 模式误报（见 §12.8）
 - **踩坑**：部署成功后浏览器仍显示旧版——原因是浏览器缓存旧 `index.html`（引用旧 bundle 哈希），强刷/无痕即恢复；服务器侧验证方法：对比线上 bundle 哈希与本地 `frontend/dist/` 构建产物哈希（一致即代码已生效），手机端看不到先清缓存再走 §12.3 no-cache 重建
 
-**2026-09-14 · UIX-10 增量部署（06-report 复盘详情原型）** — 待执行
+**2026-09-14 · UIX-10 增量部署（06-report 复盘详情原型）** — 已部署，线上验证通过
 
 - 范围：`ff1e2f2 → 7d659c3`（1 提交，仅 frontend 7 文件；无迁移）
 - 提示词：`docs/cursor-prompts/DEPLOY-UIX10-KIMI.md`；验收重点：复盘中心周复盘详情（评分卡头 / 正文分卡 / 追问 CTA / 分享本周海报）
+- 结果：health ok；线上 bundle 由 `index-CNMQ3Z4t.js` 变为 `index-esVTsrbH.js`，特征串「就这份复盘追问教练 / 待加强 / 分享本周海报」均在线上 bundle 中检出
+- 注：本地同源码构建哈希为 `index-DexDOfnd.js`（不含审核方 mt-4 修订的本地缓存构建），与线上不一致属预期——线上构建自含修订的 `7d659c3`，bundle 哈希跨环境可比性以"特征串检出"为准
