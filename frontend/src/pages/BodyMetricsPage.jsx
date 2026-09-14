@@ -156,7 +156,7 @@ export default function BodyMetricsPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-bold text-gray-900">身体数据</h1>
+      <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">身体数据</h1>
 
       {error && (
         <ErrorState message={error} onRetry={load} testId="bodymetrics-error" />
@@ -210,7 +210,7 @@ export default function BodyMetricsPage() {
       {records && !hasHeight && (
         <div
           data-testid="height-guide"
-          className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800"
+          className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/50 p-3 text-sm text-amber-800"
         >
           首次使用建议先录入身高（变化频率低，录一次即可），便于后续 BMI 等指标分析。
         </div>
@@ -218,13 +218,13 @@ export default function BodyMetricsPage() {
 
       <Card>
         <form data-testid="metric-form" onSubmit={handleSubmit}>
-        <h2 className="mb-3 text-sm font-medium text-gray-900">录入指标</h2>
+        <h2 className="mb-3 text-sm font-medium text-gray-900 dark:text-gray-100">录入指标</h2>
         <div className="flex flex-wrap items-center gap-2">
           <select
             data-testid="metric-type"
             value={formType}
             onChange={(e) => setFormType(e.target.value)}
-            className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100"
+            className="rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900"
           >
             {FORM_TYPES.map((t) => (
               <option key={t.value} value={t.value}>
@@ -237,7 +237,7 @@ export default function BodyMetricsPage() {
             data-testid="metric-date"
             value={formDate}
             onChange={(e) => setFormDate(e.target.value)}
-            className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100"
+            className="rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900"
           />
           {formType === 'blood_pressure' ? (
             <>
@@ -249,7 +249,7 @@ export default function BodyMetricsPage() {
                 data-testid="metric-bp-systolic"
                 value={formBpSystolic}
                 onChange={(e) => setFormBpSystolic(e.target.value)}
-                className="w-28 rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                className="w-28 rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900"
               />
               <input
                 type="number"
@@ -259,7 +259,7 @@ export default function BodyMetricsPage() {
                 data-testid="metric-bp-diastolic"
                 value={formBpDiastolic}
                 onChange={(e) => setFormBpDiastolic(e.target.value)}
-                className="w-28 rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                className="w-28 rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900"
               />
             </>
           ) : (
@@ -271,7 +271,7 @@ export default function BodyMetricsPage() {
               data-testid="metric-value"
               value={formValue}
               onChange={(e) => setFormValue(e.target.value)}
-              className="w-28 rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100"
+              className="w-28 rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900"
             />
           )}
           <input
@@ -280,7 +280,7 @@ export default function BodyMetricsPage() {
             data-testid="metric-note"
             value={formNote}
             onChange={(e) => setFormNote(e.target.value)}
-            className="w-36 rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100"
+            className="w-36 rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900"
           />
           <Button
             type="submit"
@@ -296,7 +296,7 @@ export default function BodyMetricsPage() {
 
       {records && (
         <Card>
-          <h2 className="mb-3 text-sm font-medium text-gray-900">体重 × 训练容量对照</h2>
+          <h2 className="mb-3 text-sm font-medium text-gray-900 dark:text-gray-100">体重 × 训练容量对照</h2>
           <TrendChart
             testId="trend-chart-weight-volume"
             option={buildWeightVolumeOption(
@@ -311,12 +311,12 @@ export default function BodyMetricsPage() {
       {records && activeDef && (
         <Card>
           <div className="mb-3 flex items-center gap-2">
-            <h2 className="text-sm font-medium text-gray-900">指标趋势</h2>
+            <h2 className="text-sm font-medium text-gray-900 dark:text-gray-100">指标趋势</h2>
             <select
               data-testid="trend-type-select"
               value={activeTrend}
               onChange={(e) => setTrendType(e.target.value)}
-              className="rounded-md border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100"
+              className="rounded-md border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900"
             >
               {METRIC_GROUPS.map((g) => {
                 const types = g.types.filter((t) => grouped[t]?.length)
@@ -347,7 +347,7 @@ export default function BodyMetricsPage() {
 
       {records && (
         <Card>
-          <h2 className="mb-3 text-sm font-medium text-gray-900">最近记录</h2>
+          <h2 className="mb-3 text-sm font-medium text-gray-900 dark:text-gray-100">最近记录</h2>
           {records.length === 0 && (
             <EmptyState title="暂无记录" description="在上方录入第一条身体指标" />
           )}
@@ -361,12 +361,12 @@ export default function BodyMetricsPage() {
                   data-testid={`metric-row-${r.id}`}
                   className="flex items-center justify-between py-2 text-sm"
                 >
-                  <span className="text-gray-700">
+                  <span className="text-gray-700 dark:text-gray-300">
                     {r.date} · {metricLabel(r.type)} ·
-                    <span className="font-medium text-gray-900">
+                    <span className="font-medium text-gray-900 dark:text-gray-100">
                       {' '}{r.value} {r.unit}
                     </span>
-                    {r.note && <span className="ml-1 text-gray-600">（{r.note}）</span>}
+                    {r.note && <span className="ml-1 text-gray-600 dark:text-gray-400">（{r.note}）</span>}
                   </span>
                   <span className="flex items-center gap-2">
                     {!isSyncable(r.type) && (
@@ -403,16 +403,16 @@ export default function BodyMetricsPage() {
           role="dialog"
           aria-modal="true"
         >
-          <div className="w-full max-w-sm rounded-xl bg-white p-4 shadow-xl mb-[env(safe-area-inset-bottom)]">
-            <h3 className="mb-2 text-sm font-medium text-gray-900">确认同步到训记</h3>
-            <p data-testid="sync-summary" className="mb-4 text-sm text-gray-700">
+          <div className="w-full max-w-sm rounded-xl bg-white dark:bg-gray-900 p-4 shadow-xl mb-[env(safe-area-inset-bottom)]">
+            <h3 className="mb-2 text-sm font-medium text-gray-900 dark:text-gray-100">确认同步到训记</h3>
+            <p data-testid="sync-summary" className="mb-4 text-sm text-gray-700 dark:text-gray-300">
               {syncPreview.summary || '训记将更新该条记录'}
             </p>
             <div className="flex justify-end gap-2">
               <button
                 data-testid="sync-cancel"
                 onClick={() => setSyncPreview(null)}
-                className="rounded-md px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                className="rounded-md px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
               >
                 取消
               </button>

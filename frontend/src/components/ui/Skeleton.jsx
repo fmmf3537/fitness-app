@@ -5,7 +5,7 @@ export default function Skeleton({ className = '', testId }) {
   return (
     <div
       data-testid={testId}
-      className={`animate-pulse rounded bg-gray-200 ${className}`}
+      className={`animate-pulse rounded bg-gray-200 dark:bg-gray-800 ${className}`}
     />
   )
 }
@@ -22,7 +22,7 @@ export function SkeletonText({ lines = 3, testId }) {
         return (
           <div
             key={i}
-            className={`h-3 animate-pulse rounded bg-gray-100 ${width} ${mt}`.trim()}
+            className={`h-3 animate-pulse rounded bg-gray-100 dark:bg-gray-700 ${width} ${mt}`.trim()}
           />
         )
       })}

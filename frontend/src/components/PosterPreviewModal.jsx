@@ -10,13 +10,13 @@ export default function PosterPreviewModal({ dataUrl, sharing, shareError, nativ
       aria-modal="true"
       aria-label="分享海报预览"
     >
-      <div className="flex max-h-full w-full max-w-sm flex-col rounded-xl bg-white p-4 shadow-xl mb-[env(safe-area-inset-bottom)]">
+      <div className="flex max-h-full w-full max-w-sm flex-col rounded-xl bg-white dark:bg-gray-900 p-4 shadow-xl mb-[env(safe-area-inset-bottom)]">
         <div className="min-h-0 flex-1 overflow-auto">
           <img
             data-testid="poster-preview-img"
             src={dataUrl}
             alt="训练分享海报预览"
-            className="mx-auto w-full rounded-lg border border-gray-200"
+            className="mx-auto w-full rounded-lg border border-gray-200 dark:border-gray-700"
           />
         </div>
         {shareError && (
@@ -29,7 +29,7 @@ export default function PosterPreviewModal({ dataUrl, sharing, shareError, nativ
             type="button"
             data-testid="poster-close-btn"
             onClick={onClose}
-            className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
+            className="flex-1 rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
           >
             关闭
           </button>

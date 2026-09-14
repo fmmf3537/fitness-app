@@ -28,7 +28,7 @@ export default function ErrorState({ message, onRetry, testId }) {
     <div
       role="alert"
       data-testid={testId}
-      className="rounded-xl border border-red-200 bg-red-50 p-4"
+      className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/50 p-4"
     >
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-sm text-red-700">

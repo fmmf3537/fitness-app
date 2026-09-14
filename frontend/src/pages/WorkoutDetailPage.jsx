@@ -40,8 +40,8 @@ function SummaryCard({ workout }) {
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
       {items.map((item) => (
         <Card key={item.label}>
-          <p className="text-sm text-gray-600">{item.label}</p>
-          <p className="mt-1 text-lg font-bold text-gray-900">{item.value}</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400">{item.label}</p>
+          <p className="mt-1 text-lg font-bold text-gray-900 dark:text-gray-100">{item.value}</p>
         </Card>
       ))}
     </div>
@@ -50,7 +50,7 @@ function SummaryCard({ workout }) {
 
 function MovementsTable({ movements, setHr }) {
   if (!movements || movements.length === 0) {
-    return <p className="text-sm text-gray-600">无动作数据</p>
+    return <p className="text-sm text-gray-600 dark:text-gray-400">无动作数据</p>
   }
   const hrMap = new Map(
     (setHr || []).map((r) => [`${r.movement_name}|${r.set_index}`, r]),
@@ -61,11 +61,11 @@ function MovementsTable({ movements, setHr }) {
     <div className="space-y-4">
       {movements.map((mv, idx) => (
         <Card key={`${mv.name}-${idx}`}>
-          <h3 className="mb-2 font-bold text-gray-900">{mv.name}</h3>
+          <h3 className="mb-2 font-bold text-gray-900 dark:text-gray-100">{mv.name}</h3>
           <div className="overflow-x-auto">
             <table className="w-full text-sm whitespace-nowrap">
             <thead>
-              <tr className="text-left text-gray-600">
+              <tr className="text-left text-gray-600 dark:text-gray-400">
                 <th className="py-1">组</th>
                 <th className="py-1">重量 × 次数</th>
                 <th className="py-1">RPE</th>
@@ -84,7 +84,7 @@ function MovementsTable({ movements, setHr }) {
                     ? '低置信度：佳明动作识别与训记动作不一致，心率仅供参考'
                     : '组中心率 均值/峰值/组后30s恢复（bpm）'
                 return (
-                  <tr key={i} className="border-t border-gray-100">
+                  <tr key={i} className="border-t border-gray-100 dark:border-gray-800">
                     <td className="py-1">{i + 1}</td>
                     <td className="py-1">
                       {s.weight}
@@ -115,12 +115,12 @@ function MovementsTable({ movements, setHr }) {
 
 function RawJson({ data, testId }) {
   if (data == null) {
-    return <p className="text-sm text-gray-600">无原始数据</p>
+    return <p className="text-sm text-gray-600 dark:text-gray-400">无原始数据</p>
   }
   return (
     <pre
       data-testid={testId}
-      className="max-h-[32rem] overflow-auto rounded-lg bg-gray-900 p-4 text-xs text-gray-100"
+      className="max-h-[32rem] overflow-auto rounded-lg bg-gray-900 p-4 text-xs text-gray-100 dark:bg-black dark:text-gray-300"
     >
       {JSON.stringify(data, null, 2)}
     </pre>
@@ -183,9 +183,9 @@ export default function WorkoutDetailPage() {
         <Link to="/" className="text-sm text-indigo-600 hover:underline">
           ← 返回日历
         </Link>
-        <h2 className="text-lg font-bold text-gray-900">
+        <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">
           {workout.title}
-          <span className="ml-2 text-sm font-normal text-gray-600">
+          <span className="ml-2 text-sm font-normal text-gray-600 dark:text-gray-400">
             {workout.date} ·{' '}
             <Badge variant={matchBadgeVariant(workout.match_status)}>
               {statusLabel(workout.match_status)}
@@ -196,7 +196,7 @@ export default function WorkoutDetailPage() {
 
       <SummaryCard workout={workout} />
 
-      <div className="mt-4 flex gap-1 border-b border-gray-200">
+      <div className="mt-4 flex gap-1 border-b border-gray-200 dark:border-gray-700">
         {TABS.map((t) => (
           <button
             key={t.key}
@@ -206,7 +206,7 @@ export default function WorkoutDetailPage() {
             className={`px-4 min-h-[44px] text-sm font-medium ${
               tab === t.key
                 ? 'border-b-2 border-indigo-600 text-indigo-600'
-                : 'text-gray-600 hover:text-gray-800'
+                : 'text-gray-600 dark:text-gray-400 hover:text-gray-800'
             }`}
           >
             {t.label}
@@ -223,7 +223,7 @@ export default function WorkoutDetailPage() {
                 <HeartRateChart data={workout.heart_rate} />
               </Card>
             ) : (
-              <p className="text-sm text-gray-600">无心率数据</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">无心率数据</p>
             )}
             <SessionReviewSection workout={workout} />
             <NextAdviceSection workout={workout} />
@@ -233,7 +233,7 @@ export default function WorkoutDetailPage() {
         {tab === 'garmin' && <RawJson data={workout.garmin_raw} testId="garmin-raw" />}
       </div>
 
-      <div className="mt-8 border-t border-gray-200 pt-4">
+      <div className="mt-8 border-t border-gray-200 dark:border-gray-700 pt-4">
         <Button
           variant="danger"
           testId="delete-workout"

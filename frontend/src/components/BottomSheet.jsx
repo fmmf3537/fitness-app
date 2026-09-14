@@ -32,16 +32,16 @@ export default function BottomSheet({ open = true, onClose, title, footer, child
         data-testid="bottom-sheet"
         role="dialog"
         aria-modal="true"
-        className="relative flex max-h-[85vh] max-h-[85dvh] w-full min-w-0 flex-col rounded-t-2xl bg-white shadow-xl"
+        className="relative flex max-h-[85vh] max-h-[85dvh] w-full min-w-0 flex-col rounded-t-2xl bg-white dark:bg-gray-900 shadow-xl"
       >
-        <div className="flex items-center justify-between gap-2 border-b border-gray-100 px-4 py-3">
-          <div className="min-w-0 flex-1 truncate text-sm font-bold text-gray-900">{title}</div>
+        <div className="flex items-center justify-between gap-2 border-b border-gray-100 dark:border-gray-800 px-4 py-3">
+          <div className="min-w-0 flex-1 truncate text-sm font-bold text-gray-900 dark:text-gray-100">{title}</div>
           <button
             type="button"
             data-testid="bottom-sheet-close"
             aria-label="关闭"
             onClick={onClose}
-            className="shrink-0 rounded-md px-2 py-1 text-lg leading-none text-gray-500 hover:bg-gray-100 hover:text-gray-800"
+            className="shrink-0 rounded-md px-2 py-1 text-lg leading-none text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-800"
           >
             ✕
           </button>
@@ -50,7 +50,7 @@ export default function BottomSheet({ open = true, onClose, title, footer, child
           {children}
         </div>
         {footer && (
-          <div data-testid="bottom-sheet-footer" className="shrink-0 border-t border-gray-100 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <div data-testid="bottom-sheet-footer" className="shrink-0 border-t border-gray-100 dark:border-gray-800 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
             {footer}
           </div>
         )}

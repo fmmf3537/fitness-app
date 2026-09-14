@@ -16,12 +16,12 @@ export default function CoachHubPage() {
 
   return (
     <div data-testid="coach-hub" className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b bg-white px-4 py-3">
-        <h1 className="text-xl font-bold text-gray-900">教练中心</h1>
+      <div className="flex items-center justify-between border-b bg-white dark:bg-gray-900 px-4 py-3">
+        <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">教练中心</h1>
       </div>
 
       <div className="px-4 pt-3">
-        <div className="flex rounded-lg bg-gray-100 p-1" role="tablist">
+        <div className="flex rounded-lg bg-gray-100 dark:bg-gray-800 p-1" role="tablist">
           <button
             type="button"
             role="tab"
@@ -29,7 +29,7 @@ export default function CoachHubPage() {
             data-testid="coach-tab-chat"
             onClick={() => setTab('chat')}
             className={`min-h-[40px] flex-1 rounded-md text-sm font-medium ${
-              tab === 'chat' ? 'bg-white shadow-sm' : 'text-gray-600'
+              tab === 'chat' ? 'bg-white dark:bg-gray-900 shadow-sm' : 'text-gray-600 dark:text-gray-400'
             }`}
           >
             聊天
@@ -41,7 +41,7 @@ export default function CoachHubPage() {
             data-testid="coach-tab-prefs"
             onClick={() => setTab('prefs')}
             className={`min-h-[40px] flex-1 rounded-md text-sm font-medium ${
-              tab === 'prefs' ? 'bg-white shadow-sm' : 'text-gray-600'
+              tab === 'prefs' ? 'bg-white dark:bg-gray-900 shadow-sm' : 'text-gray-600 dark:text-gray-400'
             }`}
           >
             教练须知

@@ -27,18 +27,18 @@ function ReviewDetail({ report, onExport }) {
   return (
     <div
       data-testid="report-detail"
-      className="max-w-none rounded-lg border border-gray-200 bg-white p-6 shadow-sm"
+      className="max-w-none rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-6 shadow-sm"
     >
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-2 border-b border-gray-100 pb-4 text-sm text-gray-500">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-2 border-b border-gray-100 dark:border-gray-800 pb-4 text-sm text-gray-500">
         <div>
           <p>
             周期：{report.date || '-'} ~ {report.period_end || '-'}
           </p>
           <details data-testid="review-tech-details" className="mt-1">
-            <summary className="min-h-[36px] cursor-pointer text-xs text-gray-600">
+            <summary className="min-h-[36px] cursor-pointer text-xs text-gray-600 dark:text-gray-400">
               技术详情（模型 / tokens / 成本）
             </summary>
-            <p className="mt-1 rounded-lg bg-gray-50 p-2 text-xs text-gray-600">
+            <p className="mt-1 rounded-lg bg-gray-50 dark:bg-gray-950 p-2 text-xs text-gray-600 dark:text-gray-400">
               {`模型：${report.model || '-'} · tokens：${report.prompt_tokens || 0}/${report.completion_tokens || 0} · 成本：${fmtCost(report.cost_estimate)}`}
             </p>
           </details>
@@ -153,7 +153,7 @@ export default function ReviewsPage() {
       >
         上一篇
       </Button>
-      <span className="text-xs text-gray-600">
+      <span className="text-xs text-gray-600 dark:text-gray-400">
         {selectedIndex + 1} / {reports.length}
       </span>
       <Button
@@ -170,7 +170,7 @@ export default function ReviewsPage() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-xl font-bold text-gray-900">复盘中心</h1>
+        <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">复盘中心</h1>
         <div className="flex flex-wrap items-center gap-2">
           <PillGroup
             options={TABS.map((t) => ({ value: t.key, label: t.label }))}
@@ -224,16 +224,16 @@ export default function ReviewsPage() {
               data-testid={`report-card-${r.id}`}
               className={`w-full rounded-lg border p-4 text-left shadow-sm transition ${
                 selected?.id === r.id
-                  ? 'border-indigo-500 bg-indigo-50'
-                  : 'border-gray-200 bg-white hover:bg-gray-50'
+                  ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/50'
+                  : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800'
               }`}
             >
-              <p className="font-medium text-gray-900">
+              <p className="font-medium text-gray-900 dark:text-gray-100">
                 {r.date || '-'} ~ {r.period_end || r.date || '-'}
               </p>
               <p className="mt-1 flex items-center gap-2">
                 <ScoreBadge score={r.score} />
-                <span className="text-xs text-gray-600">
+                <span className="text-xs text-gray-600 dark:text-gray-400">
                   {TYPE_LABELS[r.type] || r.type || '-'}
                 </span>
               </p>
@@ -246,7 +246,7 @@ export default function ReviewsPage() {
             {selected ? (
               <ReviewDetail report={selected} onExport={handleExport} />
             ) : (
-              <div className="flex h-48 items-center justify-center rounded-lg border border-dashed border-gray-300 bg-gray-50 text-sm text-gray-500">
+              <div className="flex h-48 items-center justify-center rounded-lg border border-dashed border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-950 text-sm text-gray-500">
                 选择左侧报告查看详情
               </div>
             )}

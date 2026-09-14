@@ -46,9 +46,9 @@ function ReportDetail({ report, onRegenerate, regenerating, regenError }) {
   return (
     <div
       data-testid="report-detail"
-      className="max-w-none rounded-lg border border-gray-200 bg-white p-6 shadow-sm"
+      className="max-w-none rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-6 shadow-sm"
     >
-      <div className="mb-4 border-b border-gray-100 pb-4 text-sm text-gray-600">
+      <div className="mb-4 border-b border-gray-100 dark:border-gray-800 pb-4 text-sm text-gray-600 dark:text-gray-400">
         <p className="flex flex-wrap items-center gap-2">
           训练：{report.workout_title || '-'}
           <ScoreBadge score={report.score} testId="detail-score-badge" />
@@ -56,12 +56,12 @@ function ReportDetail({ report, onRegenerate, regenerating, regenError }) {
         <p>
           类型：{typeLabel(report.type)} · 日期：{report.date || '-'}
         </p>
-        {report.one_liner && <p className="text-gray-700">一句话点评：{report.one_liner}</p>}
+        {report.one_liner && <p className="text-gray-700 dark:text-gray-300">一句话点评：{report.one_liner}</p>}
         <details data-testid="tech-details" className="mt-1">
-          <summary className="min-h-[36px] cursor-pointer text-xs text-gray-600">
+          <summary className="min-h-[36px] cursor-pointer text-xs text-gray-600 dark:text-gray-400">
             技术详情（模型 / tokens / 成本）
           </summary>
-          <p className="mt-1 rounded-lg bg-gray-50 p-2 text-xs text-gray-600">
+          <p className="mt-1 rounded-lg bg-gray-50 dark:bg-gray-950 p-2 text-xs text-gray-600 dark:text-gray-400">
             {`模型：${report.model || '-'} · tokens：${report.prompt_tokens || 0}/${report.completion_tokens || 0} · 成本：${fmtCost(report.cost_estimate)}`}
           </p>
         </details>
@@ -70,7 +70,7 @@ function ReportDetail({ report, onRegenerate, regenerating, regenError }) {
             report.memory_refs.l2_count +
             report.memory_refs.l3_count) >
             0 && (
-            <p className="text-xs text-gray-600" data-testid="memory-refs">
+            <p className="text-xs text-gray-600 dark:text-gray-400" data-testid="memory-refs">
               参考了 {report.memory_refs.l1_count} 条须知 ·{' '}
               {report.memory_refs.l2_count} 条对话记忆 ·{' '}
               {report.memory_refs.l3_count} 项统计
@@ -204,7 +204,7 @@ export default function AIReportsPage() {
       >
         上一篇
       </Button>
-      <span className="text-xs text-gray-600">
+      <span className="text-xs text-gray-600 dark:text-gray-400">
         {selectedIndex + 1} / {reports.length}
       </span>
       <Button
@@ -221,7 +221,7 @@ export default function AIReportsPage() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-xl font-bold text-gray-900">AI 训练点评</h1>
+        <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">AI 训练点评</h1>
         <div className="flex flex-wrap items-center gap-2">
           <PillGroup
             options={MODE_OPTIONS}
@@ -240,7 +240,7 @@ export default function AIReportsPage() {
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
-              className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+              className="rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900"
               data-testid="date-input"
             />
           )}
@@ -273,14 +273,14 @@ export default function AIReportsPage() {
               data-testid={`report-card-${r.id}`}
               className={`w-full rounded-lg border p-4 text-left shadow-sm transition ${
                 selected?.id === r.id
-                  ? 'border-indigo-500 bg-indigo-50'
-                  : 'border-gray-200 bg-white hover:bg-gray-50'
+                  ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/50'
+                  : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800'
               }`}
             >
-              <p className="font-medium text-gray-900">
+              <p className="font-medium text-gray-900 dark:text-gray-100">
                 {r.workout_title || '未命名训练'}
               </p>
-              <p className="mt-1 flex items-center gap-2 text-xs text-gray-600">
+              <p className="mt-1 flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
                 {typeLabel(r.type)} · {r.date || '-'}
                 <ScoreBadge score={r.score} testId={`score-badge-${r.id}`} />
               </p>
@@ -298,7 +298,7 @@ export default function AIReportsPage() {
                 regenError={regenError}
               />
             ) : (
-              <div className="flex h-48 items-center justify-center rounded-lg border border-dashed border-gray-300 bg-gray-50 text-sm text-gray-600">
+              <div className="flex h-48 items-center justify-center rounded-lg border border-dashed border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-950 text-sm text-gray-600 dark:text-gray-400">
                 选择左侧报告查看详情
               </div>
             )}

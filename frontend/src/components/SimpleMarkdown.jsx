@@ -22,7 +22,7 @@ function renderInline(text, keyPrefix) {
       nodes.push(
         <code
           key={`${keyPrefix}-c${i}`}
-          className="rounded bg-gray-100 px-1 py-0.5 text-xs text-gray-800"
+          className="rounded bg-gray-100 dark:bg-gray-800 px-1 py-0.5 text-xs text-gray-800 dark:text-gray-200"
         >
           {seg.slice(1, -1)}
         </code>,
@@ -33,7 +33,7 @@ function renderInline(text, keyPrefix) {
       if (!piece) return
       if (piece.length > 4 && piece.startsWith('**') && piece.endsWith('**')) {
         nodes.push(
-          <strong key={`${keyPrefix}-b${i}-${j}`} className="font-semibold text-gray-900">
+          <strong key={`${keyPrefix}-b${i}-${j}`} className="font-semibold text-gray-900 dark:text-gray-100">
             {piece.slice(2, -2)}
           </strong>,
         )
@@ -100,7 +100,7 @@ export default function SimpleMarkdown({ text }) {
   }
   flushList()
 
-  const liClass = 'break-words text-sm text-gray-800'
+  const liClass = 'break-words text-sm text-gray-800 dark:text-gray-200'
 
   return (
     <div className="space-y-2">
@@ -109,7 +109,7 @@ export default function SimpleMarkdown({ text }) {
           return (
             <pre
               key={i}
-              className="overflow-x-auto rounded-md bg-gray-100 p-3 text-xs text-gray-700"
+              className="overflow-x-auto rounded-md bg-gray-100 dark:bg-gray-800 p-3 text-xs text-gray-700 dark:text-gray-300"
             >
               {block.text}
             </pre>
@@ -140,38 +140,38 @@ export default function SimpleMarkdown({ text }) {
         const line = block.text
         if (line.startsWith('#### ')) {
           return (
-            <h5 key={i} className="text-sm font-semibold text-gray-700">
+            <h5 key={i} className="text-sm font-semibold text-gray-700 dark:text-gray-300">
               {renderInline(line.slice(5), `h5-${i}`)}
             </h5>
           )
         }
         if (line.startsWith('### ')) {
           return (
-            <h4 key={i} className="text-sm font-bold text-gray-900">
+            <h4 key={i} className="text-sm font-bold text-gray-900 dark:text-gray-100">
               {renderInline(line.slice(4), `h4-${i}`)}
             </h4>
           )
         }
         if (line.startsWith('## ')) {
           return (
-            <h3 key={i} className="text-base font-bold text-gray-900">
+            <h3 key={i} className="text-base font-bold text-gray-900 dark:text-gray-100">
               {renderInline(line.slice(3), `h3-${i}`)}
             </h3>
           )
         }
         if (line.startsWith('# ')) {
           return (
-            <h2 key={i} className="text-lg font-bold text-gray-900">
+            <h2 key={i} className="text-lg font-bold text-gray-900 dark:text-gray-100">
               {renderInline(line.slice(2), `h2-${i}`)}
             </h2>
           )
         }
         if (HR_RE.test(line)) {
-          return <hr key={i} className="border-gray-200" />
+          return <hr key={i} className="border-gray-200 dark:border-gray-700" />
         }
         if (line.trim() === '') return null
         return (
-          <p key={i} className="break-words text-sm text-gray-800">
+          <p key={i} className="break-words text-sm text-gray-800 dark:text-gray-200">
             {renderInline(line, `p-${i}`)}
           </p>
         )

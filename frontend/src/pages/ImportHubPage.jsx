@@ -96,8 +96,8 @@ export default function ImportHubPage() {
   return (
     <div data-testid="import-hub" className="space-y-4">
       <div>
-        <h1 className="text-xl font-bold text-gray-900">数据导入</h1>
-        <p className="mt-1 text-sm text-gray-600">三种方式把训练数据同步进看板</p>
+        <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">数据导入</h1>
+        <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">三种方式把训练数据同步进看板</p>
       </div>
 
       <div className="space-y-3">
@@ -118,12 +118,12 @@ export default function ImportHubPage() {
           >
             <Card>
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600">
                   <Icon />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-gray-900">{title}</p>
-                  <p className="text-xs text-gray-600">{description}</p>
+                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{title}</p>
+                  <p className="text-xs text-gray-600 dark:text-gray-400">{description}</p>
                 </div>
                 <Button
                   variant="secondary"

@@ -54,7 +54,7 @@ describe('ReviewContent / EChartBlock', () => {
     expect(merged.yAxis.nameTextStyle.fontSize).toBe(10)
     expect(merged.xAxis.axisLabel).toMatchObject({ fontSize: 10, rotate: 30 })
     expect(merged.legend).toMatchObject({ bottom: 0, type: 'scroll', textStyle: { fontSize: 10 } })
-    expect(merged.series[0].label).toMatchObject({ show: true, position: 'top', fontSize: 9 })
+    expect(merged.series[0].label).toMatchObject({ show: true, position: 'top', fontSize: 10 })
     // 数据原样保留
     expect(merged.series[0].data).toEqual([12, 8])
     expect(merged.xAxis.data).toEqual(['07-13', '07-20'])

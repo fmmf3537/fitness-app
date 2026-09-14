@@ -81,7 +81,7 @@ export default function SyncButton({ onSynced }) {
         {syncing ? '同步中…' : '立即同步'}
       </Button>
       {syncing && (
-        <span role="status" className="text-sm text-gray-600">
+        <span role="status" className="text-sm text-gray-600 dark:text-gray-400">
           同步中（约 1-2 分钟，含 AI 点评生成）
         </span>
       )}

@@ -4,10 +4,10 @@
  */
 const VARIANT_CLASS = {
   primary: 'bg-indigo-600 text-white hover:bg-indigo-700 active:bg-indigo-800',
-  secondary: 'border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 active:bg-gray-100',
-  danger: 'border border-red-300 bg-white text-red-600 hover:bg-red-50 active:bg-red-100',
+  secondary: 'border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 active:bg-gray-100',
+  danger: 'border border-red-300 bg-white dark:bg-gray-900 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/50 active:bg-red-100',
   dangerSolid: 'bg-red-600 text-white hover:bg-red-700 active:bg-red-800',
-  ghost: 'px-3 text-indigo-600 hover:bg-indigo-50 active:bg-indigo-100',
+  ghost: 'px-3 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 active:bg-indigo-100',
 }
 
 const BASE =

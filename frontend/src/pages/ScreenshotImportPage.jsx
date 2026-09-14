@@ -36,7 +36,7 @@ function PreviewCard({ card, index, onChange, onConfirm }) {
   }
 
   return (
-    <div data-testid={`preview-card-${index}`} className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+    <div data-testid={`preview-card-${index}`} className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 shadow-sm">
       <div className="mb-2 flex items-center justify-between">
         <span className="text-sm font-medium text-gray-500">{card.filename}</span>
         {card.confirmed && (
@@ -50,7 +50,7 @@ function PreviewCard({ card, index, onChange, onConfirm }) {
           </span>
         )}
       </div>
-      <p data-testid={`confidence-hint-${index}`} className="mb-3 rounded bg-amber-50 px-3 py-2 text-xs text-amber-700">
+      <p data-testid={`confidence-hint-${index}`} className="mb-3 rounded bg-amber-50 dark:bg-amber-950/50 px-3 py-2 text-xs text-amber-700">
         以下为 AI 识别结果（未落库），请逐项核对，重点检查动作名 / 重量 / 次数，修正后再确认入库。
       </p>
 
@@ -124,7 +124,7 @@ function PreviewCard({ card, index, onChange, onConfirm }) {
       </div>
 
       {d.movements.map((mv, mi) => (
-        <div key={mi} className="mb-3 rounded border border-gray-100 bg-gray-50 p-3">
+        <div key={mi} className="mb-3 rounded border border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 p-3">
           <div className="mb-2 flex items-center gap-2">
             <input
               data-testid={`movement-name-${index}-${mi}`}
@@ -146,7 +146,7 @@ function PreviewCard({ card, index, onChange, onConfirm }) {
           </div>
           {mv.sets.map((s, si) => (
             <div key={si} className="mb-1 flex items-center gap-2 text-sm">
-              <span className="w-8 text-gray-600">{si + 1}</span>
+              <span className="w-8 text-gray-600 dark:text-gray-400">{si + 1}</span>
               <input
                 data-testid={`set-weight-${index}-${mi}-${si}`}
                 type="number"
@@ -333,14 +333,14 @@ export default function ScreenshotImportPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-bold text-gray-900">截图识别补录</h1>
-      <p className="text-sm text-gray-600">
+      <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">截图识别补录</h1>
+      <p className="text-sm text-gray-600 dark:text-gray-400">
         上传训记/佳明截图，AI 识别为结构化数据，核对确认后写入训练档案并重跑当日匹配。识别阶段不落库。
       </p>
 
       <div
         data-testid="drop-zone"
-        className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-white p-8 text-gray-600 hover:border-indigo-400"
+        className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 p-8 text-gray-600 dark:text-gray-400 hover:border-indigo-400"
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => {
           e.preventDefault()
@@ -365,12 +365,12 @@ export default function ScreenshotImportPage() {
       </div>
 
       {files.length > 0 && (
-        <ul className="rounded-lg border border-gray-200 bg-white p-3 text-sm">
+        <ul className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-3 text-sm">
           {files.map((f, i) => (
             <li key={`${f.name}-${i}`} className="flex items-center justify-between gap-2 py-1">
               <span className="min-w-0 truncate">{f.name}</span>
               <span className="flex shrink-0 items-center gap-2">
-                <span className="text-gray-600">{(f.size / 1024).toFixed(0)} KB</span>
+                <span className="text-gray-600 dark:text-gray-400">{(f.size / 1024).toFixed(0)} KB</span>
                 <button
                   type="button"
                   className="min-h-[36px] text-sm text-red-600"
@@ -397,14 +397,14 @@ export default function ScreenshotImportPage() {
       </Button>
 
       {extracting && (
-        <div data-testid="extract-progress" className="rounded-xl bg-gray-50 p-3">
-          <p className="text-xs font-medium text-gray-700">
+        <div data-testid="extract-progress" className="rounded-xl bg-gray-50 dark:bg-gray-950 p-3">
+          <p className="text-xs font-medium text-gray-700 dark:text-gray-300">
             正在识别 {files.length} 张截图…
           </p>
           <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-gray-200">
             <div className="h-full w-1/3 animate-pulse rounded-full bg-indigo-600" />
           </div>
-          <p className="mt-2 text-xs text-gray-600">
+          <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">
             AI 识别中，通常需要 10–20 秒，请耐心等待
           </p>
         </div>
@@ -424,7 +424,7 @@ export default function ScreenshotImportPage() {
             <div
               key={i}
               data-testid={`error-card-${i}`}
-              className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+              className="rounded-lg border border-red-200 bg-red-50 dark:bg-red-950/50 p-4 text-sm text-red-700"
             >
               <div className="flex items-center justify-between gap-2">
                 <p>

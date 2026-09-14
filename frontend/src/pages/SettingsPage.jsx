@@ -138,16 +138,16 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-bold text-gray-900">我的</h1>
+      <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">我的</h1>
 
       <Card className="mb-4" testId="feature-menu">
-        <h2 className="mb-1 text-sm font-semibold text-gray-900">功能</h2>
+        <h2 className="mb-1 text-sm font-semibold text-gray-900 dark:text-gray-100">功能</h2>
         <div className="divide-y divide-gray-100">
           {FEATURE_MENU.map((item) => (
             <Link
               key={item.to}
               to={item.to}
-              className="flex min-h-[44px] items-center justify-between text-sm text-gray-700"
+              className="flex min-h-[44px] items-center justify-between text-sm text-gray-700 dark:text-gray-300"
             >
               <span>{item.label}</span>
               <span className="text-gray-400" aria-hidden="true">
@@ -166,7 +166,7 @@ export default function SettingsPage() {
       {settings?.suggested_fallback && (
         <div
           data-testid="llm-fallback-banner"
-          className="flex flex-wrap items-center gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+          className="flex flex-wrap items-center gap-3 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/50 px-4 py-3 text-sm text-amber-800"
         >
           <span>
             默认模型 {settings.default_llm} 已连续失败 2 次，可一键切换备用模型（
@@ -183,35 +183,35 @@ export default function SettingsPage() {
       )}
 
       <Card testId="profile-section">
-        <h2 className="mb-1 text-sm font-medium text-gray-900">个人资料</h2>
-        <p className="mb-3 text-xs text-gray-600">
+        <h2 className="mb-1 text-sm font-medium text-gray-900 dark:text-gray-100">个人资料</h2>
+        <p className="mb-3 text-xs text-gray-600 dark:text-gray-400">
           性别与出生日期用于皮脂钳体脂率等公式计算，录入一次即可
         </p>
         {profileLoadError && (
           <p data-testid="profile-load-error" className="mb-2 text-xs text-red-600">{profileLoadError}</p>
         )}
         <div className="flex flex-wrap items-center gap-2 text-sm">
-          <label className="text-gray-700">
+          <label className="text-gray-700 dark:text-gray-300">
             性别
             <select
               data-testid="profile-gender"
               value={profileGender}
               onChange={(e) => setProfileGender(e.target.value)}
-              className="ml-2 rounded-md border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100"
+              className="ml-2 rounded-md border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900"
             >
               <option value="">未设置</option>
               <option value="male">男</option>
               <option value="female">女</option>
             </select>
           </label>
-          <label className="text-gray-700">
+          <label className="text-gray-700 dark:text-gray-300">
             出生日期
             <input
               type="date"
               data-testid="profile-birth-date"
               value={profileBirthDate}
               onChange={(e) => setProfileBirthDate(e.target.value)}
-              className="ml-2 rounded-md border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100"
+              className="ml-2 rounded-md border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900"
             />
           </label>
           <Button
@@ -226,18 +226,18 @@ export default function SettingsPage() {
       </Card>
 
       <Card>
-        <h2 className="mb-3 text-sm font-medium text-gray-900">LLM Key 配置</h2>
+        <h2 className="mb-3 text-sm font-medium text-gray-900 dark:text-gray-100">LLM Key 配置</h2>
         {!settings && !error && <Skeleton className="h-20" />}
         <div className="space-y-3">
           {(settings?.providers || []).map((p) => (
             <div
               key={p.name}
               data-testid={`llm-provider-${p.name}`}
-              className="rounded-md border border-gray-200 p-3"
+              className="rounded-md border border-gray-200 dark:border-gray-700 p-3"
             >
               <div className="flex flex-wrap items-center gap-2 text-sm">
-                <span className="font-medium text-gray-900">{p.name}</span>
-                <span className="text-xs text-gray-600">{p.default_model}</span>
+                <span className="font-medium text-gray-900 dark:text-gray-100">{p.name}</span>
+                <span className="text-xs text-gray-600 dark:text-gray-400">{p.default_model}</span>
                 {p.has_key ? (
                   <Badge variant="green">已配置</Badge>
                 ) : (
@@ -258,7 +258,7 @@ export default function SettingsPage() {
                 )}
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-2">
-                <label htmlFor={`api-key-input-${p.name}`} className="text-sm text-gray-700">
+                <label htmlFor={`api-key-input-${p.name}`} className="text-sm text-gray-700 dark:text-gray-300">
                   API Key
                 </label>
                 <input
@@ -270,9 +270,9 @@ export default function SettingsPage() {
                     setKeyInputs((s) => ({ ...s, [p.name]: e.target.value }))
                   }
                   data-testid={`key-input-${p.name}`}
-                  className="w-64 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                  className="w-64 rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900"
                 />
-                <label className="flex items-center gap-1 text-sm text-gray-700">
+                <label className="flex items-center gap-1 text-sm text-gray-700 dark:text-gray-300">
                   <input
                     type="checkbox"
                     checked={Boolean(defaultFlags[p.name])}
@@ -298,25 +298,25 @@ export default function SettingsPage() {
       </Card>
 
       <Card testId="llm-usage">
-        <h2 className="mb-3 text-sm font-medium text-gray-900">
+        <h2 className="mb-3 text-sm font-medium text-gray-900 dark:text-gray-100">
           本月用量{usage?.month ? `（${usage.month}）` : ''}
         </h2>
         {!usage && !error && <Skeleton className="h-16" />}
         {usage && (
           <div className="space-y-3 text-sm">
             <div className="flex gap-6">
-              <p data-testid="usage-total-calls" className="text-gray-700">
-                总调用：<span className="font-medium text-gray-900">{usage.total_calls}</span> 次
+              <p data-testid="usage-total-calls" className="text-gray-700 dark:text-gray-300">
+                总调用：<span className="font-medium text-gray-900 dark:text-gray-100">{usage.total_calls}</span> 次
               </p>
-              <p data-testid="usage-total-cost" className="text-gray-700">
+              <p data-testid="usage-total-cost" className="text-gray-700 dark:text-gray-300">
                 总费用：
-                <span className="font-medium text-gray-900">¥{usage.total_cost.toFixed(4)}</span>
+                <span className="font-medium text-gray-900 dark:text-gray-100">¥{usage.total_cost.toFixed(4)}</span>
               </p>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs whitespace-nowrap text-gray-600">
+              <table className="w-full text-left text-xs whitespace-nowrap text-gray-600 dark:text-gray-400">
               <thead>
-                <tr className="border-b border-gray-200 text-gray-600">
+                <tr className="border-b border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
                   <th className="py-1 pr-2 font-medium">Provider</th>
                   <th className="py-1 pr-2 font-medium">模型</th>
                   <th className="py-1 pr-2 font-medium">调用</th>
@@ -326,7 +326,7 @@ export default function SettingsPage() {
               </thead>
               <tbody>
                 {(usage.by_provider || []).map((row) => (
-                  <tr key={row.provider} className="border-b border-gray-100">
+                  <tr key={row.provider} className="border-b border-gray-100 dark:border-gray-800">
                     <td className="py-1 pr-2">{row.provider}</td>
                     <td className="py-1 pr-2">{row.model}</td>
                     <td className="py-1 pr-2">{row.calls}</td>
@@ -344,7 +344,7 @@ export default function SettingsPage() {
       </Card>
 
       <section data-testid="deleted-workouts">
-        <h2 className="mb-2 text-lg font-semibold text-gray-900">已删除的训练</h2>
+        <h2 className="mb-2 text-lg font-semibold text-gray-900 dark:text-gray-100">已删除的训练</h2>
         {deleted.length === 0 ? (
           <EmptyState title="暂无已删除的训练" description="删除的训练会出现在这里，可随时恢复" />
         ) : (
@@ -353,9 +353,9 @@ export default function SettingsPage() {
               <li
                 key={w.id}
                 data-testid={`deleted-workout-${w.id}`}
-                className="flex items-center justify-between rounded-md border border-gray-200 bg-white p-3 text-sm"
+                className="flex items-center justify-between rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-3 text-sm"
               >
-                <span className="text-gray-700">
+                <span className="text-gray-700 dark:text-gray-300">
                   {w.date} · {w.title || '未命名训练'}
                 </span>
                 <Button

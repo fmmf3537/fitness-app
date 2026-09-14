@@ -71,7 +71,7 @@ export default function WorkoutListPage() {
         <Link to="/" className="text-sm text-indigo-600 hover:underline">
           ← 返回日历
         </Link>
-        <h2 className="text-lg font-bold text-gray-900">{date} 训练列表</h2>
+        <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">{date} 训练列表</h2>
       </div>
       {error && (
         <ErrorState
@@ -97,9 +97,9 @@ export default function WorkoutListPage() {
             <li key={w.id}>
               <Link
                 to={`/workouts/${w.id}`}
-                className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm hover:border-indigo-400"
+                className="flex items-center justify-between rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-4 py-3 shadow-sm hover:border-indigo-400"
               >
-                <span className="font-medium text-gray-900">{w.title}</span>
+                <span className="font-medium text-gray-900 dark:text-gray-100">{w.title}</span>
                 <Badge variant={matchBadgeVariant(w.match_status)}>
                   {statusLabel(w.match_status)}
                 </Badge>

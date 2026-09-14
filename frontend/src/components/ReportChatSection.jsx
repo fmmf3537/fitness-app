@@ -200,7 +200,7 @@ export default function ReportChatSection({ reportId }) {
         type="button"
         data-testid="chat-expand-btn"
         onClick={() => setExpanded(true)}
-        className="mt-4 flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-indigo-300 bg-indigo-50 px-4 py-3 text-sm font-medium text-indigo-700 hover:bg-indigo-100"
+        className="mt-4 flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 px-4 py-3 text-sm font-medium text-indigo-700 hover:bg-indigo-100 dark:hover:bg-indigo-950/50"
       >
         <ChatExpandIcon />
         追问 AI 教练
@@ -211,15 +211,15 @@ export default function ReportChatSection({ reportId }) {
   return (
     <div
       data-testid="chat-section"
-      className="mt-4 rounded-lg border border-indigo-200 bg-indigo-50/50 p-4"
+      className="mt-4 rounded-lg border border-indigo-200 bg-indigo-50/50 dark:bg-indigo-950/50 p-4"
     >
       <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-gray-900">追问 AI 教练</h3>
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">追问 AI 教练</h3>
         <button
           type="button"
           data-testid="chat-collapse-btn"
           onClick={() => setExpanded(false)}
-          className="text-xs text-gray-600 hover:text-gray-700"
+          className="text-xs text-gray-600 dark:text-gray-400 hover:text-gray-700"
         >
           收起
         </button>
@@ -230,11 +230,11 @@ export default function ReportChatSection({ reportId }) {
         data-testid="chat-thread"
         className="mb-3 max-h-80 space-y-2 overflow-y-auto pr-1"
       >
-        <p className="text-xs text-gray-600" data-testid="chat-memory-hint">
+        <p className="text-xs text-gray-600 dark:text-gray-400" data-testid="chat-memory-hint">
           AI 回答会参考你的长期记忆（须知 / 对话要点 / 训练统计）
         </p>
         {messages.length === 0 && !sending && (
-          <p className="text-xs text-gray-600">
+          <p className="text-xs text-gray-600 dark:text-gray-400">
             对报告有疑问？直接提问，教练会结合报告内容解答。
           </p>
         )}
@@ -267,7 +267,7 @@ export default function ReportChatSection({ reportId }) {
                   </div>
                 )}
                 {metaLine(m, true) && (
-                  <p className="mt-0.5 text-right text-xs text-gray-600">{metaLine(m, true)}</p>
+                  <p className="mt-0.5 text-right text-xs text-gray-600 dark:text-gray-400">{metaLine(m, true)}</p>
                 )}
               </div>
             </div>
@@ -276,12 +276,12 @@ export default function ReportChatSection({ reportId }) {
               <div className="max-w-[85%]">
                 <div
                   data-testid={`chat-msg-assistant-${m.id}`}
-                  className="rounded-2xl rounded-bl-sm border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800"
+                  className="rounded-2xl rounded-bl-sm border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-800 dark:text-gray-200"
                 >
                   <SimpleMarkdown text={m.content} />
                 </div>
                 {metaLine(m, false) && (
-                  <p className="mt-0.5 text-xs text-gray-600">{metaLine(m, false)}</p>
+                  <p className="mt-0.5 text-xs text-gray-600 dark:text-gray-400">{metaLine(m, false)}</p>
                 )}
               </div>
             </div>
@@ -291,7 +291,7 @@ export default function ReportChatSection({ reportId }) {
           <div className="flex justify-start">
             <div
               data-testid="chat-thinking"
-              className="rounded-2xl rounded-bl-sm border border-gray-200 bg-white px-3 py-2 text-sm text-gray-500"
+              className="rounded-2xl rounded-bl-sm border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-500"
             >
               教练思考中…
             </div>
@@ -313,7 +313,7 @@ export default function ReportChatSection({ reportId }) {
           rows={1}
           maxLength={1000}
           placeholder="输入你的问题（回车发送，Shift+回车换行）"
-          className="max-h-36 min-h-[44px] min-w-0 flex-1 resize-none rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+          className="max-h-36 min-h-[44px] min-w-0 flex-1 resize-none rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
         />
         <Button
           variant="primary"

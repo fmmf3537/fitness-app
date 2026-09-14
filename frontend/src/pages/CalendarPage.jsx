@@ -77,7 +77,7 @@ export default function CalendarPage({ initialMonth }) {
         </Button>
         <h2
           data-testid="current-month"
-          className="shrink-0 whitespace-nowrap text-lg font-bold text-gray-900"
+          className="shrink-0 whitespace-nowrap text-lg font-bold text-gray-900 dark:text-gray-100"
         >
           {month}
         </h2>
@@ -124,11 +124,11 @@ export default function CalendarPage({ initialMonth }) {
                   key={date}
                   data-testid={`day-${date}`}
                   onClick={() => navigate(`/workouts?date=${date}`)}
-                  className={`flex min-h-16 flex-col items-center rounded-md border border-gray-200 bg-white p-1 text-sm hover:border-indigo-400 ${
-                    (dayMap[date]?.workouts?.length || 0) > 0 ? 'bg-indigo-50' : ''
+                  className={`flex min-h-16 flex-col items-center rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-1 text-sm hover:border-indigo-400 ${
+                    (dayMap[date]?.workouts?.length || 0) > 0 ? 'bg-indigo-50 dark:bg-indigo-950/50' : ''
                   }`}
                 >
-                  <span className="text-gray-800">{Number(date.slice(-2))}</span>
+                  <span className="text-gray-800 dark:text-gray-200">{Number(date.slice(-2))}</span>
                   <span className="mt-1 flex flex-wrap justify-center gap-1">
                     {(dayMap[date]?.workouts || []).map((w) => (
                       <span
@@ -144,7 +144,7 @@ export default function CalendarPage({ initialMonth }) {
             )}
           </div>
 
-          <div className="mt-4 flex flex-wrap gap-3 text-xs text-gray-600">
+          <div className="mt-4 flex flex-wrap gap-3 text-xs text-gray-600 dark:text-gray-400">
             <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-green-500" />已匹配</span>
             <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-indigo-500" />仅单源</span>
             <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" />待确认</span>

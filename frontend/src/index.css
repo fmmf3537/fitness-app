@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* UIX-09：class 型 dark variant（html.dark），便于测试与后续手动开关 */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* ===== 语义色约定（UIX-01 设计地基）=====
  * 主操作色：indigo-600（唯一主按钮色；green/emerald/amber 不再作按钮底色）
  * 危险操作：red-600（默认描边按钮 Button variant="danger"，实心仅 ConfirmDialog 确认键）

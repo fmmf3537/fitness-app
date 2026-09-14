@@ -141,7 +141,7 @@ export default function CoachPreferencesPage({ embedded = false }) {
   return (
     <div className="space-y-4" data-testid="coach-preferences-page">
       <div className={`flex items-center ${embedded ? 'justify-end' : 'justify-between'}`}>
-        {!embedded && <h1 className="text-xl font-bold text-gray-900">教练须知</h1>}
+        {!embedded && <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">教练须知</h1>}
         <Button
           variant="primary"
           testId="create-preference-btn"
@@ -182,9 +182,9 @@ export default function CoachPreferencesPage({ embedded = false }) {
             {preferences.map((pref) => (
               <li key={pref.id} data-testid={`preference-${pref.id}`} className="mb-3">
                 <Card>
-                  <p className="whitespace-pre-wrap text-sm text-gray-900">{pref.content}</p>
+                  <p className="whitespace-pre-wrap text-sm text-gray-900 dark:text-gray-100">{pref.content}</p>
                   {pref.tags ? (
-                    <p className="mt-1 text-xs text-gray-600" data-testid={`preference-tags-${pref.id}`}>
+                    <p className="mt-1 text-xs text-gray-600 dark:text-gray-400" data-testid={`preference-tags-${pref.id}`}>
                       {pref.tags}
                     </p>
                   ) : null}
@@ -226,16 +226,16 @@ export default function CoachPreferencesPage({ embedded = false }) {
       </section>
 
       {drafts.length > 0 && (
-        <section data-testid="drafts-section" className="rounded-lg bg-amber-50 p-4">
-          <h2 className="text-lg font-semibold text-gray-900">AI 草稿（待确认）</h2>
-          <p className="mt-1 text-sm text-gray-600">由最近一周复盘从对话中自动提炼</p>
+        <section data-testid="drafts-section" className="rounded-lg bg-amber-50 dark:bg-amber-950/50 p-4">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">AI 草稿（待确认）</h2>
+          <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">由最近一周复盘从对话中自动提炼</p>
           <ul className="mt-3">
             {drafts.map((draft) => (
               <li key={draft.id} data-testid={`draft-${draft.id}`} className="mb-3">
                 <Card>
-                  <p className="whitespace-pre-wrap text-sm text-gray-900">{draft.content}</p>
+                  <p className="whitespace-pre-wrap text-sm text-gray-900 dark:text-gray-100">{draft.content}</p>
                   {draft.tags ? (
-                    <p className="mt-1 text-xs text-gray-600">{draft.tags}</p>
+                    <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">{draft.tags}</p>
                   ) : null}
                   <div className="mt-2 flex flex-wrap items-center gap-1">
                     {draft.source ? (
@@ -279,12 +279,12 @@ export default function CoachPreferencesPage({ embedded = false }) {
         >
           <form
             onSubmit={handleSaveModal}
-            className="w-full max-w-md rounded-lg bg-white p-4 shadow-lg mb-[env(safe-area-inset-bottom)]"
+            className="w-full max-w-md rounded-lg bg-white dark:bg-gray-900 p-4 shadow-lg mb-[env(safe-area-inset-bottom)]"
           >
-            <h3 className="mb-3 text-sm font-medium text-gray-900">
+            <h3 className="mb-3 text-sm font-medium text-gray-900 dark:text-gray-100">
               {editingPref.id != null ? '编辑须知' : '新建须知'}
             </h3>
-            <label className="mb-1 block text-xs text-gray-600" htmlFor="pref-content">
+            <label className="mb-1 block text-xs text-gray-600 dark:text-gray-400" htmlFor="pref-content">
               内容
             </label>
             <textarea
@@ -294,9 +294,9 @@ export default function CoachPreferencesPage({ embedded = false }) {
               rows={4}
               value={editingPref.content}
               onChange={(e) => setEditingPref({ ...editingPref, content: e.target.value })}
-              className="mb-3 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+              className="mb-3 w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900"
             />
-            <label className="mb-1 block text-xs text-gray-600" htmlFor="pref-tags">
+            <label className="mb-1 block text-xs text-gray-600 dark:text-gray-400" htmlFor="pref-tags">
               标签（逗号分隔，可选）
             </label>
             <input
@@ -305,7 +305,7 @@ export default function CoachPreferencesPage({ embedded = false }) {
               type="text"
               value={editingPref.tags}
               onChange={(e) => setEditingPref({ ...editingPref, tags: e.target.value })}
-              className="mb-4 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+              className="mb-4 w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900"
               placeholder="伤病,忌讳,目标"
             />
             <div className="flex justify-end gap-2">

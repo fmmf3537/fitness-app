@@ -90,7 +90,7 @@ export default function BackfillPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-gray-900">历史数据导入</h1>
+        <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">历史数据导入</h1>
         <Button
           variant="primary"
           testId="backfill-start"
@@ -107,19 +107,19 @@ export default function BackfillPage() {
       {status && (
         <div
           data-testid="backfill-status"
-          className="space-y-4 rounded-lg border border-gray-200 bg-white p-4 shadow-sm"
+          className="space-y-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 shadow-sm"
         >
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-700">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-700 dark:text-gray-300">
             {overallLabel === phaseLabel ? (
               <span>
                 阶段：
-                <span className="font-medium text-gray-900">{phaseLabel}</span>
+                <span className="font-medium text-gray-900 dark:text-gray-100">{phaseLabel}</span>
               </span>
             ) : (
               <>
                 <span>
                   整体状态：
-                  <span className="font-medium text-gray-900">{overallLabel}</span>
+                  <span className="font-medium text-gray-900 dark:text-gray-100">{overallLabel}</span>
                 </span>
                 <span>阶段：{phaseLabel}</span>
               </>
@@ -140,8 +140,8 @@ export default function BackfillPage() {
               const progress = sourceProgress(key, status.details?.[key])
               return (
                 <div key={key} data-testid={testId} className="text-sm">
-                  <div className="mb-1 flex items-center justify-between text-gray-700">
-                    <span className="font-medium text-gray-900">{label}</span>
+                  <div className="mb-1 flex items-center justify-between text-gray-700 dark:text-gray-300">
+                    <span className="font-medium text-gray-900 dark:text-gray-100">{label}</span>
                     <span>{progress.text}</span>
                   </div>
                   <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-200">
@@ -156,7 +156,7 @@ export default function BackfillPage() {
           </div>
 
           {status.errors?.length > 0 && (
-            <div className="rounded-md bg-red-50 p-3 text-xs text-red-700">
+            <div className="rounded-md bg-red-50 dark:bg-red-950/50 p-3 text-xs text-red-700">
               <p className="mb-1 font-medium">错误（{status.errors.length}）：</p>
               <ul className="list-inside list-disc space-y-0.5">
                 {status.errors.map((e, i) => (

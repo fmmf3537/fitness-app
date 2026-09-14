@@ -57,13 +57,13 @@ export default function ConfirmDialog({
         aria-modal="true"
         aria-labelledby="confirm-dialog-title"
         data-testid="confirm-dialog"
-        className="relative w-full max-w-sm rounded-xl bg-white p-5 shadow-xl mb-[env(safe-area-inset-bottom)]"
+        className="relative w-full max-w-sm rounded-xl bg-white dark:bg-gray-900 p-5 shadow-xl mb-[env(safe-area-inset-bottom)]"
       >
-        <h2 id="confirm-dialog-title" className="text-base font-semibold text-gray-900">
+        <h2 id="confirm-dialog-title" className="text-base font-semibold text-gray-900 dark:text-gray-100">
           {title}
         </h2>
         {description != null && description !== '' && (
-          <p className="mt-1 text-sm text-gray-600">{description}</p>
+          <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">{description}</p>
         )}
         <div className="mt-4 flex gap-3">
           <Button

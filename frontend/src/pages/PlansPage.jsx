@@ -26,18 +26,18 @@ function formatTargetSets(targetSets) {
 function PlanReviewBlock({ report }) {
   const { markdown, review } = parsePlanReview(report?.content_md)
   return (
-    <div data-testid={`review-${report.date}`} className="mt-3 space-y-3 border-t border-gray-100 pt-3">
+    <div data-testid={`review-${report.date}`} className="mt-3 space-y-3 border-t border-gray-100 dark:border-gray-800 pt-3">
       {markdown && <ReviewContent text={markdown} />}
       {review && review.modifications.length > 0 && (
         <div>
-          <h4 className="mb-1 text-sm font-bold text-gray-900">修改建议</h4>
+          <h4 className="mb-1 text-sm font-bold text-gray-900 dark:text-gray-100">修改建议</h4>
           <div className="overflow-x-auto">
             <table
               data-testid={`modifications-${report.date}`}
               className="w-full border-collapse text-xs whitespace-nowrap"
             >
             <thead>
-              <tr className="border-b border-gray-300 text-left text-gray-600">
+              <tr className="border-b border-gray-300 dark:border-gray-600 text-left text-gray-600 dark:text-gray-400">
                 <th className="py-1 pr-2 font-medium">动作</th>
                 <th className="py-1 pr-2 font-medium">调整项</th>
                 <th className="py-1 pr-2 font-medium">原计划</th>
@@ -47,7 +47,7 @@ function PlanReviewBlock({ report }) {
             </thead>
             <tbody>
               {review.modifications.map((m, i) => (
-                <tr key={i} className="border-b border-gray-100 text-gray-700">
+                <tr key={i} className="border-b border-gray-100 dark:border-gray-800 text-gray-700 dark:text-gray-300">
                   <td className="py-1 pr-2">{m.movement}</td>
                   <td className="py-1 pr-2">{fieldLabel(m.field)}</td>
                   <td className="py-1 pr-2">{m.from ?? '—'}</td>
@@ -60,7 +60,7 @@ function PlanReviewBlock({ report }) {
           </div>
         </div>
       )}
-      <p className="rounded-md bg-amber-50 p-2 text-xs font-medium text-amber-800">
+      <p className="rounded-md bg-amber-50 dark:bg-amber-950/50 p-2 text-xs font-medium text-amber-800">
         {READONLY_NOTICE}
       </p>
     </div>
@@ -194,7 +194,7 @@ export default function PlansPage() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-lg font-bold text-gray-900">训练计划</h2>
+        <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">训练计划</h2>
         <div className="flex items-center gap-2">
           <Button
             variant="primary"
@@ -204,7 +204,7 @@ export default function PlansPage() {
           >
             {refreshing ? '刷新中…' : '刷新计划'}
           </Button>
-          {refreshMsg && <p role="status" className="text-sm text-gray-600">{refreshMsg}</p>}
+          {refreshMsg && <p role="status" className="text-sm text-gray-600 dark:text-gray-400">{refreshMsg}</p>}
         </div>
       </div>
 
@@ -236,18 +236,18 @@ export default function PlansPage() {
             <li
               key={day.date}
               data-testid={`rest-day-${day.date}`}
-              className="rounded-lg bg-gray-50 p-3 text-sm text-gray-600"
+              className="rounded-lg bg-gray-50 dark:bg-gray-950 p-3 text-sm text-gray-600 dark:text-gray-400"
             >
               {day.date} · 休息日
             </li>
           ) : (
-            <li key={day.date} className="rounded-lg bg-white p-4 shadow">
+            <li key={day.date} className="rounded-lg bg-white dark:bg-gray-900 p-4 shadow">
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <p className="text-sm font-bold text-gray-900">
+                  <p className="text-sm font-bold text-gray-900 dark:text-gray-100">
                     {day.date} · {day.plan_name || day.plan_ref || '未命名计划'}
                   </p>
-                  {day.title && <p className="mt-0.5 text-xs text-gray-600">{day.title}</p>}
+                  {day.title && <p className="mt-0.5 text-xs text-gray-600 dark:text-gray-400">{day.title}</p>}
                 </div>
                 <Button
                   variant="primary"
@@ -264,10 +264,10 @@ export default function PlansPage() {
                   <li
                     key={i}
                     data-testid={`movement-${day.date}-${i}`}
-                    className="text-sm text-gray-700"
+                    className="text-sm text-gray-700 dark:text-gray-300"
                   >
                     {mv.name}
-                    <span className="ml-2 text-xs text-gray-600">
+                    <span className="ml-2 text-xs text-gray-600 dark:text-gray-400">
                       {formatTargetSets(mv.target_sets)}
                     </span>
                   </li>

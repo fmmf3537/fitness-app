@@ -10,7 +10,7 @@ export default function PillGroup({ options = [], value, onChange, testId }) {
           'rounded-md px-3 text-sm font-medium min-h-[44px]',
           active
             ? 'bg-indigo-600 text-white'
-            : 'text-gray-700 hover:bg-gray-200 active:bg-gray-300',
+            : 'text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 active:bg-gray-300',
         ].join(' ')
         return (
           <button

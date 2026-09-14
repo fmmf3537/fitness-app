@@ -82,12 +82,12 @@ export default function LoginPage() {
       </div>
 
       {/* 登录卡片 */}
-      <div className="rounded-t-3xl bg-white px-6 pb-[max(2rem,env(safe-area-inset-bottom))] pt-8 shadow-2xl">
-        <h2 className="text-lg font-bold text-gray-900">登录</h2>
-        <p className="mt-1 text-sm text-gray-600">输入访问口令继续</p>
+      <div className="rounded-t-3xl bg-white dark:bg-gray-900 px-6 pb-[max(2rem,env(safe-area-inset-bottom))] pt-8 shadow-2xl">
+        <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">登录</h2>
+        <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">输入访问口令继续</p>
 
         <form onSubmit={handleSubmit} className="mt-6">
-          <label htmlFor="password" className="mb-1 block text-sm font-medium text-gray-700">
+          <label htmlFor="password" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
             口令
           </label>
           <input
@@ -95,7 +95,7 @@ export default function LoginPage() {
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="mb-4 w-full min-h-[44px] rounded-md border border-gray-300 px-3 py-2 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 focus:outline-none"
+            className="mb-4 w-full min-h-[44px] rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900 focus:outline-none"
             placeholder="请输入访问口令"
             required
           />
@@ -113,7 +113,7 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <p className="mt-6 text-center text-xs text-gray-600">
+        <p className="mt-6 text-center text-xs text-gray-600 dark:text-gray-400">
           登录后自动返回你之前打开的页面
         </p>
       </div>

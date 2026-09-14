@@ -42,7 +42,7 @@ function isTrendsEmpty(data) {
 function ChartCard({ title, option, testId, empty }) {
   return (
     <Card>
-      <h2 className="mb-2 text-sm font-medium text-gray-900">{title}</h2>
+      <h2 className="mb-2 text-sm font-medium text-gray-900 dark:text-gray-100">{title}</h2>
       {empty ? (
         <EmptyState
           title="暂无趋势数据"
@@ -83,7 +83,7 @@ export default function TrendsPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-gray-900">训练趋势</h1>
+        <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">训练趋势</h1>
         <PillGroup
           options={WEEK_OPTIONS}
           value={weeks}

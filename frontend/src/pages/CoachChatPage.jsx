@@ -186,8 +186,8 @@ export default function CoachChatPage({ embedded = false }) {
       className={`mx-auto flex h-full flex-col ${isMobile ? 'max-w-2xl' : 'max-w-3xl'}`}
     >
       {!embedded && (
-        <div className="flex items-center justify-between border-b bg-white px-4 py-3">
-          <h1 className="text-xl font-bold text-gray-900">跟教练聊聊</h1>
+        <div className="flex items-center justify-between border-b bg-white dark:bg-gray-900 px-4 py-3">
+          <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">跟教练聊聊</h1>
           <Button variant="danger" testId="chat-clear-btn" onClick={() => setClearOpen(true)}>
             清空对话
           </Button>
@@ -249,7 +249,7 @@ export default function CoachChatPage({ embedded = false }) {
                   </div>
                 )}
                 {metaLine(m, true) && (
-                  <p className="mt-0.5 text-right text-xs text-gray-600">{metaLine(m, true)}</p>
+                  <p className="mt-0.5 text-right text-xs text-gray-600 dark:text-gray-400">{metaLine(m, true)}</p>
                 )}
               </div>
             </div>
@@ -262,12 +262,12 @@ export default function CoachChatPage({ embedded = false }) {
               <div className="max-w-[85%]">
                 <div
                   data-testid={`chat-msg-assistant-${m.id}`}
-                  className="rounded-2xl rounded-bl-sm bg-gray-100 px-3 py-2 text-sm text-gray-800"
+                  className="rounded-2xl rounded-bl-sm bg-gray-100 dark:bg-gray-800 px-3 py-2 text-sm text-gray-800 dark:text-gray-200"
                 >
                   <SimpleMarkdown text={m.content} />
                 </div>
                 {metaLine(m, false) && (
-                  <p className="mt-0.5 text-xs text-gray-600">{metaLine(m, false)}</p>
+                  <p className="mt-0.5 text-xs text-gray-600 dark:text-gray-400">{metaLine(m, false)}</p>
                 )}
               </div>
             </div>
@@ -277,7 +277,7 @@ export default function CoachChatPage({ embedded = false }) {
           <div className="flex justify-start">
             <div
               data-testid="chat-thinking"
-              className="rounded-2xl rounded-bl-sm bg-gray-100 px-3 py-2 text-sm text-gray-500"
+              className="rounded-2xl rounded-bl-sm bg-gray-100 dark:bg-gray-800 px-3 py-2 text-sm text-gray-500"
             >
               教练思考中…
             </div>
@@ -291,7 +291,7 @@ export default function CoachChatPage({ embedded = false }) {
         </div>
       )}
 
-      <div className="flex items-end gap-2 border-t bg-white px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <div className="flex items-end gap-2 border-t bg-white dark:bg-gray-900 px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <textarea
           ref={inputRef}
           data-testid="chat-input"
@@ -305,7 +305,7 @@ export default function CoachChatPage({ embedded = false }) {
           rows={1}
           maxLength={4000}
           placeholder="输入你的问题（回车发送，Shift+回车换行）"
-          className="max-h-36 min-h-[44px] min-w-0 flex-1 resize-none rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+          className="max-h-36 min-h-[44px] min-w-0 flex-1 resize-none rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
         />
         <Button
           variant="primary"

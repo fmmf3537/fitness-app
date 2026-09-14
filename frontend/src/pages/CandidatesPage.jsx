@@ -9,10 +9,10 @@ import { formatDateTime } from '../utils/status'
 
 function Side({ title, lines }) {
   return (
-    <div className="flex-1 rounded-md bg-gray-50 p-3">
-      <p className="mb-1 text-xs font-medium text-gray-600">{title}</p>
+    <div className="flex-1 rounded-md bg-gray-50 dark:bg-gray-950 p-3">
+      <p className="mb-1 text-xs font-medium text-gray-600 dark:text-gray-400">{title}</p>
       {lines.map((line, i) => (
-        <p key={i} className="text-sm text-gray-800">
+        <p key={i} className="text-sm text-gray-800 dark:text-gray-200">
           {line}
         </p>
       ))}
@@ -61,7 +61,7 @@ function CandidateCard({ candidate, onResolve }) {
             <Side title="佳明" lines={['无佳明记录']} />
           )}
         </div>
-        <p className="mt-2 text-xs text-gray-600">原因：{candidate.reason}</p>
+        <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">原因：{candidate.reason}</p>
         {error && (
           <p role="alert" className="mt-2 text-sm text-red-600">
             {error}
@@ -116,7 +116,7 @@ export default function CandidatesPage() {
 
   return (
     <div>
-      <h2 className="mb-4 text-lg font-bold text-gray-900">待确认队列</h2>
+      <h2 className="mb-4 text-lg font-bold text-gray-900 dark:text-gray-100">待确认队列</h2>
       {error && (
         <ErrorState
           message={`加载失败：${error}`}

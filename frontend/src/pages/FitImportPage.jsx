@@ -65,8 +65,8 @@ export default function FitImportPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-bold text-gray-900">佳明文件导入</h1>
-      <p className="text-sm text-gray-600">
+      <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">佳明文件导入</h1>
+      <p className="text-sm text-gray-600 dark:text-gray-400">
         佳明接口不可用时的降级通道，也支持 Strava/华为/咕咚/两步路等平台导出的通用格式：
         上传 FIT / TCX / GPX / KML 文件（KML 需含 gx:Track 时间戳轨迹）。
         系统会解析并写入训练档案，自动触发当日匹配融合。
@@ -75,7 +75,7 @@ export default function FitImportPage() {
 
       <div
         data-testid="drop-zone"
-        className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-white p-8 text-gray-600 hover:border-indigo-400"
+        className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 p-8 text-gray-600 dark:text-gray-400 hover:border-indigo-400"
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => {
           e.preventDefault()
@@ -99,7 +99,7 @@ export default function FitImportPage() {
       </div>
 
       {file && (
-        <p data-testid="file-info" className="text-sm text-gray-600">
+        <p data-testid="file-info" className="text-sm text-gray-600 dark:text-gray-400">
           已选择：{file.name}（{(file.size / 1024).toFixed(0)} KB）
         </p>
       )}
@@ -114,12 +114,12 @@ export default function FitImportPage() {
       </Button>
 
       {importing && (
-        <div data-testid="import-progress" className="rounded-xl bg-gray-50 p-3">
-          <p className="text-xs font-medium text-gray-700">正在解析并导入文件…</p>
+        <div data-testid="import-progress" className="rounded-xl bg-gray-50 dark:bg-gray-950 p-3">
+          <p className="text-xs font-medium text-gray-700 dark:text-gray-300">正在解析并导入文件…</p>
           <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-gray-200">
             <div className="h-full w-1/3 animate-pulse rounded-full bg-indigo-600" />
           </div>
-          <p className="mt-2 text-xs text-gray-600">通常需要几秒到几十秒</p>
+          <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">通常需要几秒到几十秒</p>
         </div>
       )}
 
@@ -132,7 +132,7 @@ export default function FitImportPage() {
       {result && (
         <div
           data-testid="import-result"
-          className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-800"
+          className="rounded-lg border border-green-200 bg-green-50 dark:bg-green-950/50 p-4 text-sm text-green-800"
         >
           <p className="font-medium">导入成功</p>
           <p className="mt-1">

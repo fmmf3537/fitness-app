@@ -2,7 +2,7 @@ const VARIANT_CLASS = {
   indigo: 'bg-indigo-100 text-indigo-700',
   green: 'bg-green-100 text-green-700',
   amber: 'bg-amber-100 text-amber-800',
-  gray: 'bg-gray-100 text-gray-600',
+  gray: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400',
   red: 'bg-red-100 text-red-700',
 }
 

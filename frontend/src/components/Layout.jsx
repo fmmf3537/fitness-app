@@ -54,7 +54,7 @@ export default function Layout() {
 
   const linkClass = ({ isActive }) =>
     `px-3 py-2 rounded-md text-sm font-medium ${
-      isActive ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-200'
+      isActive ? 'bg-indigo-600 text-white' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
     }`
 
   const mobileLinkClass = ({ isActive }) => `block ${linkClass({ isActive })}`
@@ -70,11 +70,11 @@ export default function Layout() {
     ) : null
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm pt-[env(safe-area-inset-top)]">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+      <header className="bg-white dark:bg-gray-900 shadow-sm pt-[env(safe-area-inset-top)]">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
           <div className="flex items-center gap-2">
-            <span className="text-lg font-bold text-gray-900">健身看板</span>
+            <span className="text-lg font-bold text-gray-900 dark:text-gray-100">健身看板</span>
             {!isMobile && (
               <nav className="ml-4 flex gap-1">
                 {NAV_LINKS.map((link) => (
@@ -89,7 +89,7 @@ export default function Layout() {
           <div className="flex items-center gap-2">
             <button
               onClick={handleLogout}
-              className="rounded-md px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200"
+              className="rounded-md px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
             >
               退出登录
             </button>
@@ -100,7 +100,7 @@ export default function Layout() {
                 aria-label="菜单"
                 aria-expanded={menuOpen}
                 onClick={() => setMenuOpen((open) => !open)}
-                className="rounded-md px-3 py-2 text-lg leading-none text-gray-700 hover:bg-gray-200"
+                className="rounded-md px-3 py-2 text-lg leading-none text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
               >
                 ☰
               </button>
@@ -108,7 +108,7 @@ export default function Layout() {
           </div>
         </div>
         {isMobile && menuOpen && (
-          <nav data-testid="mobile-nav" className="border-t border-gray-100 px-4 py-2">
+          <nav data-testid="mobile-nav" className="border-t border-gray-100 dark:border-gray-800 px-4 py-2">
             <div className="mx-auto flex max-w-5xl flex-col gap-1">
               {SECONDARY_LINKS.map((link) => (
                 <NavLink

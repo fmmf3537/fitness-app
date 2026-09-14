@@ -81,7 +81,7 @@ export default function SessionReviewSection({ workout }) {
   return (
     <Card className="space-y-2">
       <div className="flex items-center justify-between gap-2">
-        <h3 className="text-base font-bold text-gray-900">本次训练点评</h3>
+        <h3 className="text-base font-bold text-gray-900 dark:text-gray-100">本次训练点评</h3>
         <SharePosterButton key={report.id} report={report} workout={workout} />
       </div>
       <SimpleMarkdown text={report.content_md} />

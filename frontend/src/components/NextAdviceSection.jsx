@@ -36,7 +36,7 @@ function DiffTable({ diff }) {
     <div className="overflow-x-auto">
       <table className="mt-2 w-full border-collapse text-xs whitespace-nowrap">
       <thead>
-        <tr className="border-b border-gray-300 text-left text-gray-600">
+        <tr className="border-b border-gray-300 dark:border-gray-600 text-left text-gray-600 dark:text-gray-400">
           <th className="py-1 pr-2 font-medium">字段</th>
           <th className="py-1 pr-2 font-medium">原值</th>
           <th className="py-1 font-medium">新值</th>
@@ -46,7 +46,7 @@ function DiffTable({ diff }) {
         {(diff || []).map((row, i) => (
           <tr
             key={i}
-            className={`border-b border-gray-100 ${row.changed ? 'bg-amber-100 font-medium' : 'text-gray-600'}`}
+            className={`border-b border-gray-100 dark:border-gray-800 ${row.changed ? 'bg-amber-100 font-medium' : 'text-gray-600 dark:text-gray-400'}`}
           >
             <td className="py-1 pr-2">{row.field}</td>
             <td className="py-1 pr-2">{formatValue(row.old)}</td>
@@ -115,14 +115,14 @@ function SuggestionCard({ suggestion, index, autoWritable, workout }) {
   }
 
   return (
-    <li className="rounded-md border border-gray-200 p-3">
+    <li className="rounded-md border border-gray-200 dark:border-gray-700 p-3">
       <div className="flex items-start justify-between gap-2">
         <div>
-          <p className="text-sm font-medium text-gray-900">{suggestion.movement}</p>
-          <p className="mt-1 text-xs text-gray-600">
+          <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{suggestion.movement}</p>
+          <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
             原参数：{formatParams(suggestion.original)} → 建议：{formatParams(suggestion.suggested)}
           </p>
-          <p className="mt-1 text-xs text-gray-600">{suggestion.reason}</p>
+          <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">{suggestion.reason}</p>
         </div>
         {autoWritable && !result && (
           <Button
@@ -135,16 +135,16 @@ function SuggestionCard({ suggestion, index, autoWritable, workout }) {
           </Button>
         )}
       </div>
-      {error && <p className="mt-2 rounded-md bg-red-50 p-2 text-xs text-red-700">{error}</p>}
+      {error && <p className="mt-2 rounded-md bg-red-50 dark:bg-red-950/50 p-2 text-xs text-red-700">{error}</p>}
       {result && (
-        <p className="mt-2 rounded-md bg-green-50 p-2 text-xs text-green-700">{result}</p>
+        <p className="mt-2 rounded-md bg-green-50 dark:bg-green-950/50 p-2 text-xs text-green-700">{result}</p>
       )}
       {autoWritable && preview && (
         <div
           data-testid={`writeback-preview-${index}`}
-          className="mt-2 rounded-md bg-gray-50 p-3 text-xs text-gray-700"
+          className="mt-2 rounded-md bg-gray-50 dark:bg-gray-950 p-3 text-xs text-gray-700 dark:text-gray-300"
         >
-          <p className="font-medium text-gray-800">
+          <p className="font-medium text-gray-800 dark:text-gray-200">
             写回预览（{preview.datestr} · localid {preview.localid}）——元数据（localid/起止时间/备注）将原样保留
           </p>
           <DiffTable diff={preview.diff} />
@@ -159,7 +159,7 @@ function SuggestionCard({ suggestion, index, autoWritable, workout }) {
         </div>
       )}
       {!autoWritable && (
-        <p className="mt-2 rounded-md bg-amber-50 p-2 text-xs text-amber-800">{MANUAL_GUIDE}</p>
+        <p className="mt-2 rounded-md bg-amber-50 dark:bg-amber-950/50 p-2 text-xs text-amber-800">{MANUAL_GUIDE}</p>
       )}
       <ConfirmDialog
         open={confirmOpen}
@@ -243,7 +243,7 @@ export default function NextAdviceSection({ workout }) {
 
   return (
     <Card className="space-y-4">
-      <h3 className="text-base font-bold text-gray-900">下次训练建议</h3>
+      <h3 className="text-base font-bold text-gray-900 dark:text-gray-100">下次训练建议</h3>
 
       {markdown && <SimpleMarkdown text={markdown} />}
 
@@ -252,7 +252,7 @@ export default function NextAdviceSection({ workout }) {
           <div data-testid="auto-writable-block">
             <h4 className="mb-2 text-sm font-bold text-green-700">可自动写回</h4>
             {grouped.auto_writable.length === 0 ? (
-              <p className="text-xs text-gray-600">无</p>
+              <p className="text-xs text-gray-600 dark:text-gray-400">无</p>
             ) : (
               <ul className="space-y-2">
                 {grouped.auto_writable.map((s, i) => (
@@ -264,7 +264,7 @@ export default function NextAdviceSection({ workout }) {
           <div data-testid="manual-block">
             <h4 className="mb-2 text-sm font-bold text-amber-700">需手动调整</h4>
             {grouped.manual.length === 0 ? (
-              <p className="text-xs text-gray-600">无</p>
+              <p className="text-xs text-gray-600 dark:text-gray-400">无</p>
             ) : (
               <ul className="space-y-2">
                 {grouped.manual.map((s, i) => (

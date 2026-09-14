@@ -82,7 +82,7 @@ export default function BottomTabs() {
   return (
     <nav
       data-testid="bottom-tabs"
-      className="fixed inset-x-0 bottom-0 z-40 flex border-t border-gray-200 bg-white pb-[env(safe-area-inset-bottom)]"
+      className="fixed inset-x-0 bottom-0 z-40 flex border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 pb-[env(safe-area-inset-bottom)]"
     >
       {TABS.map(({ to, label, end, Icon: TabIcon }) => (
         <NavLink
