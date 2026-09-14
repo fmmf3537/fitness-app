@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import Badge from '../components/ui/Badge'
 import Button from '../components/ui/Button'
@@ -6,6 +7,16 @@ import Card from '../components/ui/Card'
 import EmptyState from '../components/ui/EmptyState'
 import ErrorState from '../components/ui/ErrorState'
 import Skeleton from '../components/ui/Skeleton'
+
+// UIX-06：「我的」功能菜单（承载从一级导航撤下的低频入口）
+const FEATURE_MENU = [
+  { to: '/ai-reports', label: 'AI 报告' },
+  { to: '/reviews', label: '复盘中心' },
+  { to: '/candidates', label: '待确认队列' },
+  { to: '/body-metrics', label: '身体数据' },
+  { to: '/import', label: '数据导入' },
+  { to: '/coach?tab=prefs', label: '教练须知' },
+]
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState(null)
@@ -127,7 +138,25 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-bold text-gray-900">设置</h1>
+      <h1 className="text-xl font-bold text-gray-900">我的</h1>
+
+      <Card className="mb-4" testId="feature-menu">
+        <h2 className="mb-1 text-sm font-semibold text-gray-900">功能</h2>
+        <div className="divide-y divide-gray-100">
+          {FEATURE_MENU.map((item) => (
+            <Link
+              key={item.to}
+              to={item.to}
+              className="flex min-h-[44px] items-center justify-between text-sm text-gray-700"
+            >
+              <span>{item.label}</span>
+              <span className="text-gray-400" aria-hidden="true">
+                ›
+              </span>
+            </Link>
+          ))}
+        </div>
+      </Card>
 
       {error && (
         <ErrorState message={error} onRetry={loadSettings} testId="settings-error" />

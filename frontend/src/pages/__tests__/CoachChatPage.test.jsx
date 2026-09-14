@@ -266,4 +266,23 @@ describe('CoachChatPage', () => {
     expect(body.content).toContain('第一行')
     expect(body.content).toContain('第二行')
   })
+
+  it('非 embedded 渲染页首 h1「跟教练聊聊」与清空按钮', async () => {
+    mockGet([])
+    renderPage()
+    expect(await screen.findByRole('heading', { name: '跟教练聊聊' })).toBeInTheDocument()
+    expect(screen.getByTestId('chat-clear-btn')).toBeInTheDocument()
+  })
+
+  it('embedded 时不渲染页首 h1，清空按钮仍保留', async () => {
+    mockGet([])
+    render(
+      <MemoryRouter>
+        <CoachChatPage embedded />
+      </MemoryRouter>,
+    )
+    expect(await screen.findByTestId('chat-empty')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '跟教练聊聊' })).not.toBeInTheDocument()
+    expect(screen.getByTestId('chat-clear-btn')).toBeInTheDocument()
+  })
 })

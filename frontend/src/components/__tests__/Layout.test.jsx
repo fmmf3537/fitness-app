@@ -25,13 +25,16 @@ describe('Layout 导航', () => {
         </Routes>
       </MemoryRouter>,
     )
+    // UIX-06：桌面 NAV_LINKS 8 项
     const links = [
       ['训练日历', '/'],
       ['待确认队列', '/candidates'],
+      ['训练计划', '/plans'],
+      ['复盘中心', '/reviews'],
       ['AI 报告', '/ai-reports'],
       ['趋势', '/trends'],
-      ['导入', '/backfill'],
-      ['设置', '/settings'],
+      ['教练', '/coach'],
+      ['我的', '/settings'],
     ]
     for (const [name, href] of links) {
       const link = await screen.findByRole('link', { name })
@@ -89,18 +92,19 @@ describe('Layout 移动端汉堡菜单与底部 Tab', () => {
     renderLayout()
     await user.click(screen.getByTestId('nav-toggle'))
     const menu = screen.getByTestId('mobile-nav')
+    // UIX-06：汉堡 SECONDARY_LINKS 5 项
     const secondary = [
       ['待确认队列', '/candidates'],
       ['复盘中心', '/reviews'],
+      ['AI 报告', '/ai-reports'],
       ['身体数据', '/body-metrics'],
-      ['截图导入', '/screenshot-import'],
-      ['文件导入', '/fit-import'],
-      ['历史补录', '/backfill'],
+      ['数据导入', '/import'],
     ]
     for (const [name, href] of secondary) {
       expect(within(menu).getByRole('link', { name })).toHaveAttribute('href', href)
     }
-    for (const name of ['训练日历', '训练计划', 'AI报告', '趋势', '我的']) {
+    // 底部 Tab 主入口（短标签）不在汉堡中
+    for (const name of ['日历', '计划', '趋势', '教练', '我的']) {
       expect(within(menu).queryByRole('link', { name })).not.toBeInTheDocument()
     }
   })

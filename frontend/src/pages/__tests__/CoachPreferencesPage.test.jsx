@@ -259,4 +259,23 @@ describe('CoachPreferencesPage', () => {
     expect(screen.getByTestId('pref-content-input')).toHaveValue(PREF.content)
     expect(screen.getByTestId('pref-tags-input')).toHaveValue(PREF.tags)
   })
+
+  it('非 embedded 渲染页首 h1「教练须知」', async () => {
+    mockLoad({ preferences: [], drafts: [] })
+    renderPage()
+    expect(await screen.findByRole('heading', { name: '教练须知' })).toBeInTheDocument()
+    expect(screen.getByTestId('create-preference-btn')).toBeInTheDocument()
+  })
+
+  it('embedded 时不渲染页首 h1，新建按钮仍保留', async () => {
+    mockLoad({ preferences: [], drafts: [] })
+    render(
+      <MemoryRouter>
+        <CoachPreferencesPage embedded />
+      </MemoryRouter>,
+    )
+    expect(await screen.findByText('暂无须知')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '教练须知' })).not.toBeInTheDocument()
+    expect(screen.getByTestId('create-preference-btn')).toBeInTheDocument()
+  })
 })

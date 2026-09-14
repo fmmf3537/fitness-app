@@ -52,8 +52,9 @@ function FailIcon() {
 /**
  * V5-6 独立教练聊天页：不绑 report_id，支持历史 / 发送 / 清空。
  * UI 模式借鉴 ReportChatSection（气泡、回车发送、失败重试复用 client_request_id）。
+ * UIX-06：embedded 时由 CoachHubPage 承载页首，本页仅渲染聊天视图。
  */
-export default function CoachChatPage() {
+export default function CoachChatPage({ embedded = false }) {
   const isMobile = useIsMobile()
   const [messages, setMessages] = useState([])
   const [loaded, setLoaded] = useState(false)
@@ -190,12 +191,22 @@ export default function CoachChatPage() {
       data-testid="coach-chat-page"
       className={`mx-auto flex h-full flex-col ${isMobile ? 'max-w-2xl' : 'max-w-3xl'}`}
     >
-      <div className="flex items-center justify-between border-b bg-white px-4 py-3">
-        <h1 className="text-xl font-bold text-gray-900">跟教练聊聊</h1>
-        <Button variant="danger" testId="chat-clear-btn" onClick={() => setClearOpen(true)}>
-          清空对话
-        </Button>
-      </div>
+      {!embedded && (
+        <div className="flex items-center justify-between border-b bg-white px-4 py-3">
+          <h1 className="text-xl font-bold text-gray-900">跟教练聊聊</h1>
+          <Button variant="danger" testId="chat-clear-btn" onClick={() => setClearOpen(true)}>
+            清空对话
+          </Button>
+        </div>
+      )}
+
+      {embedded && (
+        <div className="flex justify-end px-4 pt-2">
+          <Button variant="danger" testId="chat-clear-btn" onClick={() => setClearOpen(true)}>
+            清空对话
+          </Button>
+        </div>
+      )}
 
       <div
         ref={threadRef}

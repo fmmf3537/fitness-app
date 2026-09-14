@@ -1,7 +1,16 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import SettingsPage from '../SettingsPage'
+
+function renderPage() {
+  return render(
+    <MemoryRouter>
+      <SettingsPage />
+    </MemoryRouter>,
+  )
+}
 
 function mockResponse(data, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: async () => data }
@@ -144,7 +153,7 @@ describe('SettingsPage', () => {
         }
         return baseFetch(url, options)
       })
-      render(<SettingsPage />)
+      renderPage()
 
       const item = await screen.findByTestId('deleted-workout-9')
       expect(item).toHaveTextContent('胸部训练')
@@ -157,13 +166,13 @@ describe('SettingsPage', () => {
     })
 
     it('无已删除训练时显示空态', async () => {
-      render(<SettingsPage />)
+      renderPage()
       expect(await screen.findByText(/暂无已删除的训练/)).toBeInTheDocument()
     })
   })
 
   it('正常渲染 provider 列表与本月用量', async () => {
-    render(<SettingsPage />)
+    renderPage()
     expect(await screen.findByTestId('llm-provider-deepseek')).toBeInTheDocument()
     expect(screen.getByTestId('llm-provider-qwen')).toBeInTheDocument()
     expect(screen.getByTestId('llm-provider-deepseek').textContent).toContain('已配置')
@@ -184,7 +193,7 @@ describe('SettingsPage', () => {
 
   it('输入新 Key 保存成功显示提示并发起 PUT', async () => {
     const user = userEvent.setup()
-    render(<SettingsPage />)
+    renderPage()
     await screen.findByTestId('llm-provider-deepseek')
 
     await user.type(screen.getByTestId('key-input-deepseek'), 'sk-new-key')
@@ -202,7 +211,7 @@ describe('SettingsPage', () => {
 
   it('勾选设为默认后保存携带 set_default=true', async () => {
     const user = userEvent.setup()
-    render(<SettingsPage />)
+    renderPage()
     await screen.findByTestId('llm-provider-qwen')
 
     await user.type(screen.getByTestId('key-input-qwen'), 'sk-qwen')
@@ -223,7 +232,7 @@ describe('SettingsPage', () => {
   it('保存失败显示 role="alert" 错误', async () => {
     installFetch({ putStatus: 400 })
     const user = userEvent.setup()
-    render(<SettingsPage />)
+    renderPage()
     await screen.findByTestId('llm-provider-deepseek')
 
     await user.type(screen.getByTestId('key-input-deepseek'), 'sk-bad')
@@ -234,7 +243,7 @@ describe('SettingsPage', () => {
 
   it('设置加载失败显示错误提示', async () => {
     globalThis.fetch = vi.fn(() => Promise.resolve(mockResponse({ detail: 'boom' }, 500)))
-    render(<SettingsPage />)
+    renderPage()
     expect(await screen.findByRole('alert')).toBeInTheDocument()
   })
 
@@ -249,7 +258,7 @@ describe('SettingsPage', () => {
     }
     installFetch({ settings: withKey })
     const user = userEvent.setup()
-    render(<SettingsPage />)
+    renderPage()
     await screen.findByTestId('llm-provider-deepseek')
 
     const btn = screen.getByTestId('quick-default-qwen')
@@ -267,7 +276,7 @@ describe('SettingsPage', () => {
   })
 
   it('默认 provider 不提供快捷切换按钮', async () => {
-    render(<SettingsPage />)
+    renderPage()
     await screen.findByTestId('llm-provider-deepseek')
     expect(screen.queryByTestId('quick-default-deepseek')).not.toBeInTheDocument()
   })
@@ -275,7 +284,7 @@ describe('SettingsPage', () => {
   it('默认模型连续失败 ≥2 次时显示降级横幅，一键切备用模型', async () => {
     installFetch({ settings: FAILING_SETTINGS })
     const user = userEvent.setup()
-    render(<SettingsPage />)
+    renderPage()
 
     const banner = await screen.findByTestId('llm-fallback-banner')
     expect(banner.textContent).toContain('deepseek')
@@ -294,7 +303,7 @@ describe('SettingsPage', () => {
   })
 
   it('无连续失败时不显示降级横幅', async () => {
-    render(<SettingsPage />)
+    renderPage()
     await screen.findByTestId('llm-provider-deepseek')
     expect(screen.queryByTestId('llm-fallback-banner')).not.toBeInTheDocument()
   })
@@ -303,7 +312,7 @@ describe('SettingsPage', () => {
 
   it('profile GET 返回 male + 日期 → 输入框正确回显', async () => {
     installFetch({ profile: { gender: 'male', birth_date: '1990-04-15' } })
-    render(<SettingsPage />)
+    renderPage()
 
     expect(await screen.findByTestId('profile-section')).toBeInTheDocument()
     expect(screen.getByTestId('profile-gender')).toHaveValue('male')
@@ -315,7 +324,7 @@ describe('SettingsPage', () => {
       profile: { gender: null, birth_date: null },
     })
     const user = userEvent.setup()
-    render(<SettingsPage />)
+    renderPage()
     await screen.findByTestId('profile-section')
 
     // 日期输入在 jsdom 下用 fireEvent.change 更稳定
@@ -329,5 +338,25 @@ describe('SettingsPage', () => {
     expect(putBodies).toContainEqual(
       expect.objectContaining({ gender: 'male', birth_date: '1990-04-15' }),
     )
+  })
+
+  // ---------- UIX-06：我的 · 功能菜单 ----------
+
+  it('h1 文案为「我的」，页首渲染 feature-menu 及 6 个菜单项 href', async () => {
+    renderPage()
+    expect(await screen.findByRole('heading', { name: '我的' })).toBeInTheDocument()
+    const menu = screen.getByTestId('feature-menu')
+    expect(within(menu).getByText('功能')).toBeInTheDocument()
+    const items = [
+      ['AI 报告', '/ai-reports'],
+      ['复盘中心', '/reviews'],
+      ['待确认队列', '/candidates'],
+      ['身体数据', '/body-metrics'],
+      ['数据导入', '/import'],
+      ['教练须知', '/coach?tab=prefs'],
+    ]
+    for (const [name, href] of items) {
+      expect(within(menu).getByRole('link', { name })).toHaveAttribute('href', href)
+    }
   })
 })

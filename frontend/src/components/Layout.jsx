@@ -7,30 +7,25 @@ import useNativeStatusBar from '../hooks/useNativeStatusBar'
 import BottomTabs from './BottomTabs'
 import { ToastProvider } from './ui/Toast'
 
+// UIX-06：桌面导航 13→8；导入/身体数据/教练须知撤入「我的」或汉堡
 const NAV_LINKS = [
   { to: '/', label: '训练日历', end: true },
   { to: '/candidates', label: '待确认队列', badge: true },
   { to: '/plans', label: '训练计划' },
-  { to: '/ai-reports', label: 'AI 报告' },
   { to: '/reviews', label: '复盘中心' },
+  { to: '/ai-reports', label: 'AI 报告' },
   { to: '/trends', label: '趋势' },
-  { to: '/body-metrics', label: '身体数据' },
-  { to: '/backfill', label: '导入' },
-  { to: '/screenshot-import', label: '截图补录' },
-  { to: '/fit-import', label: '文件导入' },
-  { to: '/settings', label: '设置' },
-  { to: '/coach-preferences', label: '教练须知' },
-  { to: '/coach', label: '跟教练聊聊' },
+  { to: '/coach', label: '教练' },
+  { to: '/settings', label: '我的' },
 ]
 
-// 移动端汉堡菜单仅保留次级入口；主入口（含 V5 教练须知 / 聊天）由 BottomTabs 承载
+// 移动端汉堡：次级入口；主入口由 BottomTabs 承载
 const SECONDARY_LINKS = [
   { to: '/candidates', label: '待确认队列', badge: true },
   { to: '/reviews', label: '复盘中心' },
+  { to: '/ai-reports', label: 'AI 报告' },
   { to: '/body-metrics', label: '身体数据' },
-  { to: '/screenshot-import', label: '截图导入' },
-  { to: '/fit-import', label: '文件导入' },
-  { to: '/backfill', label: '历史补录' },
+  { to: '/import', label: '数据导入' },
 ]
 
 export default function Layout() {

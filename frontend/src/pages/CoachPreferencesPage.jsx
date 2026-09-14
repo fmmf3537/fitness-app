@@ -8,7 +8,8 @@ import EmptyState from '../components/ui/EmptyState'
 import ErrorState from '../components/ui/ErrorState'
 import Skeleton from '../components/ui/Skeleton'
 
-export default function CoachPreferencesPage() {
+/** UIX-06：embedded 时不渲染页首 h1（由 CoachHubPage 承载） */
+export default function CoachPreferencesPage({ embedded = false }) {
   const [preferences, setPreferences] = useState([])
   const [drafts, setDrafts] = useState([])
   const [loading, setLoading] = useState(false)
@@ -139,8 +140,8 @@ export default function CoachPreferencesPage() {
 
   return (
     <div className="space-y-4" data-testid="coach-preferences-page">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-gray-900">教练须知</h1>
+      <div className={`flex items-center ${embedded ? 'justify-end' : 'justify-between'}`}>
+        {!embedded && <h1 className="text-xl font-bold text-gray-900">教练须知</h1>}
         <Button
           variant="primary"
           testId="create-preference-btn"

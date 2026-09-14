@@ -41,12 +41,6 @@ const PlansIcon = () => (
   </Icon>
 )
 
-const SparklesIcon = () => (
-  <Icon>
-    <path d="M12 3l1.9 5.8a2 2 0 0 0 1.3 1.3L21 12l-5.8 1.9a2 2 0 0 0-1.3 1.3L12 21l-1.9-5.8a2 2 0 0 0-1.3-1.3L3 12l5.8-1.9a2 2 0 0 0 1.3-1.3L12 3z" />
-  </Icon>
-)
-
 const TrendIcon = () => (
   <Icon>
     <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
@@ -61,27 +55,18 @@ const UserIcon = () => (
   </Icon>
 )
 
-// V5：教练须知 + 跟教练聊聊（SVG icon）
-const BookIcon = () => (
-  <Icon>
-    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-  </Icon>
-)
-
 const ChatIcon = () => (
   <Icon>
     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
   </Icon>
 )
 
+// UIX-06：底部 5 Tab — 日历 / 计划 / 趋势 / 教练 / 我的
 const TABS = [
-  { to: '/', label: '训练日历', end: true, Icon: CalendarIcon },
-  { to: '/plans', label: '训练计划', Icon: PlansIcon },
-  { to: '/ai-reports', label: 'AI报告', Icon: SparklesIcon },
+  { to: '/', label: '日历', end: true, Icon: CalendarIcon },
+  { to: '/plans', label: '计划', Icon: PlansIcon },
   { to: '/trends', label: '趋势', Icon: TrendIcon },
-  { to: '/coach-preferences', label: '教练须知', Icon: BookIcon },
-  { to: '/coach', label: '聊天', Icon: ChatIcon },
+  { to: '/coach', label: '教练', Icon: ChatIcon },
   { to: '/settings', label: '我的', Icon: UserIcon },
 ]
 
