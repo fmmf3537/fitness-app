@@ -314,3 +314,29 @@ git push origin main
 
 **推荐**：在服务器 crontab 或 commit-msg hook 里增加"commit 后 1 小时内未 push 提醒"，避免再次发生。本次处理用 `git pull --no-rebase origin main` 配合 `ort` 策略已完成重整（merge commit `6690f09`），下次仍需 `git push origin main` 让 GitHub 同步此 merge 点。
 ```
+
+
+### 12.8 IP 直连模式下 preflight 的 80/443/caddy 检查为不适用项
+
+**现象**（2026-09-14 V7 部署实测）：`scripts/preflight.sh` 报 2 项 [FAIL]——「端口 80 被占用」「容器 caddy 未运行」。
+
+**定性**：均为误报。无域名 IP 直连模式（§6）下：
+
+- 站点由 frontend 容器 `8080->80` 映射直接提供服务，不经 caddy/HTTPS，**caddy 容器从未创建属正常状态**
+- 宿主机 80 端口被系统级 nginx（非本项目容器）占用属既存状态，与本项目无关——**切勿为"修复"此项去动宿主机 nginx**
+
+**处置**：IP 模式下这两项视为通过，不做任何修复动作。preflight 的 80/443/caddy 检查是为「域名 + HTTPS」模式设计的；如频繁造成部署中断，可考虑给 preflight.sh 加 SITE_ADDRESS 判断跳过该组检查（待办，未实现）。
+
+### 12.9 运维记录
+
+**2026-09-14 · V7 部署（UIX-01~09 前端大版本）** — 已验收
+
+- 范围：`c6d09c4 → ff1e2f2`（12 提交，纯前端 + 文档；backend 零改动、无迁移）
+- 执行：服务器 Kimi Code CLI 按 `docs/cursor-prompts/DEPLOY-V7-KIMI.md` 执行；备份 `backups_predeploy_20260914_1646/`（36.6 MB）；仅重建 frontend，backend/postgres/backup StartedAt 未变；alembic 保持 `c8d9e0f1a2b3 (head)`
+- preflight 2 项 [FAIL] 经确认为 IP 模式误报（见 §12.8）
+- **踩坑**：部署成功后浏览器仍显示旧版——原因是浏览器缓存旧 `index.html`（引用旧 bundle 哈希），强刷/无痕即恢复；服务器侧验证方法：对比线上 bundle 哈希与本地 `frontend/dist/` 构建产物哈希（一致即代码已生效），手机端看不到先清缓存再走 §12.3 no-cache 重建
+
+**2026-09-14 · UIX-10 增量部署（06-report 复盘详情原型）** — 待执行
+
+- 范围：`ff1e2f2 → 7d659c3`（1 提交，仅 frontend 7 文件；无迁移）
+- 提示词：`docs/cursor-prompts/DEPLOY-UIX10-KIMI.md`；验收重点：复盘中心周复盘详情（评分卡头 / 正文分卡 / 追问 CTA / 分享本周海报）
