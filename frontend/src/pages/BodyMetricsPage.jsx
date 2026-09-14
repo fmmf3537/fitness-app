@@ -243,6 +243,7 @@ export default function BodyMetricsPage() {
             <>
               <input
                 type="number"
+                inputMode="decimal"
                 step="0.1"
                 placeholder="收缩压"
                 data-testid="metric-bp-systolic"
@@ -252,6 +253,7 @@ export default function BodyMetricsPage() {
               />
               <input
                 type="number"
+                inputMode="decimal"
                 step="0.1"
                 placeholder="舒张压"
                 data-testid="metric-bp-diastolic"
@@ -263,6 +265,7 @@ export default function BodyMetricsPage() {
           ) : (
             <input
               type="number"
+              inputMode="decimal"
               step="0.01"
               placeholder="数值"
               data-testid="metric-value"

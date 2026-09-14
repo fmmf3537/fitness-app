@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { CHART_PALETTE } from '../echartsMobile'
 import {
   buildBodyMetricOption,
   buildBodyPartOption,
@@ -106,6 +107,7 @@ describe('移动端适配（mobile 参数）', () => {
     { week_start: '2026-07-13', parts: { 胸: 2, 背: 1 } },
     { week_start: '2026-07-20', parts: { 腿: 3 } },
   ]
+  const MOBILE_GRID = { top: 56, left: 8, right: 8, bottom: 44, containLabel: true }
 
   it('desktop 缺省：输出与基线一致（grid/legend/无 axisLabel 改造）', () => {
     const option = buildBodyPartOption(PARTS)
@@ -118,23 +120,23 @@ describe('移动端适配（mobile 参数）', () => {
     expect(buildBodyPartOption(PARTS, { mobile: false })).toEqual(option)
   })
 
-  it('mobile：x 轴标签 rotate 45、fontSize 10、YYYY-MM-DD 裁剪为 MM-DD', () => {
+  it('mobile：x 轴标签 rotate 30、fontSize 10、YYYY-MM-DD 裁剪为 MM-DD', () => {
     const option = buildWeeklyVolumeOption(WEEKLY, { mobile: true })
-    expect(option.xAxis.axisLabel.rotate).toBe(45)
+    expect(option.xAxis.axisLabel.rotate).toBe(30)
     expect(option.xAxis.axisLabel.fontSize).toBe(10)
     expect(option.xAxis.axisLabel.formatter('2026-07-13')).toBe('07-13')
     // 非日期值原样返回（value 轴不被误伤）
     expect(option.xAxis.axisLabel.formatter('7.2')).toBe('7.2')
   })
 
-  it('mobile：legend 可滚动且缩小，grid 移动端值，y 轴名称去掉防叠字', () => {
+  it('mobile：legend 可滚动且缩小，grid 统一 MOBILE_GRID，y 轴 name 保留', () => {
     const option = buildBodyPartOption(PARTS, { mobile: true })
     expect(option.legend.type).toBe('scroll')
     expect(option.legend.textStyle.fontSize).toBe(10)
-    expect(option.legend.itemWidth).toBeLessThan(20)
-    expect(option.legend.itemGap).toBeLessThan(10)
-    expect(option.grid).toEqual({ left: 40, right: 12, top: 56, bottom: 48 })
-    expect(option.yAxis.name).toBeUndefined()
+    expect(option.legend.bottom).toBe(0)
+    expect(option.grid).toEqual(MOBILE_GRID)
+    expect(option.yAxis.name).toBe('次数')
+    expect(option.yAxis.nameTextStyle.fontSize).toBe(10)
   })
 
   it('mobile：四个构建函数统一应用移动端 grid 与 x 轴标签', () => {
@@ -148,10 +150,34 @@ describe('移动端适配（mobile 参数）', () => {
       buildSleepVolumeOption([{ sleep_hours: 7.2, volume_tons: 4.1 }], { mobile: true }),
     ]
     for (const o of options) {
-      expect(o.grid).toEqual({ left: 40, right: 12, top: 56, bottom: 48 })
-      expect(o.xAxis.axisLabel.rotate).toBe(45)
+      expect(o.grid).toEqual(MOBILE_GRID)
+      expect(o.xAxis.axisLabel.rotate).toBe(30)
       expect(o.xAxis.axisLabel.fontSize).toBe(10)
     }
+  })
+})
+
+describe('色板与无障碍', () => {
+  it('柱状/散点/折线引用 CHART_PALETTE，散点 symbolSize 为 16，aria 开启', () => {
+    const weekly = buildWeeklyVolumeOption([])
+    expect(weekly.series[0].itemStyle.color).toBe(CHART_PALETTE[0])
+    expect(weekly.aria).toEqual({ enabled: true })
+
+    const parts = buildBodyPartOption([{ week_start: '2026-07-13', parts: { 胸: 1 } }])
+    expect(parts.color).toEqual(CHART_PALETTE)
+    expect(parts.aria.enabled).toBe(true)
+
+    const metrics = buildBodyMetricOption({
+      weight: [{ date: '2026-07-15', value: 72 }],
+      bodyfat: [{ date: '2026-07-15', value: 18 }],
+    })
+    expect(metrics.series[0].itemStyle.color).toBe(CHART_PALETTE[0])
+    expect(metrics.series[1].itemStyle.color).toBe(CHART_PALETTE[1])
+
+    const sleep = buildSleepVolumeOption([])
+    expect(sleep.series[0].symbolSize).toBe(16)
+    expect(sleep.series[0].itemStyle.color).toBe(CHART_PALETTE[1])
+    expect(sleep.aria.enabled).toBe(true)
   })
 })
 

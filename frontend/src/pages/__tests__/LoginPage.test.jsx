@@ -107,4 +107,11 @@ describe('LoginPage', () => {
     expect(screen.getByLabelText('口令')).toHaveClass('min-h-[44px]')
     expect(screen.getByRole('button', { name: '登录' })).toHaveClass('min-h-[44px]')
   })
+
+  it('品牌区含 Logo svg 与标题「健身看板」', () => {
+    const { container } = renderLogin()
+    expect(screen.getByRole('heading', { level: 1, name: '健身看板' })).toBeInTheDocument()
+    expect(container.querySelector('svg')).not.toBeNull()
+    expect(screen.getByRole('heading', { level: 2, name: '登录' })).toBeInTheDocument()
+  })
 })

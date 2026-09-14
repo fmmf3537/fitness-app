@@ -251,6 +251,7 @@ export default function SkinfoldPanel({ onSaved }) {
                 {s.name_zh}
                 <input
                   type="number"
+                  inputMode="decimal"
                   step="0.1"
                   placeholder="mm"
                   data-testid={`site-input-${s.key}`}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mergeMobileOption } from '../echartsMobile'
+import { CHART_PALETTE, mergeMobileOption } from '../echartsMobile'
 
 const BASE_OPTION = {
   title: { text: '近 4 周训练容量趋势图', left: 'left', textStyle: { fontSize: 18, color: '#111' } },
@@ -69,9 +69,9 @@ describe('mergeMobileOption', () => {
     expect(next.xAxis.axisLabel.rotate).toBeUndefined()
   })
 
-  it('series：每个系列的 label 字号缩小为 9，原有 label 配置保留', () => {
+  it('series：每个系列的 label 字号缩小为 10，原有 label 配置保留', () => {
     const next = mergeMobileOption(BASE_OPTION)
-    expect(next.series[0].label.fontSize).toBe(9)
+    expect(next.series[0].label.fontSize).toBe(10)
     expect(next.series[0].label.show).toBe(true)
     expect(next.series[0].label.position).toBe('top')
     expect(next.series[0].data).toEqual([12, 8])
@@ -79,7 +79,7 @@ describe('mergeMobileOption', () => {
 
   it('series 无 label 时新建 label 对象', () => {
     const next = mergeMobileOption({ series: [{ type: 'line', data: [1, 2] }] })
-    expect(next.series[0].label).toEqual({ fontSize: 9 })
+    expect(next.series[0].label).toEqual({ fontSize: 10 })
   })
 
   it('无 legend/title/grid 时安全新建', () => {
@@ -112,5 +112,34 @@ describe('mergeMobileOption', () => {
     const snapshot = JSON.parse(JSON.stringify(BASE_OPTION))
     mergeMobileOption(input)
     expect(input).toEqual(snapshot)
+  })
+
+  it('overrides.grid 深合并覆盖 MOBILE_GRID 对应键', () => {
+    const next = mergeMobileOption(BASE_OPTION, { grid: { right: 40 } })
+    expect(next.grid).toEqual({
+      top: 56,
+      left: 8,
+      right: 40,
+      bottom: 44,
+      containLabel: true,
+    })
+  })
+
+  it('overrides.xAxisLabel 整体替换 axisLabel', () => {
+    const label = { rotate: 30, fontSize: 10, formatter: '{MM}-{dd}' }
+    const next = mergeMobileOption(BASE_OPTION, { xAxisLabel: label })
+    expect(next.xAxis.axisLabel).toEqual(label)
+  })
+})
+
+describe('CHART_PALETTE', () => {
+  it('五色定序：indigo/sky/amber/rose/emerald', () => {
+    expect(CHART_PALETTE).toEqual([
+      '#4f46e5',
+      '#0ea5e9',
+      '#f59e0b',
+      '#e11d48',
+      '#10b981',
+    ])
   })
 })

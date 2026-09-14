@@ -1,8 +1,10 @@
-// V3-10：AI 报告内嵌 ECharts 的移动端适配。
-// LLM 生成的 option 按桌面宽度假设，窄屏下标题/Y 轴名/柱顶标签/图例相互重叠；
-// 此处仅在渲染层对解析后的 option 做深合并覆盖（不动 LLM 原文），与 V3-3 applyMobile 同思路。
+// 全站唯一移动端图表适配入口：对解析后的 option 做深合并覆盖（不动原文）。
+// 趋势页 applyMobile 退化为本 helper 的特化 wrapper（time/category formatter）。
 
 const MOBILE_GRID = { top: 56, left: 8, right: 8, bottom: 44, containLabel: true }
+
+/** 图表统一色板（定序循环）：主系列 / 次系列 / 对比 / 心率或警示 / 正向 */
+export const CHART_PALETTE = ['#4f46e5', '#0ea5e9', '#f59e0b', '#e11d48', '#10b981']
 
 function asObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {}
@@ -31,9 +33,12 @@ function mergeLegend(legend) {
   return next
 }
 
-function mergeXAxis(xAxis) {
+function mergeXAxis(xAxis, xAxisLabelOverride) {
   const mergeOne = (axis) => {
     const a = asObject(axis)
+    if (xAxisLabelOverride !== undefined) {
+      return { ...a, axisLabel: xAxisLabelOverride }
+    }
     const isCategory = !a.type || a.type === 'category'
     return {
       ...a,
@@ -60,23 +65,27 @@ function mergeSeries(series) {
   if (!Array.isArray(series)) return series
   return series.map((s) => {
     const item = asObject(s)
-    return { ...item, label: { ...asObject(item.label), fontSize: 9 } }
+    return { ...item, label: { ...asObject(item.label), fontSize: 10 } }
   })
 }
 
 /**
- * 移动端合并：title 居中缩小、grid 紧凑、类目轴标签缩小旋转、y 轴名缩小、
- * 图例底部滚动、系列标签缩小。输入 option 不被修改；缺省键安全新建。
+ * 移动端合并：title 居中缩小、grid 紧凑 + containLabel、类目轴标签缩小旋转 30°、
+ * y 轴名保留并缩小、图例底部滚动、系列标签字号 10。
+ * overrides.grid 存在时深合并覆盖 MOBILE_GRID 对应键；
+ * overrides.xAxisLabel 存在时整体替换 xAxis.axisLabel（兼容 time 轴 formatter 特化）。
+ * 输入 option 不被修改；缺省键安全新建。
  */
-export function mergeMobileOption(option) {
+export function mergeMobileOption(option, overrides = {}) {
   const src = asObject(option)
+  const ov = asObject(overrides)
   const next = {
     ...src,
     title: mergeTitle(src.title),
-    grid: { ...asObject(src.grid), ...MOBILE_GRID },
+    grid: { ...asObject(src.grid), ...MOBILE_GRID, ...asObject(ov.grid) },
     legend: mergeLegend(src.legend),
   }
-  if (src.xAxis !== undefined) next.xAxis = mergeXAxis(src.xAxis)
+  if (src.xAxis !== undefined) next.xAxis = mergeXAxis(src.xAxis, ov.xAxisLabel)
   if (src.yAxis !== undefined) next.yAxis = mergeYAxis(src.yAxis)
   if (src.series !== undefined) next.series = mergeSeries(src.series)
   return next

@@ -49,7 +49,7 @@ function ChartCard({ title, option, testId, empty }) {
           description="完成一次训练后即可查看趋势"
         />
       ) : (
-        <TrendChart option={option} testId={testId} />
+        <TrendChart option={option} testId={testId} ariaLabel={title} />
       )}
     </Card>
   )

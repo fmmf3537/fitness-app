@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import * as echarts from 'echarts'
 
-export default function TrendChart({ option, testId }) {
+export default function TrendChart({ option, testId, ariaLabel = '趋势图表' }) {
   const ref = useRef(null)
 
   useEffect(() => {
@@ -18,5 +18,13 @@ export default function TrendChart({ option, testId }) {
     }
   }, [option])
 
-  return <div ref={ref} data-testid={testId} className="h-72 w-full" />
+  return (
+    <div
+      ref={ref}
+      data-testid={testId}
+      role="img"
+      aria-label={ariaLabel}
+      className="h-72 w-full"
+    />
+  )
 }
