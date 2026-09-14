@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api/client'
+import Badge from '../components/ui/Badge'
+import Button from '../components/ui/Button'
+import Card from '../components/ui/Card'
+import EmptyState from '../components/ui/EmptyState'
+import ErrorState from '../components/ui/ErrorState'
+import Skeleton from '../components/ui/Skeleton'
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState(null)
@@ -12,7 +18,6 @@ export default function SettingsPage() {
   const [deleted, setDeleted] = useState([])
 
   // V4-4：个人资料（性别 + 出生日期，皮脂钳公式所需）
-  const [profile, setProfile] = useState(null)
   const [profileGender, setProfileGender] = useState('')
   const [profileBirthDate, setProfileBirthDate] = useState('')
   const [profileSaving, setProfileSaving] = useState(false)
@@ -34,7 +39,6 @@ export default function SettingsPage() {
   const loadProfile = useCallback(() => {
     return api('/api/settings/profile')
       .then((data) => {
-        setProfile(data)
         setProfileGender(data.gender || '')
         setProfileBirthDate(data.birth_date || '')
       })
@@ -90,7 +94,6 @@ export default function SettingsPage() {
       body: JSON.stringify(payload),
     })
       .then((data) => {
-        setProfile(data)
         setProfileGender(data.gender || '')
         setProfileBirthDate(data.birth_date || '')
         setMessage('个人资料已保存')
@@ -126,7 +129,9 @@ export default function SettingsPage() {
     <div className="space-y-4">
       <h1 className="text-xl font-bold text-gray-900">设置</h1>
 
-      {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+      {error && (
+        <ErrorState message={error} onRetry={loadSettings} testId="settings-error" />
+      )}
       {message && <p className="text-sm text-green-600">{message}</p>}
 
       {settings?.suggested_fallback && (
@@ -138,22 +143,19 @@ export default function SettingsPage() {
             默认模型 {settings.default_llm} 已连续失败 2 次，可一键切换备用模型（
             {settings.suggested_fallback}）重试。
           </span>
-          <button
+          <Button
+            variant="secondary"
             onClick={() => handleSwitchDefault(settings.suggested_fallback)}
-            data-testid="fallback-switch-btn"
-            className="rounded-md bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700"
+            testId="fallback-switch-btn"
           >
             切换到 {settings.suggested_fallback} 并重试
-          </button>
+          </Button>
         </div>
       )}
 
-      <section
-        data-testid="profile-section"
-        className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm"
-      >
+      <Card testId="profile-section">
         <h2 className="mb-1 text-sm font-medium text-gray-900">个人资料</h2>
-        <p className="mb-3 text-xs text-gray-500">
+        <p className="mb-3 text-xs text-gray-600">
           性别与出生日期用于皮脂钳体脂率等公式计算，录入一次即可
         </p>
         {profileLoadError && (
@@ -166,7 +168,7 @@ export default function SettingsPage() {
               data-testid="profile-gender"
               value={profileGender}
               onChange={(e) => setProfileGender(e.target.value)}
-              className="ml-2 rounded-md border border-gray-300 px-2 py-1 text-sm"
+              className="ml-2 rounded-md border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100"
             >
               <option value="">未设置</option>
               <option value="male">男</option>
@@ -180,24 +182,23 @@ export default function SettingsPage() {
               data-testid="profile-birth-date"
               value={profileBirthDate}
               onChange={(e) => setProfileBirthDate(e.target.value)}
-              className="ml-2 rounded-md border border-gray-300 px-2 py-1 text-sm"
+              className="ml-2 rounded-md border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100"
             />
           </label>
-          <button
-            type="button"
+          <Button
+            variant="primary"
             onClick={handleSaveProfile}
             disabled={profileSaving || !profileGender || !profileBirthDate}
-            data-testid="profile-save"
-            className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+            testId="profile-save"
           >
             {profileSaving ? '保存中…' : '保存'}
-          </button>
+          </Button>
         </div>
-      </section>
+      </Card>
 
-      <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+      <Card>
         <h2 className="mb-3 text-sm font-medium text-gray-900">LLM Key 配置</h2>
-        {!settings && !error && <p className="text-sm text-gray-500">加载中…</p>}
+        {!settings && !error && <Skeleton className="h-20" />}
         <div className="space-y-3">
           {(settings?.providers || []).map((p) => (
             <div
@@ -207,33 +208,32 @@ export default function SettingsPage() {
             >
               <div className="flex flex-wrap items-center gap-2 text-sm">
                 <span className="font-medium text-gray-900">{p.name}</span>
-                <span className="text-xs text-gray-500">{p.default_model}</span>
+                <span className="text-xs text-gray-600">{p.default_model}</span>
                 {p.has_key ? (
-                  <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-700">
-                    已配置
-                  </span>
+                  <Badge variant="green">已配置</Badge>
                 ) : (
-                  <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">
-                    未配置
-                  </span>
+                  <Badge variant="gray">未配置</Badge>
                 )}
                 {settings.default_llm === p.name && (
-                  <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs text-indigo-700">
-                    默认
-                  </span>
+                  <Badge variant="indigo">默认</Badge>
                 )}
                 {p.has_key && settings.default_llm !== p.name && (
-                  <button
+                  <Button
+                    variant="ghost"
                     onClick={() => handleSwitchDefault(p.name)}
-                    data-testid={`quick-default-${p.name}`}
-                    className="rounded-md border border-indigo-300 px-2 py-0.5 text-xs text-indigo-700 hover:bg-indigo-50"
+                    testId={`quick-default-${p.name}`}
+                    className="text-xs"
                   >
                     设为默认
-                  </button>
+                  </Button>
                 )}
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-2">
+                <label htmlFor={`api-key-input-${p.name}`} className="text-sm text-gray-700">
+                  API Key
+                </label>
                 <input
+                  id={`api-key-input-${p.name}`}
                   type="password"
                   placeholder="输入新的 API Key"
                   value={keyInputs[p.name] || ''}
@@ -241,7 +241,7 @@ export default function SettingsPage() {
                     setKeyInputs((s) => ({ ...s, [p.name]: e.target.value }))
                   }
                   data-testid={`key-input-${p.name}`}
-                  className="w-64 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+                  className="w-64 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
                 />
                 <label className="flex items-center gap-1 text-sm text-gray-700">
                   <input
@@ -254,28 +254,25 @@ export default function SettingsPage() {
                   />
                   设为默认
                 </label>
-                <button
+                <Button
+                  variant="primary"
                   onClick={() => handleSave(p.name)}
                   disabled={saving[p.name] || !(keyInputs[p.name] || '').trim()}
-                  data-testid={`save-key-${p.name}`}
-                  className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  testId={`save-key-${p.name}`}
                 >
                   {saving[p.name] ? '保存中…' : '保存'}
-                </button>
+                </Button>
               </div>
             </div>
           ))}
         </div>
-      </section>
+      </Card>
 
-      <section
-        data-testid="llm-usage"
-        className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm"
-      >
+      <Card testId="llm-usage">
         <h2 className="mb-3 text-sm font-medium text-gray-900">
           本月用量{usage?.month ? `（${usage.month}）` : ''}
         </h2>
-        {!usage && !error && <p className="text-sm text-gray-500">加载中…</p>}
+        {!usage && !error && <Skeleton className="h-16" />}
         {usage && (
           <div className="space-y-3 text-sm">
             <div className="flex gap-6">
@@ -290,7 +287,7 @@ export default function SettingsPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs whitespace-nowrap text-gray-600">
               <thead>
-                <tr className="border-b border-gray-200 text-gray-500">
+                <tr className="border-b border-gray-200 text-gray-600">
                   <th className="py-1 pr-2 font-medium">Provider</th>
                   <th className="py-1 pr-2 font-medium">模型</th>
                   <th className="py-1 pr-2 font-medium">调用</th>
@@ -315,12 +312,12 @@ export default function SettingsPage() {
             </div>
           </div>
         )}
-      </section>
+      </Card>
 
       <section data-testid="deleted-workouts">
         <h2 className="mb-2 text-lg font-semibold text-gray-900">已删除的训练</h2>
         {deleted.length === 0 ? (
-          <p className="text-sm text-gray-500">暂无已删除的训练</p>
+          <EmptyState title="暂无已删除的训练" description="删除的训练会出现在这里，可随时恢复" />
         ) : (
           <ul className="space-y-2">
             {deleted.map((w) => (
@@ -332,13 +329,13 @@ export default function SettingsPage() {
                 <span className="text-gray-700">
                   {w.date} · {w.title || '未命名训练'}
                 </span>
-                <button
-                  data-testid={`restore-workout-${w.id}`}
+                <Button
+                  variant="secondary"
+                  testId={`restore-workout-${w.id}`}
                   onClick={() => handleRestore(w.id)}
-                  className="rounded-md bg-indigo-600 px-3 py-1 text-white hover:bg-indigo-500"
                 >
                   恢复
-                </button>
+                </Button>
               </li>
             ))}
           </ul>

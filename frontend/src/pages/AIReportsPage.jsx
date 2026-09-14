@@ -5,7 +5,23 @@ import ReportChatSection from '../components/ReportChatSection'
 import ScoreBadge from '../components/ScoreBadge'
 import SharePosterButton from '../components/SharePosterButton'
 import SimpleMarkdown from '../components/SimpleMarkdown'
+import Button from '../components/ui/Button'
+import EmptyState from '../components/ui/EmptyState'
+import ErrorState from '../components/ui/ErrorState'
+import PillGroup from '../components/ui/PillGroup'
+import Skeleton from '../components/ui/Skeleton'
 import useIsMobile from '../hooks/useIsMobile'
+
+const MODE_OPTIONS = [
+  { value: 'recent', label: '最近报告' },
+  { value: 'bydate', label: '按日查询' },
+]
+
+const TYPE_OPTIONS = [
+  { value: 'all', label: '全部' },
+  { value: 'session_review', label: '单次点评' },
+  { value: 'next_advice', label: '下次建议' },
+]
 
 const REGEN_POLL_INTERVAL_MS = 3000
 const MAX_POLLS = 60
@@ -31,7 +47,7 @@ function ReportDetail({ report, onRegenerate, regenerating, regenError }) {
       data-testid="report-detail"
       className="max-w-none rounded-lg border border-gray-200 bg-white p-6 shadow-sm"
     >
-      <div className="mb-4 border-b border-gray-100 pb-4 text-sm text-gray-500">
+      <div className="mb-4 border-b border-gray-100 pb-4 text-sm text-gray-600">
         <p className="flex flex-wrap items-center gap-2">
           训练：{report.workout_title || '-'}
           <ScoreBadge score={report.score} testId="detail-score-badge" />
@@ -50,7 +66,7 @@ function ReportDetail({ report, onRegenerate, regenerating, regenError }) {
             report.memory_refs.l2_count +
             report.memory_refs.l3_count) >
             0 && (
-            <p className="text-xs text-gray-500" data-testid="memory-refs">
+            <p className="text-xs text-gray-600" data-testid="memory-refs">
               参考了 {report.memory_refs.l1_count} 条须知 ·{' '}
               {report.memory_refs.l2_count} 条对话记忆 ·{' '}
               {report.memory_refs.l3_count} 项统计
@@ -64,15 +80,15 @@ function ReportDetail({ report, onRegenerate, regenerating, regenError }) {
         )}
         {report.type === 'session_review' && report.score == null && onRegenerate && (
           <div className="mt-2">
-            <button
-              type="button"
-              data-testid="regen-report-btn"
+            <Button
+              variant="primary"
+              testId="regen-report-btn"
               disabled={regenerating}
               onClick={onRegenerate}
-              className="rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50"
+              className="text-xs"
             >
               {regenerating ? '重新生成中…' : '重新生成（含评分）'}
-            </button>
+            </Button>
             {regenError && <p className="mt-1 text-xs text-red-600">{regenError}</p>}
           </div>
         )}
@@ -172,36 +188,29 @@ export default function AIReportsPage() {
     }
   }
 
-  const pillClass = (active) =>
-    `rounded-md px-3 py-2 text-sm font-medium ${
-      active ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-200'
-    }`
-
   const selectedIndex = reports.findIndex((r) => selected != null && r.id === selected.id)
 
   const navFooter = (
     <div className="flex items-center justify-between gap-2">
-      <button
-        type="button"
-        data-testid="sheet-prev"
+      <Button
+        variant="secondary"
+        testId="sheet-prev"
         disabled={selectedIndex <= 0}
         onClick={() => setSelected(reports[selectedIndex - 1])}
-        className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-40"
       >
         上一篇
-      </button>
-      <span className="text-xs text-gray-400">
+      </Button>
+      <span className="text-xs text-gray-600">
         {selectedIndex + 1} / {reports.length}
       </span>
-      <button
-        type="button"
-        data-testid="sheet-next"
+      <Button
+        variant="secondary"
+        testId="sheet-next"
         disabled={selectedIndex < 0 || selectedIndex >= reports.length - 1}
         onClick={() => setSelected(reports[selectedIndex + 1])}
-        className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-40"
       >
         下一篇
-      </button>
+      </Button>
     </div>
   )
 
@@ -210,64 +219,45 @@ export default function AIReportsPage() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-bold text-gray-900">AI 训练点评</h1>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex gap-1">
-            <button
-              data-testid="mode-recent"
-              onClick={() => setMode('recent')}
-              className={pillClass(mode === 'recent')}
-            >
-              最近报告
-            </button>
-            <button
-              data-testid="mode-bydate"
-              onClick={() => setMode('bydate')}
-              className={pillClass(mode === 'bydate')}
-            >
-              按日查询
-            </button>
-          </div>
-          <div className="flex gap-1">
-            <button
-              data-testid="type-filter-all"
-              onClick={() => setTypeFilter('all')}
-              className={pillClass(typeFilter === 'all')}
-            >
-              全部
-            </button>
-            <button
-              data-testid="type-filter-session"
-              onClick={() => setTypeFilter('session_review')}
-              className={pillClass(typeFilter === 'session_review')}
-            >
-              单次点评
-            </button>
-            <button
-              data-testid="type-filter-advice"
-              onClick={() => setTypeFilter('next_advice')}
-              className={pillClass(typeFilter === 'next_advice')}
-            >
-              下次建议
-            </button>
-          </div>
+          <PillGroup
+            options={MODE_OPTIONS}
+            value={mode}
+            onChange={setMode}
+            testId="mode-tabs"
+          />
+          <PillGroup
+            options={TYPE_OPTIONS}
+            value={typeFilter}
+            onChange={setTypeFilter}
+            testId="type-filter-tabs"
+          />
           {mode === 'bydate' && (
             <input
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
-              className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+              className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
               data-testid="date-input"
             />
           )}
         </div>
       </div>
 
-      {loading && <p className="text-sm text-gray-500">加载中…</p>}
-      {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+      {loading && (
+        <div className="space-y-2">
+          <Skeleton className="h-20" />
+          <Skeleton className="h-20" />
+        </div>
+      )}
+      {error && (
+        <ErrorState message={error} onRetry={() => load()} testId="aireports-error" />
+      )}
 
       {!loading && !error && reports.length === 0 && (
-        <p className="text-sm text-gray-500">
-          {mode === 'bydate' ? '当日暂无 AI 点评' : '暂无 AI 报告'}
-        </p>
+        <EmptyState
+          title={mode === 'bydate' ? '当日暂无 AI 点评' : '暂无 AI 报告'}
+          description="完成训练后即可查看 AI 点评与建议"
+        />
       )}
 
       <div className="grid gap-4 md:grid-cols-3">
@@ -286,11 +276,11 @@ export default function AIReportsPage() {
               <p className="font-medium text-gray-900">
                 {r.workout_title || '未命名训练'}
               </p>
-              <p className="mt-1 flex items-center gap-2 text-xs text-gray-500">
+              <p className="mt-1 flex items-center gap-2 text-xs text-gray-600">
                 {typeLabel(r.type)} · {r.date || '-'}
                 <ScoreBadge score={r.score} testId={`score-badge-${r.id}`} />
               </p>
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-1 text-xs text-gray-600">
                 {r.model} · {r.prompt_tokens}+{r.completion_tokens} tokens
               </p>
             </button>
@@ -307,7 +297,7 @@ export default function AIReportsPage() {
                 regenError={regenError}
               />
             ) : (
-              <div className="flex h-48 items-center justify-center rounded-lg border border-dashed border-gray-300 bg-gray-50 text-sm text-gray-500">
+              <div className="flex h-48 items-center justify-center rounded-lg border border-dashed border-gray-300 bg-gray-50 text-sm text-gray-600">
                 选择左侧报告查看详情
               </div>
             )}

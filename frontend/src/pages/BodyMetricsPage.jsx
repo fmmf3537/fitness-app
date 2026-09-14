@@ -3,6 +3,11 @@ import { api } from '../api/client'
 import BodyImageImport from '../components/BodyImageImport'
 import SkinfoldPanel from '../components/SkinfoldPanel'
 import TrendChart from '../components/TrendChart'
+import Badge from '../components/ui/Badge'
+import Button from '../components/ui/Button'
+import Card from '../components/ui/Card'
+import EmptyState from '../components/ui/EmptyState'
+import ErrorState from '../components/ui/ErrorState'
 import useIsMobile from '../hooks/useIsMobile'
 import {
   METRIC_DEFS,
@@ -153,7 +158,9 @@ export default function BodyMetricsPage() {
     <div className="space-y-4">
       <h1 className="text-xl font-bold text-gray-900">身体数据</h1>
 
-      {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+      {error && (
+        <ErrorState message={error} onRetry={load} testId="bodymetrics-error" />
+      )}
       {message && <p className="text-sm text-green-600">{message}</p>}
       {importMsg && (
         <p data-testid="import-success" className="text-sm text-green-600">
@@ -161,17 +168,17 @@ export default function BodyMetricsPage() {
         </p>
       )}
 
-      <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-        <button
-          data-testid="open-image-import"
+      <Card>
+        <Button
+          variant="primary"
+          testId="open-image-import"
           onClick={() => {
             setShowImport((v) => !v)
             setImportMsg('')
           }}
-          className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700"
         >
           {showImport ? '收起图片导入' : '体脂秤图片导入'}
-        </button>
+        </Button>
         {showImport && (
           <div className="mt-3">
             <BodyImageImport
@@ -183,22 +190,22 @@ export default function BodyMetricsPage() {
             />
           </div>
         )}
-      </div>
+      </Card>
 
-      <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-        <button
-          data-testid="open-skinfold"
+      <Card>
+        <Button
+          variant="secondary"
+          testId="open-skinfold"
           onClick={() => setShowSkinfold((v) => !v)}
-          className="rounded-md bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-700"
         >
           {showSkinfold ? '收起皮脂钳测量' : '皮脂钳测量'}
-        </button>
+        </Button>
         {showSkinfold && (
           <div className="mt-3">
             <SkinfoldPanel onSaved={() => load()} />
           </div>
         )}
-      </div>
+      </Card>
 
       {records && !hasHeight && (
         <div
@@ -209,18 +216,15 @@ export default function BodyMetricsPage() {
         </div>
       )}
 
-      <form
-        data-testid="metric-form"
-        onSubmit={handleSubmit}
-        className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm"
-      >
+      <Card>
+        <form data-testid="metric-form" onSubmit={handleSubmit}>
         <h2 className="mb-3 text-sm font-medium text-gray-900">录入指标</h2>
         <div className="flex flex-wrap items-center gap-2">
           <select
             data-testid="metric-type"
             value={formType}
             onChange={(e) => setFormType(e.target.value)}
-            className="rounded-md border border-gray-300 px-3 py-2 text-sm"
+            className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100"
           >
             {FORM_TYPES.map((t) => (
               <option key={t.value} value={t.value}>
@@ -233,7 +237,7 @@ export default function BodyMetricsPage() {
             data-testid="metric-date"
             value={formDate}
             onChange={(e) => setFormDate(e.target.value)}
-            className="rounded-md border border-gray-300 px-3 py-2 text-sm"
+            className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100"
           />
           {formType === 'blood_pressure' ? (
             <>
@@ -244,7 +248,7 @@ export default function BodyMetricsPage() {
                 data-testid="metric-bp-systolic"
                 value={formBpSystolic}
                 onChange={(e) => setFormBpSystolic(e.target.value)}
-                className="w-28 rounded-md border border-gray-300 px-3 py-2 text-sm"
+                className="w-28 rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100"
               />
               <input
                 type="number"
@@ -253,7 +257,7 @@ export default function BodyMetricsPage() {
                 data-testid="metric-bp-diastolic"
                 value={formBpDiastolic}
                 onChange={(e) => setFormBpDiastolic(e.target.value)}
-                className="w-28 rounded-md border border-gray-300 px-3 py-2 text-sm"
+                className="w-28 rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100"
               />
             </>
           ) : (
@@ -264,7 +268,7 @@ export default function BodyMetricsPage() {
               data-testid="metric-value"
               value={formValue}
               onChange={(e) => setFormValue(e.target.value)}
-              className="w-28 rounded-md border border-gray-300 px-3 py-2 text-sm"
+              className="w-28 rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100"
             />
           )}
           <input
@@ -273,21 +277,22 @@ export default function BodyMetricsPage() {
             data-testid="metric-note"
             value={formNote}
             onChange={(e) => setFormNote(e.target.value)}
-            className="w-36 rounded-md border border-gray-300 px-3 py-2 text-sm"
+            className="w-36 rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100"
           />
-          <button
+          <Button
             type="submit"
-            data-testid="submit-metric"
+            variant="primary"
+            testId="submit-metric"
             disabled={submitting}
-            className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
           >
             {submitting ? '保存中…' : '保存'}
-          </button>
+          </Button>
         </div>
-      </form>
+        </form>
+      </Card>
 
       {records && (
-        <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+        <Card>
           <h2 className="mb-3 text-sm font-medium text-gray-900">体重 × 训练容量对照</h2>
           <TrendChart
             testId="trend-chart-weight-volume"
@@ -297,18 +302,18 @@ export default function BodyMetricsPage() {
               chartOpts,
             )}
           />
-        </section>
+        </Card>
       )}
 
       {records && activeDef && (
-        <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+        <Card>
           <div className="mb-3 flex items-center gap-2">
             <h2 className="text-sm font-medium text-gray-900">指标趋势</h2>
             <select
               data-testid="trend-type-select"
               value={activeTrend}
               onChange={(e) => setTrendType(e.target.value)}
-              className="rounded-md border border-gray-300 px-2 py-1 text-sm"
+              className="rounded-md border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100"
             >
               {METRIC_GROUPS.map((g) => {
                 const types = g.types.filter((t) => grouped[t]?.length)
@@ -334,13 +339,15 @@ export default function BodyMetricsPage() {
               chartOpts,
             )}
           />
-        </section>
+        </Card>
       )}
 
       {records && (
-        <section className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+        <Card>
           <h2 className="mb-3 text-sm font-medium text-gray-900">最近记录</h2>
-          {records.length === 0 && <p className="text-sm text-gray-500">暂无记录</p>}
+          {records.length === 0 && (
+            <EmptyState title="暂无记录" description="在上方录入第一条身体指标" />
+          )}
           <ul className="divide-y divide-gray-100">
             {[...records]
               .sort((a, b) => (a.date < b.date ? 1 : -1))
@@ -356,39 +363,34 @@ export default function BodyMetricsPage() {
                     <span className="font-medium text-gray-900">
                       {' '}{r.value} {r.unit}
                     </span>
-                    {r.note && <span className="ml-1 text-gray-400">（{r.note}）</span>}
+                    {r.note && <span className="ml-1 text-gray-600">（{r.note}）</span>}
                   </span>
                   <span className="flex items-center gap-2">
                     {!isSyncable(r.type) && (
-                      <span
-                        data-testid={`local-only-${r.id}`}
-                        className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500"
-                      >
+                      <Badge variant="gray" testId={`local-only-${r.id}`}>
                         仅本地
-                      </span>
+                      </Badge>
                     )}
                     {isSyncable(r.type) && r.synced_to_xunji && (
-                      <span
-                        data-testid={`synced-${r.id}`}
-                        className="rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-700"
-                      >
+                      <Badge variant="green" testId={`synced-${r.id}`}>
                         已同步
-                      </span>
+                      </Badge>
                     )}
                     {isSyncable(r.type) && !r.synced_to_xunji && (
-                      <button
-                        data-testid={`sync-btn-${r.id}`}
+                      <Button
+                        variant="ghost"
+                        testId={`sync-btn-${r.id}`}
                         onClick={() => handleSyncPreview(r)}
-                        className="rounded-md bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+                        className="text-xs"
                       >
                         同步到训记
-                      </button>
+                      </Button>
                     )}
                   </span>
                 </li>
               ))}
           </ul>
-        </section>
+        </Card>
       )}
 
       {syncPreview && (

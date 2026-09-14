@@ -69,16 +69,14 @@ function mockLoad({ preferences = [], drafts = [] } = {}) {
 describe('CoachPreferencesPage', () => {
   beforeEach(() => {
     apiMock.mockReset()
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
   })
 
   it('test_renders_empty_state_when_no_preferences', async () => {
     mockLoad({ preferences: [], drafts: [] })
     renderPage()
+    expect(await screen.findByText('暂无须知')).toBeInTheDocument()
     expect(
-      await screen.findByText(
-        /暂无须知。在下方添加你的长期偏好（如伤病\/忌讳\/目标），AI 会在下次点评时参考。/,
-      ),
+      screen.getByText(/在下方添加你的长期偏好（如伤病\/忌讳\/目标），AI 会在下次点评时参考/),
     ).toBeInTheDocument()
     expect(screen.queryByTestId('drafts-section')).not.toBeInTheDocument()
   })
@@ -159,14 +157,16 @@ describe('CoachPreferencesPage', () => {
     await screen.findByTestId('preference-1')
 
     await user.click(screen.getByTestId('delete-preference-1'))
-    expect(window.confirm).toHaveBeenCalledWith('确定删除该须知？')
+    const dialog = screen.getByTestId('confirm-dialog')
+    expect(dialog).toHaveTextContent('确定删除该须知？')
+    await user.click(screen.getByTestId('confirm-dialog-confirm'))
 
     await waitFor(() => {
       expect(apiMock).toHaveBeenCalledWith('/api/coach/preferences/1', {
         method: 'DELETE',
       })
     })
-    expect(await screen.findByText(/暂无须知/)).toBeInTheDocument()
+    expect(await screen.findByText('暂无须知')).toBeInTheDocument()
     expect(screen.queryByTestId('preference-1')).not.toBeInTheDocument()
   })
 

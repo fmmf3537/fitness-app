@@ -394,4 +394,11 @@ describe('BodyMetricsPage 体脂秤图片导入（V3-9）', () => {
     await user.click(screen.getByTestId('extract-image-btn'))
     expect(await screen.findByTestId('import-error')).toBeInTheDocument()
   })
+
+  it('无记录时显示 EmptyState', async () => {
+    mockFetch({ metrics: [] })
+    render(<BodyMetricsPage />)
+    expect(await screen.findByText('暂无记录')).toBeInTheDocument()
+    expect(screen.getByText('在上方录入第一条身体指标')).toBeInTheDocument()
+  })
 })

@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api/client'
+import Badge from '../components/ui/Badge'
+import Button from '../components/ui/Button'
+import Card from '../components/ui/Card'
+import ConfirmDialog from '../components/ui/ConfirmDialog'
+import EmptyState from '../components/ui/EmptyState'
+import ErrorState from '../components/ui/ErrorState'
+import Skeleton from '../components/ui/Skeleton'
 
 export default function CoachPreferencesPage() {
   const [preferences, setPreferences] = useState([])
@@ -10,6 +17,7 @@ export default function CoachPreferencesPage() {
   const [editingPref, setEditingPref] = useState(null) // null | {id?, content, tags}
   const [saving, setSaving] = useState(false)
   const [resolveDraftId, setResolveDraftId] = useState(null)
+  const [deleteTargetId, setDeleteTargetId] = useState(null)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -67,8 +75,10 @@ export default function CoachPreferencesPage() {
     }
   }
 
-  const handleDelete = async (prefId) => {
-    if (!window.confirm('确定删除该须知？')) return
+  const handleDeleteConfirm = async () => {
+    const prefId = deleteTargetId
+    setDeleteTargetId(null)
+    if (prefId == null) return
     setError('')
     setMessage('')
     try {
@@ -131,83 +141,87 @@ export default function CoachPreferencesPage() {
     <div className="space-y-4" data-testid="coach-preferences-page">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-gray-900">教练须知</h1>
-        <button
-          type="button"
-          data-testid="create-preference-btn"
+        <Button
+          variant="primary"
+          testId="create-preference-btn"
           onClick={() => setEditingPref({ content: '', tags: '' })}
-          className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700"
         >
           新建须知
-        </button>
+        </Button>
       </div>
 
       {error && (
-        <p role="alert" className="text-sm text-red-600">
-          {error}
-        </p>
+        <ErrorState message={error} onRetry={load} testId="preferences-error" />
       )}
       {message && <p className="text-sm text-green-600">{message}</p>}
-      {loading && <p className="text-sm text-gray-500">加载中…</p>}
+      {loading && (
+        <div className="space-y-2">
+          <Skeleton className="h-24" />
+          <Skeleton className="h-24" />
+        </div>
+      )}
 
       <section data-testid="preferences-list">
         {preferences.length === 0 && !loading ? (
-          <p className="text-sm text-gray-500">
-            暂无须知。在下方添加你的长期偏好（如伤病/忌讳/目标），AI 会在下次点评时参考。
-          </p>
-        ) : (
+          <EmptyState
+            title="暂无须知"
+            description="在下方添加你的长期偏好（如伤病/忌讳/目标），AI 会在下次点评时参考。"
+            action={
+              <Button
+                variant="primary"
+                onClick={() => setEditingPref({ content: '', tags: '' })}
+              >
+                新建须知
+              </Button>
+            }
+          />
+        ) : null}
+        {preferences.length > 0 ? (
           <ul>
             {preferences.map((pref) => (
-              <li
-                key={pref.id}
-                data-testid={`preference-${pref.id}`}
-                className="mb-3 rounded-lg bg-white p-4 shadow-sm"
-              >
-                <p className="whitespace-pre-wrap text-sm text-gray-900">{pref.content}</p>
-                {pref.tags ? (
-                  <p className="mt-1 text-xs text-gray-500" data-testid={`preference-tags-${pref.id}`}>
-                    {pref.tags}
-                  </p>
-                ) : null}
-                <div className="mt-2 flex flex-wrap items-center gap-1">
-                  {pref.source ? (
-                    <span className="mr-2 rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
-                      {pref.source}
-                    </span>
+              <li key={pref.id} data-testid={`preference-${pref.id}`} className="mb-3">
+                <Card>
+                  <p className="whitespace-pre-wrap text-sm text-gray-900">{pref.content}</p>
+                  {pref.tags ? (
+                    <p className="mt-1 text-xs text-gray-600" data-testid={`preference-tags-${pref.id}`}>
+                      {pref.tags}
+                    </p>
                   ) : null}
-                  {pref.category ? (
-                    <span className="mr-2 rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
-                      {pref.category}
-                    </span>
-                  ) : null}
-                </div>
-                <div className="mt-3 flex gap-2">
-                  <button
-                    type="button"
-                    data-testid={`edit-preference-${pref.id}`}
-                    onClick={() =>
-                      setEditingPref({
-                        id: pref.id,
-                        content: pref.content,
-                        tags: pref.tags || '',
-                      })
-                    }
-                    className="rounded-md bg-gray-200 px-3 py-2 text-sm text-gray-700 hover:bg-gray-300"
-                  >
-                    编辑
-                  </button>
-                  <button
-                    type="button"
-                    data-testid={`delete-preference-${pref.id}`}
-                    onClick={() => handleDelete(pref.id)}
-                    className="rounded-md bg-red-600 px-3 py-2 text-sm text-white hover:bg-red-700"
-                  >
-                    删除
-                  </button>
-                </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-1">
+                    {pref.source ? (
+                      <Badge variant="gray">{pref.source}</Badge>
+                    ) : null}
+                    {pref.category ? (
+                      <Badge variant="gray">{pref.category}</Badge>
+                    ) : null}
+                  </div>
+                  <div className="mt-3 flex gap-2">
+                    <Button
+                      variant="secondary"
+                      testId={`edit-preference-${pref.id}`}
+                      onClick={() =>
+                        setEditingPref({
+                          id: pref.id,
+                          content: pref.content,
+                          tags: pref.tags || '',
+                        })
+                      }
+                    >
+                      编辑
+                    </Button>
+                    <Button
+                      variant="danger"
+                      testId={`delete-preference-${pref.id}`}
+                      onClick={() => setDeleteTargetId(pref.id)}
+                    >
+                      删除
+                    </Button>
+                  </div>
+                </Card>
               </li>
             ))}
           </ul>
-        )}
+        ) : null}
       </section>
 
       {drafts.length > 0 && (
@@ -216,47 +230,39 @@ export default function CoachPreferencesPage() {
           <p className="mt-1 text-sm text-gray-600">由最近一周复盘从对话中自动提炼</p>
           <ul className="mt-3">
             {drafts.map((draft) => (
-              <li
-                key={draft.id}
-                data-testid={`draft-${draft.id}`}
-                className="mb-3 rounded-lg bg-white p-4 shadow-sm"
-              >
-                <p className="whitespace-pre-wrap text-sm text-gray-900">{draft.content}</p>
-                {draft.tags ? (
-                  <p className="mt-1 text-xs text-gray-500">{draft.tags}</p>
-                ) : null}
-                <div className="mt-2 flex flex-wrap items-center gap-1">
-                  {draft.source ? (
-                    <span className="mr-2 rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
-                      {draft.source}
-                    </span>
+              <li key={draft.id} data-testid={`draft-${draft.id}`} className="mb-3">
+                <Card>
+                  <p className="whitespace-pre-wrap text-sm text-gray-900">{draft.content}</p>
+                  {draft.tags ? (
+                    <p className="mt-1 text-xs text-gray-600">{draft.tags}</p>
                   ) : null}
-                  {draft.created_at ? (
-                    <span className="mr-2 rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
-                      {draft.created_at}
-                    </span>
-                  ) : null}
-                </div>
-                <div className="mt-3 flex gap-2">
-                  <button
-                    type="button"
-                    data-testid={`accept-draft-${draft.id}`}
-                    onClick={() => handleAcceptDraft(draft.id)}
-                    disabled={resolveDraftId === draft.id}
-                    className="rounded-md bg-indigo-600 px-3 py-2 text-sm text-white hover:bg-indigo-700 disabled:opacity-50"
-                  >
-                    采纳
-                  </button>
-                  <button
-                    type="button"
-                    data-testid={`reject-draft-${draft.id}`}
-                    onClick={() => handleRejectDraft(draft.id)}
-                    disabled={resolveDraftId === draft.id}
-                    className="rounded-md bg-gray-200 px-3 py-2 text-sm text-gray-700 hover:bg-gray-300 disabled:opacity-50"
-                  >
-                    忽略
-                  </button>
-                </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-1">
+                    {draft.source ? (
+                      <Badge variant="gray">{draft.source}</Badge>
+                    ) : null}
+                    {draft.created_at ? (
+                      <Badge variant="gray">{draft.created_at}</Badge>
+                    ) : null}
+                  </div>
+                  <div className="mt-3 flex gap-2">
+                    <Button
+                      variant="primary"
+                      testId={`accept-draft-${draft.id}`}
+                      onClick={() => handleAcceptDraft(draft.id)}
+                      disabled={resolveDraftId === draft.id}
+                    >
+                      采纳
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      testId={`reject-draft-${draft.id}`}
+                      onClick={() => handleRejectDraft(draft.id)}
+                      disabled={resolveDraftId === draft.id}
+                    >
+                      忽略
+                    </Button>
+                  </div>
+                </Card>
               </li>
             ))}
           </ul>
@@ -287,7 +293,7 @@ export default function CoachPreferencesPage() {
               rows={4}
               value={editingPref.content}
               onChange={(e) => setEditingPref({ ...editingPref, content: e.target.value })}
-              className="mb-3 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+              className="mb-3 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-100"
             />
             <label className="mb-1 block text-xs text-gray-600" htmlFor="pref-tags">
               标签（逗号分隔，可选）
@@ -298,30 +304,37 @@ export default function CoachPreferencesPage() {
               type="text"
               value={editingPref.tags}
               onChange={(e) => setEditingPref({ ...editingPref, tags: e.target.value })}
-              className="mb-4 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+              className="mb-4 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-100"
               placeholder="伤病,忌讳,目标"
             />
             <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                data-testid="pref-cancel-btn"
+              <Button
+                variant="secondary"
+                testId="pref-cancel-btn"
                 onClick={() => setEditingPref(null)}
-                className="rounded-md bg-gray-200 px-3 py-2 text-sm text-gray-700 hover:bg-gray-300"
               >
                 取消
-              </button>
-              <button
+              </Button>
+              <Button
                 type="submit"
-                data-testid="pref-save-btn"
+                variant="primary"
+                testId="pref-save-btn"
                 disabled={saving}
-                className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
               >
                 {saving ? '保存中…' : '保存'}
-              </button>
+              </Button>
             </div>
           </form>
         </div>
       )}
+
+      <ConfirmDialog
+        open={deleteTargetId != null}
+        title="确定删除该须知？"
+        danger
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setDeleteTargetId(null)}
+      />
     </div>
   )
 }

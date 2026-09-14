@@ -1,6 +1,8 @@
 // V4-4 皮脂钳测量面板：方案选择 → 部位录入 → 提交 → 自动算体脂率并落身体数据。
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api/client'
+import Button from './ui/Button'
+import Skeleton from './ui/Skeleton'
 
 const SELF_TEST_LABEL = {
   yes: '✅ 可自测',
@@ -171,7 +173,7 @@ export default function SkinfoldPanel({ onSaved }) {
       )}
 
       {!methods.length && !loadError && (
-        <p className="text-sm text-gray-500">加载方案中…</p>
+        <Skeleton className="h-24" testId="skinfold-loading" />
       )}
 
       {recommendedMethod && (
@@ -188,15 +190,14 @@ export default function SkinfoldPanel({ onSaved }) {
 
       {otherMethods.length > 0 && (
         <div className="space-y-2">
-          <button
-            type="button"
-            data-testid="more-methods"
+          <Button
+            variant="secondary"
+            testId="more-methods"
             onClick={() => setShowMore((v) => !v)}
             disabled={profileMissing}
-            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
           >
             {showMore ? '收起更多方案' : `更多方案（${otherMethods.length}）`}
-          </button>
+          </Button>
           {showMore && (
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {otherMethods.map((m) => (
@@ -228,7 +229,7 @@ export default function SkinfoldPanel({ onSaved }) {
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
                 disabled={profileMissing || submitting}
-                className="ml-2 rounded-md border border-gray-300 px-2 py-1 text-sm"
+                className="ml-2 rounded-md border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100"
               />
             </label>
           </div>
@@ -254,7 +255,7 @@ export default function SkinfoldPanel({ onSaved }) {
                   value={sites[s.key] ?? ''}
                   onChange={(e) => handleSiteChange(s.key, e.target.value)}
                   disabled={profileMissing || submitting}
-                  className="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
+                  className="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100"
                 />
                 {siteErrors[s.key] && (
                   <span
@@ -277,7 +278,7 @@ export default function SkinfoldPanel({ onSaved }) {
               value={note}
               onChange={(e) => setNote(e.target.value)}
               disabled={profileMissing || submitting}
-              className="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
+              className="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100"
             />
           </label>
 
@@ -293,14 +294,14 @@ export default function SkinfoldPanel({ onSaved }) {
             </p>
           )}
 
-          <button
+          <Button
             type="submit"
-            data-testid="submit-skinfold"
+            variant="primary"
+            testId="submit-skinfold"
             disabled={profileMissing || submitting}
-            className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {submitting ? '提交中…' : '保存测量'}
-          </button>
+          </Button>
         </form>
       )}
     </div>
@@ -314,7 +315,7 @@ function MethodCard({ method, selected, onSelect, disabled, recommended = false 
       data-testid={`method-card-${method.key}`}
       onClick={onSelect}
       disabled={disabled}
-      className={`rounded-md border p-3 text-left text-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${
+      className={`min-h-[44px] rounded-md border p-3 text-left text-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${
         selected
           ? 'border-indigo-500 bg-indigo-50'
           : 'border-gray-200 bg-white hover:border-indigo-300'
@@ -334,7 +335,7 @@ function MethodCard({ method, selected, onSelect, disabled, recommended = false 
       >
         {SELF_TEST_LABEL[method.self_test] || method.self_test}
       </p>
-      <p className="mt-1 text-xs text-gray-500">
+      <p className="mt-1 text-xs text-gray-600">
         部位：{method.sites.map((s) => s.name_zh).join('、')}
       </p>
     </button>

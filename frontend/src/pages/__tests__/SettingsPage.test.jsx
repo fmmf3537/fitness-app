@@ -169,6 +169,9 @@ describe('SettingsPage', () => {
     expect(screen.getByTestId('llm-provider-deepseek').textContent).toContain('已配置')
     expect(screen.getByTestId('llm-provider-deepseek').textContent).toContain('默认')
     expect(screen.getByTestId('llm-provider-qwen').textContent).toContain('未配置')
+    // API Key 输入框有关联 label（多 provider 用 api-key-input-${name}）
+    expect(document.getElementById('api-key-input-deepseek')).toBeTruthy()
+    expect(screen.getByTestId('key-input-deepseek')).toHaveAccessibleName('API Key')
 
     expect(await screen.findByTestId('llm-usage')).toBeInTheDocument()
     expect(screen.getByTestId('usage-total-calls').textContent).toContain('12')

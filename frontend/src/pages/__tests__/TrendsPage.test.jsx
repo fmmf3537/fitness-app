@@ -77,7 +77,7 @@ describe('TrendsPage', () => {
     render(<TrendsPage />)
     await screen.findByTestId('trend-chart-volume')
 
-    await user.click(screen.getByTestId('weeks-toggle-12'))
+    await user.click(screen.getByRole('tab', { name: '12 周' }))
 
     await vi.waitFor(() => {
       expect(globalThis.fetch).toHaveBeenLastCalledWith(
@@ -86,7 +86,7 @@ describe('TrendsPage', () => {
       )
     })
 
-    await user.click(screen.getByTestId('weeks-toggle-4'))
+    await user.click(screen.getByRole('tab', { name: '4 周' }))
     await vi.waitFor(() => {
       expect(globalThis.fetch).toHaveBeenLastCalledWith(
         '/api/stats/trends?weeks=4',
@@ -95,17 +95,22 @@ describe('TrendsPage', () => {
     })
   })
 
-  it('空数据不崩溃', async () => {
+  it('空数据不渲染空坐标轴，显示 EmptyState', async () => {
     globalThis.fetch = vi.fn(() => Promise.resolve(mockResponse(EMPTY_TRENDS)))
     render(<TrendsPage />)
-    expect(await screen.findByTestId('trend-chart-volume')).toBeInTheDocument()
-    expect(screen.getByTestId('trend-chart-sleep')).toBeInTheDocument()
+    expect(await screen.findAllByText('暂无趋势数据')).toHaveLength(4)
+    expect(screen.queryByTestId('trend-chart-volume')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('trend-chart-sleep')).not.toBeInTheDocument()
   })
 
-  it('加载失败显示错误提示', async () => {
+  it('加载失败显示 ErrorState 且可重试', async () => {
+    const user = userEvent.setup()
     globalThis.fetch = vi.fn(() => Promise.resolve(mockResponse({ detail: 'boom' }, 500)))
     render(<TrendsPage />)
-    expect(await screen.findByRole('alert')).toBeInTheDocument()
+    expect(await screen.findByTestId('trends-error')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '重试' }))
+    expect(globalThis.fetch.mock.calls.length).toBeGreaterThan(1)
   })
 
   it('移动端断点：option 使用移动端布局（rotate/grid/legend scroll）', async () => {

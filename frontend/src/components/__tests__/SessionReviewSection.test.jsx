@@ -76,15 +76,17 @@ describe('SessionReviewSection', () => {
 
   it('点击「重新生成」后 confirm 取消则不发请求', async () => {
     const user = userEvent.setup()
-    vi.spyOn(window, 'confirm').mockReturnValue(false)
     globalThis.fetch = vi.fn(() => Promise.resolve(mockResponse({ reports: [REVIEW] })))
     render(<SessionReviewSection workout={WORKOUT} />)
     const btn = await screen.findByTestId('regen-review-btn')
     await user.click(btn)
 
-    expect(window.confirm).toHaveBeenCalledWith(
+    const dialog = screen.getByTestId('confirm-dialog')
+    expect(dialog).toHaveTextContent(
       '将根据以上讨论重新生成点评并覆盖当前内容，确认继续？',
     )
+    await user.click(screen.getByTestId('confirm-dialog-cancel'))
+
     const regenCall = globalThis.fetch.mock.calls.find(([url, opts]) =>
       url?.includes?.('/regenerate_with_feedback') && opts?.method === 'POST',
     )
@@ -93,7 +95,6 @@ describe('SessionReviewSection', () => {
 
   it('confirm 确认后调用 session_review regenerate 接口并刷新点评内容', async () => {
     const user = userEvent.setup()
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
 
     const NEW = {
       ...REVIEW,
@@ -114,6 +115,7 @@ describe('SessionReviewSection', () => {
     render(<SessionReviewSection workout={WORKOUT} />)
     const btn = await screen.findByTestId('regen-review-btn')
     await user.click(btn)
+    await user.click(screen.getByTestId('confirm-dialog-confirm'))
 
     // 请求进行中：按钮禁用 + 文案「重新生成中…」
     expect(btn).toBeDisabled()
@@ -135,7 +137,6 @@ describe('SessionReviewSection', () => {
 
   it('POST 429 时显示日限提示', async () => {
     const user = userEvent.setup()
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
     globalThis.fetch = vi.fn((url, opts = {}) => {
       if (opts?.method === 'POST' && url?.includes?.('/regenerate_with_feedback')) {
         return Promise.resolve(mockResponse({}, 429))
@@ -145,6 +146,7 @@ describe('SessionReviewSection', () => {
 
     render(<SessionReviewSection workout={WORKOUT} />)
     await user.click(await screen.findByTestId('regen-review-btn'))
+    await user.click(screen.getByTestId('confirm-dialog-confirm'))
 
     const err = await screen.findByTestId('regen-error')
     expect(err.textContent).toContain('今日重生成次数已达上限')

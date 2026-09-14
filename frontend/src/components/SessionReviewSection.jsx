@@ -3,6 +3,9 @@ import { api } from '../api/client'
 import ReportChatSection from './ReportChatSection'
 import SharePosterButton from './SharePosterButton'
 import SimpleMarkdown from './SimpleMarkdown'
+import Button from './ui/Button'
+import Card from './ui/Card'
+import ConfirmDialog from './ui/ConfirmDialog'
 
 // V4-6：统一的中文护栏提示（按 status 映射，避免依赖 api() 对 4xx detail 的提取）
 const REGEN_ERROR_MAP = {
@@ -28,6 +31,7 @@ export default function SessionReviewSection({ workout }) {
   const [regenLoading, setRegenLoading] = useState(false)
   const [regenError, setRegenError] = useState('')
   const [regenSuccess, setRegenSuccess] = useState('')
+  const [regenConfirmOpen, setRegenConfirmOpen] = useState(false)
 
   useEffect(() => {
     if (!workout?.id || !workout?.date) return
@@ -56,9 +60,8 @@ export default function SessionReviewSection({ workout }) {
   if (!loaded || !report) return null
 
   const handleRegen = async () => {
+    setRegenConfirmOpen(false)
     if (regenLoading) return
-    const ok = window.confirm('将根据以上讨论重新生成点评并覆盖当前内容，确认继续？')
-    if (!ok) return
     setRegenLoading(true)
     setRegenError('')
     try {
@@ -76,22 +79,22 @@ export default function SessionReviewSection({ workout }) {
   }
 
   return (
-    <section className="space-y-2 rounded-lg bg-white p-4 shadow">
+    <Card className="space-y-2">
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-base font-bold text-gray-900">本次训练点评</h3>
         <SharePosterButton key={report.id} report={report} workout={workout} />
       </div>
       <SimpleMarkdown text={report.content_md} />
       <ReportChatSection reportId={report.id} />
-      <button
-        type="button"
-        data-testid="regen-review-btn"
+      <Button
+        variant="secondary"
+        testId="regen-review-btn"
         disabled={regenLoading}
-        onClick={handleRegen}
-        className="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+        onClick={() => setRegenConfirmOpen(true)}
+        className="text-xs"
       >
         {regenLoading ? '重新生成中…' : '根据以上讨论重新生成'}
-      </button>
+      </Button>
       {regenSuccess && (
         <p data-testid="regen-success" className="text-xs text-green-600">
           {regenSuccess}
@@ -102,6 +105,12 @@ export default function SessionReviewSection({ workout }) {
           {regenError}
         </p>
       )}
-    </section>
+      <ConfirmDialog
+        open={regenConfirmOpen}
+        title="将根据以上讨论重新生成点评并覆盖当前内容，确认继续？"
+        onConfirm={handleRegen}
+        onCancel={() => setRegenConfirmOpen(false)}
+      />
+    </Card>
   )
 }

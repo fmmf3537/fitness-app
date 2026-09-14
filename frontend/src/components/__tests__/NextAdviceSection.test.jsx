@@ -176,12 +176,13 @@ describe('NextAdviceSection', () => {
   it('「确认写回」弹窗确认后调用 confirm 接口并显示成功', async () => {
     const user = userEvent.setup()
     mockFetchFlow()
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
     render(<NextAdviceSection workout={WORKOUT} />)
     await user.click(await screen.findByRole('button', { name: '生成写回预览' }))
     await user.click(await screen.findByRole('button', { name: '确认写回' }))
 
-    expect(window.confirm).toHaveBeenCalled()
+    expect(screen.getByTestId('confirm-dialog')).toHaveTextContent('确认执行写回？')
+    await user.click(screen.getByTestId('confirm-dialog-confirm'))
+
     const confirmCall = globalThis.fetch.mock.calls.find(([url]) =>
       url.startsWith('/api/writeback/confirm'),
     )
@@ -192,10 +193,12 @@ describe('NextAdviceSection', () => {
   it('弹窗取消时不发起真实写回', async () => {
     const user = userEvent.setup()
     mockFetchFlow()
-    vi.spyOn(window, 'confirm').mockReturnValue(false)
     render(<NextAdviceSection workout={WORKOUT} />)
     await user.click(await screen.findByRole('button', { name: '生成写回预览' }))
     await user.click(await screen.findByRole('button', { name: '确认写回' }))
+
+    expect(screen.getByTestId('confirm-dialog')).toBeInTheDocument()
+    await user.click(screen.getByTestId('confirm-dialog-cancel'))
 
     const confirmCall = globalThis.fetch.mock.calls.find(([url]) =>
       url.startsWith('/api/writeback/confirm'),
@@ -246,7 +249,6 @@ describe('NextAdviceSection', () => {
 
   it('confirm 确认后调用 next_advice regenerate 接口并刷新建议内容', async () => {
     const user = userEvent.setup()
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
 
     const NEW_REPORT = {
       ...REPORT,
@@ -270,11 +272,14 @@ describe('NextAdviceSection', () => {
     const btn = await screen.findByTestId('regen-advice-btn')
     await user.click(btn)
 
-    // 请求中：按钮禁用
-    expect(btn).toBeDisabled()
-    expect(window.confirm).toHaveBeenCalledWith(
+    const dialog = screen.getByTestId('confirm-dialog')
+    expect(dialog).toHaveTextContent(
       '将根据以上讨论重新生成下次建议并覆盖当前内容，确认继续？',
     )
+    await user.click(screen.getByTestId('confirm-dialog-confirm'))
+
+    // 请求中：按钮禁用
+    expect(btn).toBeDisabled()
 
     const regenCall = globalThis.fetch.mock.calls.find(
       ([url, opts]) =>
@@ -294,7 +299,6 @@ describe('NextAdviceSection', () => {
 
   it('POST 422 时显示无训记计划缓存提示', async () => {
     const user = userEvent.setup()
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
     globalThis.fetch = vi.fn((url, opts = {}) => {
       if (opts?.method === 'POST' && url?.includes?.('/regenerate_with_feedback')) {
         return Promise.resolve(mockResponse({}, 422))
@@ -304,6 +308,7 @@ describe('NextAdviceSection', () => {
 
     render(<NextAdviceSection workout={WORKOUT} />)
     await user.click(await screen.findByTestId('regen-advice-btn'))
+    await user.click(screen.getByTestId('confirm-dialog-confirm'))
 
     const err = await screen.findByTestId('regen-error')
     expect(err.textContent).toContain('无训记计划缓存')

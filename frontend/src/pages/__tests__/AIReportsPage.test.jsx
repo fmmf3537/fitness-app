@@ -71,7 +71,7 @@ describe('AIReportsPage', () => {
     render(<AIReportsPage />)
     await screen.findByText('胸部训练')
 
-    await user.click(screen.getByTestId('mode-bydate'))
+    await user.click(screen.getByRole('tab', { name: '按日查询' }))
 
     await vi.waitFor(() => {
       expect(globalThis.fetch).toHaveBeenLastCalledWith(
@@ -87,7 +87,7 @@ describe('AIReportsPage', () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<AIReportsPage />)
     await screen.findByText('胸部训练')
-    await user.click(screen.getByTestId('mode-bydate'))
+    await user.click(screen.getByRole('tab', { name: '按日查询' }))
     await vi.waitFor(() => {
       expect(globalThis.fetch).toHaveBeenLastCalledWith(
         '/api/ai-reports?date=2026-08-03',
@@ -112,7 +112,7 @@ describe('AIReportsPage', () => {
     render(<AIReportsPage />)
     await screen.findByText('胸部训练')
 
-    await user.click(screen.getByTestId('type-filter-advice'))
+    await user.click(screen.getByRole('tab', { name: '下次建议' }))
     await vi.waitFor(() => {
       expect(globalThis.fetch).toHaveBeenLastCalledWith(
         '/api/ai-reports?limit=50&type=next_advice',
@@ -120,7 +120,7 @@ describe('AIReportsPage', () => {
       )
     })
 
-    await user.click(screen.getByTestId('type-filter-session'))
+    await user.click(screen.getByRole('tab', { name: '单次点评' }))
     await vi.waitFor(() => {
       expect(globalThis.fetch).toHaveBeenLastCalledWith(
         '/api/ai-reports?limit=50&type=session_review',
@@ -128,7 +128,7 @@ describe('AIReportsPage', () => {
       )
     })
 
-    await user.click(screen.getByTestId('type-filter-all'))
+    await user.click(screen.getByRole('tab', { name: '全部' }))
     await vi.waitFor(() => {
       expect(globalThis.fetch).toHaveBeenLastCalledWith(
         '/api/ai-reports?limit=50',
@@ -142,8 +142,8 @@ describe('AIReportsPage', () => {
     render(<AIReportsPage />)
     await screen.findByText('胸部训练')
 
-    await user.click(screen.getByTestId('mode-bydate'))
-    await user.click(screen.getByTestId('type-filter-advice'))
+    await user.click(screen.getByRole('tab', { name: '按日查询' }))
+    await user.click(screen.getByRole('tab', { name: '下次建议' }))
 
     await vi.waitFor(() => {
       expect(globalThis.fetch).toHaveBeenLastCalledWith(
@@ -174,14 +174,15 @@ describe('AIReportsPage', () => {
     render(<AIReportsPage />)
     expect(await screen.findByText('暂无 AI 报告')).toBeInTheDocument()
 
-    await user.click(screen.getByTestId('mode-bydate'))
+    await user.click(screen.getByRole('tab', { name: '按日查询' }))
     expect(await screen.findByText('当日暂无 AI 点评')).toBeInTheDocument()
   })
 
-  it('请求失败显示错误信息', async () => {
+  it('请求失败显示 ErrorState 且可重试', async () => {
     globalThis.fetch = vi.fn(() => Promise.resolve(mockResponse({ detail: 'bad request' }, 500)))
     render(<AIReportsPage />)
-    expect(await screen.findByRole('alert')).toBeInTheDocument()
+    expect(await screen.findByTestId('aireports-error')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toBeInTheDocument()
   })
 
   // ================= V3-4 任务2：评分徽章 + 重新生成 =================

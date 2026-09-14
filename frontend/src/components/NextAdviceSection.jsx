@@ -2,6 +2,10 @@ import { useEffect, useMemo, useState } from 'react'
 import { api } from '../api/client'
 import ReportChatSection from './ReportChatSection'
 import SimpleMarkdown from './SimpleMarkdown'
+import Button from './ui/Button'
+import Card from './ui/Card'
+import ConfirmDialog from './ui/ConfirmDialog'
+import EmptyState from './ui/EmptyState'
 import { formatParams, groupSuggestions, parseNextAdvice } from '../utils/nextAdvice'
 import { buildChanges } from '../utils/writeback'
 
@@ -42,7 +46,7 @@ function DiffTable({ diff }) {
         {(diff || []).map((row, i) => (
           <tr
             key={i}
-            className={`border-b border-gray-100 ${row.changed ? 'bg-amber-100 font-medium' : 'text-gray-500'}`}
+            className={`border-b border-gray-100 ${row.changed ? 'bg-amber-100 font-medium' : 'text-gray-600'}`}
           >
             <td className="py-1 pr-2">{row.field}</td>
             <td className="py-1 pr-2">{formatValue(row.old)}</td>
@@ -60,6 +64,7 @@ function SuggestionCard({ suggestion, index, autoWritable, workout }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [result, setResult] = useState(null)
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
   const handlePreview = async () => {
     setError(null)
@@ -88,10 +93,9 @@ function SuggestionCard({ suggestion, index, autoWritable, workout }) {
     }
   }
 
-  const handleConfirm = async () => {
+  const handleConfirmWriteback = async () => {
+    setConfirmOpen(false)
     if (!preview) return
-    const ok = window.confirm('确认执行写回？该操作将直接修改训记 App 中的训练记录。')
-    if (!ok) return
     setLoading(true)
     setError(null)
     try {
@@ -118,17 +122,17 @@ function SuggestionCard({ suggestion, index, autoWritable, workout }) {
           <p className="mt-1 text-xs text-gray-600">
             原参数：{formatParams(suggestion.original)} → 建议：{formatParams(suggestion.suggested)}
           </p>
-          <p className="mt-1 text-xs text-gray-500">{suggestion.reason}</p>
+          <p className="mt-1 text-xs text-gray-600">{suggestion.reason}</p>
         </div>
         {autoWritable && !result && (
-          <button
-            type="button"
+          <Button
+            variant="primary"
             disabled={loading}
             onClick={handlePreview}
-            className="shrink-0 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+            className="shrink-0 text-xs"
           >
             生成写回预览
-          </button>
+          </Button>
         )}
       </div>
       {error && <p className="mt-2 rounded-md bg-red-50 p-2 text-xs text-red-700">{error}</p>}
@@ -144,19 +148,28 @@ function SuggestionCard({ suggestion, index, autoWritable, workout }) {
             写回预览（{preview.datestr} · localid {preview.localid}）——元数据（localid/起止时间/备注）将原样保留
           </p>
           <DiffTable diff={preview.diff} />
-          <button
-            type="button"
+          <Button
+            variant="primary"
             disabled={loading}
-            onClick={handleConfirm}
-            className="mt-3 rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50"
+            onClick={() => setConfirmOpen(true)}
+            className="mt-3 text-xs"
           >
             确认写回
-          </button>
+          </Button>
         </div>
       )}
       {!autoWritable && (
         <p className="mt-2 rounded-md bg-amber-50 p-2 text-xs text-amber-800">{MANUAL_GUIDE}</p>
       )}
+      <ConfirmDialog
+        open={confirmOpen}
+        title="确认执行写回？"
+        description="该操作将直接修改训记 App 中的训练记录。"
+        danger
+        confirmText="确认"
+        onConfirm={handleConfirmWriteback}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </li>
   )
 }
@@ -167,6 +180,7 @@ export default function NextAdviceSection({ workout }) {
   const [regenLoading, setRegenLoading] = useState(false)
   const [regenError, setRegenError] = useState('')
   const [regenSuccess, setRegenSuccess] = useState('')
+  const [regenConfirmOpen, setRegenConfirmOpen] = useState(false)
 
   useEffect(() => {
     if (!workout?.id || !workout?.date) return
@@ -200,13 +214,17 @@ export default function NextAdviceSection({ workout }) {
 
   if (!loaded) return null
   if (!report) {
-    return <p className="text-sm text-gray-500">暂无下次训练建议</p>
+    return (
+      <EmptyState
+        title="暂无下次训练建议"
+        description="完成本次训练点评后将生成下次建议"
+      />
+    )
   }
 
   const handleRegen = async () => {
+    setRegenConfirmOpen(false)
     if (regenLoading) return
-    const ok = window.confirm('将根据以上讨论重新生成下次建议并覆盖当前内容，确认继续？')
-    if (!ok) return
     setRegenLoading(true)
     setRegenError('')
     try {
@@ -224,7 +242,7 @@ export default function NextAdviceSection({ workout }) {
   }
 
   return (
-    <section className="space-y-4 rounded-lg bg-white p-4 shadow">
+    <Card className="space-y-4">
       <h3 className="text-base font-bold text-gray-900">下次训练建议</h3>
 
       {markdown && <SimpleMarkdown text={markdown} />}
@@ -234,7 +252,7 @@ export default function NextAdviceSection({ workout }) {
           <div data-testid="auto-writable-block">
             <h4 className="mb-2 text-sm font-bold text-green-700">可自动写回</h4>
             {grouped.auto_writable.length === 0 ? (
-              <p className="text-xs text-gray-500">无</p>
+              <p className="text-xs text-gray-600">无</p>
             ) : (
               <ul className="space-y-2">
                 {grouped.auto_writable.map((s, i) => (
@@ -246,7 +264,7 @@ export default function NextAdviceSection({ workout }) {
           <div data-testid="manual-block">
             <h4 className="mb-2 text-sm font-bold text-amber-700">需手动调整</h4>
             {grouped.manual.length === 0 ? (
-              <p className="text-xs text-gray-500">无</p>
+              <p className="text-xs text-gray-600">无</p>
             ) : (
               <ul className="space-y-2">
                 {grouped.manual.map((s, i) => (
@@ -259,15 +277,15 @@ export default function NextAdviceSection({ workout }) {
       )}
 
       <ReportChatSection reportId={report.id} />
-      <button
-        type="button"
-        data-testid="regen-advice-btn"
+      <Button
+        variant="secondary"
+        testId="regen-advice-btn"
         disabled={regenLoading}
-        onClick={handleRegen}
-        className="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+        onClick={() => setRegenConfirmOpen(true)}
+        className="text-xs"
       >
         {regenLoading ? '重新生成中…' : '重新生成下次建议'}
-      </button>
+      </Button>
       {regenSuccess && (
         <p data-testid="regen-success" className="text-xs text-green-600">
           {regenSuccess}
@@ -278,6 +296,12 @@ export default function NextAdviceSection({ workout }) {
           {regenError}
         </p>
       )}
-    </section>
+      <ConfirmDialog
+        open={regenConfirmOpen}
+        title="将根据以上讨论重新生成下次建议并覆盖当前内容，确认继续？"
+        onConfirm={handleRegen}
+        onCancel={() => setRegenConfirmOpen(false)}
+      />
+    </Card>
   )
 }
