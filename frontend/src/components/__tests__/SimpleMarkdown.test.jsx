@@ -10,10 +10,12 @@ describe('SimpleMarkdown', () => {
     ps.forEach((p) => expect(p.className).toContain('break-words'))
   })
 
-  it('标题行渲染规则保持不变', () => {
+  it('标题行渲染为正确层级：#→h2、##→h3', () => {
     render(<SimpleMarkdown text={'# 一级\n## 二级\n正文'} />)
-    expect(screen.getByText('一级').tagName).toMatch(/^H/)
-    expect(screen.getByText('二级').tagName).toMatch(/^H/)
+    expect(screen.getByText('一级').tagName).toBe('H2')
+    expect(screen.getByText('一级').className).toContain('text-lg')
+    expect(screen.getByText('二级').tagName).toBe('H3')
+    expect(screen.getByText('二级').className).toContain('text-base')
     expect(screen.getByText('正文').tagName).toBe('P')
   })
 
@@ -52,14 +54,16 @@ describe('SimpleMarkdown', () => {
 
   // ================= V3-4 任务1：全语法渲染 =================
 
-  it('### / #### 渲染为 h3/h4 样式标题', () => {
+  it('### / #### 渲染为 h4/h5 样式标题', () => {
     render(<SimpleMarkdown text={'### 三级标题\n#### 四级标题'} />)
-    const h3el = screen.getByText('三级标题')
-    expect(['H3', 'H4']).toContain(h3el.tagName)
-    expect(h3el.className).toContain('font-bold')
-    const h4el = screen.getByText('四级标题')
+    const h4el = screen.getByText('三级标题')
     expect(h4el.tagName).toBe('H4')
     expect(h4el.className).toContain('font-bold')
+    expect(h4el.className).toContain('text-sm')
+    const h5el = screen.getByText('四级标题')
+    expect(h5el.tagName).toBe('H5')
+    expect(h5el.className).toContain('font-semibold')
+    expect(h5el.className).toContain('text-sm')
   })
 
   it('行内 **加粗** 解析：一行多段加粗均生效', () => {

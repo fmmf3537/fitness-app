@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { api, download } from '../api/client'
 import BottomSheet from '../components/BottomSheet'
 import ReviewContent from '../components/ReviewContent'
+import ScoreBadge from '../components/ScoreBadge'
 import Button from '../components/ui/Button'
 import EmptyState from '../components/ui/EmptyState'
 import ErrorState from '../components/ui/ErrorState'
@@ -9,11 +10,17 @@ import PillGroup from '../components/ui/PillGroup'
 import Skeleton from '../components/ui/Skeleton'
 import { useToast } from '../components/ui/useToast'
 import useIsMobile from '../hooks/useIsMobile'
+import { fmtCost } from '../utils/format'
 
 const TABS = [
   { key: 'weekly', label: '周复盘' },
   { key: 'monthly', label: '月复盘' },
 ]
+
+const TYPE_LABELS = {
+  weekly: '周复盘',
+  monthly: '月复盘',
+}
 
 /** 复盘详情：头部元信息 + 导出按钮 + ReviewContent，桌面分栏与移动端抽屉复用。 */
 function ReviewDetail({ report, onExport }) {
@@ -27,7 +34,14 @@ function ReviewDetail({ report, onExport }) {
           <p>
             周期：{report.date || '-'} ~ {report.period_end || '-'}
           </p>
-          <p>模型：{report.model || '-'}</p>
+          <details data-testid="review-tech-details" className="mt-1">
+            <summary className="min-h-[36px] cursor-pointer text-xs text-gray-600">
+              技术详情（模型 / tokens / 成本）
+            </summary>
+            <p className="mt-1 rounded-lg bg-gray-50 p-2 text-xs text-gray-600">
+              {`模型：${report.model || '-'} · tokens：${report.prompt_tokens || 0}/${report.completion_tokens || 0} · 成本：${fmtCost(report.cost_estimate)}`}
+            </p>
+          </details>
         </div>
         <div className="flex gap-2">
           <Button
@@ -217,8 +231,11 @@ export default function ReviewsPage() {
               <p className="font-medium text-gray-900">
                 {r.date || '-'} ~ {r.period_end || r.date || '-'}
               </p>
-              <p className="mt-1 text-xs text-gray-500">
-                {r.model} · {r.prompt_tokens}+{r.completion_tokens} tokens
+              <p className="mt-1 flex items-center gap-2">
+                <ScoreBadge score={r.score} />
+                <span className="text-xs text-gray-600">
+                  {TYPE_LABELS[r.type] || r.type || '-'}
+                </span>
               </p>
             </button>
           ))}

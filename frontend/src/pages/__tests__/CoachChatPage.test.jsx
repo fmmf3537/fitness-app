@@ -109,6 +109,11 @@ describe('CoachChatPage', () => {
     ).toBeTruthy()
     expect(userEl).toHaveTextContent('深蹲膝盖疼怎么办？')
     expect(asstEl).toHaveTextContent('建议降低深度，加强髋外展')
+    // metaLine：assistant 仅时间 +「由 AI 教练生成」，不上屏 tokens/成本
+    const asstWrap = screen.getByTestId('chat-msg-wrap-assistant-2')
+    expect(asstWrap.textContent).toContain('由 AI 教练生成')
+    expect(asstWrap.textContent).not.toMatch(/tokens/)
+    expect(asstWrap.textContent).not.toMatch(/¥/)
   })
 
   it('test_user_message_appears_on_right', async () => {

@@ -1,13 +1,15 @@
 // V4-4 皮脂钳测量面板：方案选择 → 部位录入 → 提交 → 自动算体脂率并落身体数据。
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api/client'
+import Badge from './ui/Badge'
 import Button from './ui/Button'
 import Skeleton from './ui/Skeleton'
 
-const SELF_TEST_LABEL = {
-  yes: '✅ 可自测',
-  assist: '⚠️ 部分需辅助',
-  no: '❌ 需辅助',
+/** 自测等级 → Badge（无 emoji，与全站风格一致） */
+const SELF_TEST_BADGE = {
+  yes: { variant: 'green', label: '可自测' },
+  assist: { variant: 'amber', label: '部分需辅助' },
+  no: { variant: 'red', label: '需辅助' },
 }
 
 function todayStr() {
@@ -331,9 +333,15 @@ function MethodCard({ method, selected, onSelect, disabled, recommended = false 
       </div>
       <p
         data-testid={`self-test-${method.key}`}
-        className="mt-1 text-xs text-gray-600"
+        className="mt-1"
       >
-        {SELF_TEST_LABEL[method.self_test] || method.self_test}
+        {SELF_TEST_BADGE[method.self_test] ? (
+          <Badge variant={SELF_TEST_BADGE[method.self_test].variant}>
+            {SELF_TEST_BADGE[method.self_test].label}
+          </Badge>
+        ) : (
+          <span className="text-xs text-gray-600">{method.self_test}</span>
+        )}
       </p>
       <p className="mt-1 text-xs text-gray-600">
         部位：{method.sites.map((s) => s.name_zh).join('、')}

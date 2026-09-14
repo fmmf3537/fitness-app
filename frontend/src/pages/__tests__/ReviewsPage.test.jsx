@@ -136,6 +136,11 @@ describe('ReviewsPage', () => {
     expect(screen.getByTestId('echarts-block')).toBeInTheDocument()
     expect(screen.getByTestId('export-md')).toBeInTheDocument()
     expect(screen.getByTestId('export-pdf')).toBeInTheDocument()
+    expect(screen.getByTestId('review-tech-details')).toBeInTheDocument()
+    expect(screen.getByTestId('report-detail').textContent).toContain('模型：deepseek-chat')
+    // 列表卡不再展示 tokens 元信息
+    expect(screen.getByTestId('report-card-1').textContent).not.toMatch(/tokens/)
+    expect(screen.getByTestId('report-card-1').textContent).toContain('周复盘')
   })
 
   it('导出按钮请求对应格式的导出接口', async () => {

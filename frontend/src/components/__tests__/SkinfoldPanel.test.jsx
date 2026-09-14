@@ -145,15 +145,19 @@ describe('SkinfoldPanel（V4-4）', () => {
     expect(screen.queryByTestId('method-card-jp3_male')).not.toBeInTheDocument()
   })
 
-  it('自测标注：jp3_male 显示 ✅ 可自测，dw4 显示 ❌ 需辅助', async () => {
+  it('自测标注：jp3_male 显示 Badge「可自测」，dw4 显示 Badge「需辅助」', async () => {
     mockMethodsFetch()
     render(<SkinfoldPanel />)
 
-    expect(await screen.findByTestId('self-test-jp3_male')).toHaveTextContent('✅ 可自测')
+    const yesLabel = await screen.findByTestId('self-test-jp3_male')
+    expect(yesLabel).toHaveTextContent('可自测')
+    expect(yesLabel.textContent).toBe('可自测')
 
     const user = userEvent.setup()
     await user.click(screen.getByTestId('more-methods'))
-    expect(screen.getByTestId('self-test-dw4')).toHaveTextContent('❌ 需辅助')
+    const noLabel = screen.getByTestId('self-test-dw4')
+    expect(noLabel).toHaveTextContent('需辅助')
+    expect(noLabel.textContent).toBe('需辅助')
   })
 
   it('上次值回显：mock records 返回 1 条 → 部位输入框预填且显示上次测量', async () => {

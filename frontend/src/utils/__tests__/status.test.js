@@ -16,6 +16,19 @@ describe('statusColor / statusLabel', () => {
     }
   })
 
+  it('日历圆点收敛为 3 色语义，label 仍为 5 类', () => {
+    expect(statusColor('auto_matched')).toBe('bg-green-500')
+    expect(statusColor('manual_matched')).toBe('bg-green-500')
+    expect(statusColor('xunji_only')).toBe('bg-indigo-500')
+    expect(statusColor('garmin_only')).toBe('bg-indigo-500')
+    expect(statusColor('pending')).toBe('bg-amber-500')
+    expect(statusLabel('auto_matched')).toBe('自动匹配')
+    expect(statusLabel('manual_matched')).toBe('手动匹配')
+    expect(statusLabel('xunji_only')).toBe('仅训记')
+    expect(statusLabel('garmin_only')).toBe('仅佳明')
+    expect(statusLabel('pending')).toBe('待确认')
+  })
+
   it('未知状态回退', () => {
     expect(statusColor('mystery')).toBe('bg-gray-400')
     expect(statusLabel('mystery')).toBe('mystery')

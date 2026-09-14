@@ -140,30 +140,30 @@ export default function SimpleMarkdown({ text }) {
         const line = block.text
         if (line.startsWith('#### ')) {
           return (
-            <h4 key={i} className="text-sm font-bold text-gray-900">
-              {renderInline(line.slice(5), `h4-${i}`)}
-            </h4>
+            <h5 key={i} className="text-sm font-semibold text-gray-700">
+              {renderInline(line.slice(5), `h5-${i}`)}
+            </h5>
           )
         }
         if (line.startsWith('### ')) {
           return (
-            <h3 key={i} className="text-sm font-bold text-gray-900">
-              {renderInline(line.slice(4), `h3s-${i}`)}
-            </h3>
+            <h4 key={i} className="text-sm font-bold text-gray-900">
+              {renderInline(line.slice(4), `h4-${i}`)}
+            </h4>
           )
         }
         if (line.startsWith('## ')) {
           return (
             <h3 key={i} className="text-base font-bold text-gray-900">
-              {renderInline(line.slice(3), `h2-${i}`)}
+              {renderInline(line.slice(3), `h3-${i}`)}
             </h3>
           )
         }
         if (line.startsWith('# ')) {
           return (
-            <h3 key={i} className="text-lg font-bold text-gray-900">
-              {renderInline(line.slice(2), `h1-${i}`)}
-            </h3>
+            <h2 key={i} className="text-lg font-bold text-gray-900">
+              {renderInline(line.slice(2), `h2-${i}`)}
+            </h2>
           )
         }
         if (HR_RE.test(line)) {

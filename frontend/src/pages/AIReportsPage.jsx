@@ -11,6 +11,7 @@ import ErrorState from '../components/ui/ErrorState'
 import PillGroup from '../components/ui/PillGroup'
 import Skeleton from '../components/ui/Skeleton'
 import useIsMobile from '../hooks/useIsMobile'
+import { fmtCost } from '../utils/format'
 
 const MODE_OPTIONS = [
   { value: 'recent', label: '最近报告' },
@@ -56,11 +57,14 @@ function ReportDetail({ report, onRegenerate, regenerating, regenError }) {
           类型：{typeLabel(report.type)} · 日期：{report.date || '-'}
         </p>
         {report.one_liner && <p className="text-gray-700">一句话点评：{report.one_liner}</p>}
-        <p>模型：{report.model || '-'}</p>
-        <p>
-          tokens：{report.prompt_tokens || 0} / {report.completion_tokens || 0}
-          {report.cost_estimate != null && ` · 约 ¥${report.cost_estimate.toFixed(6)}`}
-        </p>
+        <details data-testid="tech-details" className="mt-1">
+          <summary className="min-h-[36px] cursor-pointer text-xs text-gray-600">
+            技术详情（模型 / tokens / 成本）
+          </summary>
+          <p className="mt-1 rounded-lg bg-gray-50 p-2 text-xs text-gray-600">
+            {`模型：${report.model || '-'} · tokens：${report.prompt_tokens || 0}/${report.completion_tokens || 0} · 成本：${fmtCost(report.cost_estimate)}`}
+          </p>
+        </details>
         {report.memory_refs &&
           (report.memory_refs.l1_count +
             report.memory_refs.l2_count +
@@ -279,9 +283,6 @@ export default function AIReportsPage() {
               <p className="mt-1 flex items-center gap-2 text-xs text-gray-600">
                 {typeLabel(r.type)} · {r.date || '-'}
                 <ScoreBadge score={r.score} testId={`score-badge-${r.id}`} />
-              </p>
-              <p className="mt-1 text-xs text-gray-600">
-                {r.model} · {r.prompt_tokens}+{r.completion_tokens} tokens
               </p>
             </button>
           ))}

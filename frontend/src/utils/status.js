@@ -1,9 +1,10 @@
+// 日历圆点 3 色语义（已匹配 / 仅单源 / 待确认）；label 保持 5 类细分文案
 export const STATUS_COLORS = {
-  auto_matched: 'bg-green-500',
-  manual_matched: 'bg-blue-500',
-  xunji_only: 'bg-yellow-400',
-  garmin_only: 'bg-purple-500',
-  pending: 'bg-orange-500',
+  auto_matched: 'bg-green-500', // 已匹配
+  manual_matched: 'bg-green-500', // 已匹配
+  xunji_only: 'bg-indigo-500', // 仅单源（待匹配）
+  garmin_only: 'bg-indigo-500', // 仅单源（待匹配）
+  pending: 'bg-amber-500', // 待确认
 }
 
 export const STATUS_LABELS = {

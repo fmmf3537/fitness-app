@@ -163,9 +163,12 @@ describe('AIReportsPage', () => {
     expect(await screen.findByRole('heading', { name: '完成质量' })).toBeInTheDocument()
     expect(screen.getByText('训练完成度较高')).toBeInTheDocument()
     const detail = screen.getByTestId('report-detail')
+    expect(screen.getByTestId('tech-details')).toBeInTheDocument()
     expect(detail.textContent).toContain('模型：deepseek-chat')
     expect(detail.textContent).toContain('120')
     expect(detail.textContent).toContain('30')
+    expect(detail.textContent).toContain('<¥0.01')
+    expect(detail.textContent).not.toMatch(/0\.0003/)
   })
 
   it('按日模式无报告时显示空状态', async () => {
@@ -203,6 +206,8 @@ describe('AIReportsPage', () => {
     expect(screen.getByTestId('score-badge-12')).toHaveClass('bg-indigo-100', 'text-indigo-700')
     expect(screen.getByTestId('score-badge-13')).toHaveClass('bg-yellow-100', 'text-yellow-700')
     expect(screen.getByTestId('score-badge-14')).toHaveClass('bg-red-100', 'text-red-700')
+    // 列表卡已去掉 model · tokens 行
+    expect(screen.getByTestId('report-card-11').textContent).not.toMatch(/tokens/)
   })
 
   it('详情展示评分徽章与 one_liner', async () => {

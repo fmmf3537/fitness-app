@@ -46,7 +46,12 @@ describe('CalendarPage', () => {
 
     await screen.findByTestId('day-2026-08-03')
     expect(screen.getByTestId('dot-2026-08-03-auto_matched')).toBeInTheDocument()
-    expect(screen.getByTestId('dot-2026-08-10-pending')).toBeInTheDocument()
+    expect(screen.getByTestId('dot-2026-08-10-pending')).toHaveClass('bg-amber-500')
+    expect(screen.getByTestId('dot-2026-08-03-auto_matched')).toHaveClass('bg-green-500')
+    expect(screen.getByText('已匹配')).toBeInTheDocument()
+    expect(screen.getByText('仅单源')).toBeInTheDocument()
+    expect(screen.getByText('待确认')).toBeInTheDocument()
+    expect(screen.queryByText('手动匹配')).not.toBeInTheDocument()
     expect(globalThis.fetch).toHaveBeenCalledWith(
       '/api/workouts/calendar?month=2026-08',
       expect.objectContaining({
@@ -129,7 +134,7 @@ describe('CalendarPage', () => {
     expect(alert).toHaveAttribute('role', 'alert')
     expect(alert).toHaveTextContent('加载失败：request failed: 500')
     expect(document.querySelectorAll('[data-testid^="day-"]')).toHaveLength(0)
-    expect(screen.queryByText('自动匹配')).not.toBeInTheDocument()
+    expect(screen.queryByText('已匹配')).not.toBeInTheDocument()
   })
 
   it('错误态点击重试重新发起请求', async () => {

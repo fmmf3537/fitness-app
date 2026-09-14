@@ -164,18 +164,12 @@ export default function CoachChatPage({ embedded = false }) {
     }
   }
 
-  const metaLine = (m, _isUser) => {
+  const metaLine = (m, isUser) => {
     const parts = []
     const time = formatMsgTime(m.created_at)
     if (time) parts.push(time)
-    if (m.prompt_tokens != null || m.completion_tokens != null) {
-      const p = m.prompt_tokens ?? 0
-      const c = m.completion_tokens ?? 0
-      parts.push(`${p + c} tokens`)
-    }
-    if (m.cost_estimate != null && m.cost_estimate !== '') {
-      parts.push(`¥${m.cost_estimate}`)
-    }
+    // assistant 仅标注来源，不上屏用量与费用
+    if (!isUser) parts.push('由 AI 教练生成')
     return parts.length ? parts.join(' · ') : null
   }
 

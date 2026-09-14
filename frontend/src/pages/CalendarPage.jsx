@@ -145,11 +145,9 @@ export default function CalendarPage({ initialMonth }) {
           </div>
 
           <div className="mt-4 flex flex-wrap gap-3 text-xs text-gray-600">
-            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-green-500" />自动匹配</span>
-            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-500" />手动匹配</span>
-            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-yellow-400" />仅训记</span>
-            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-purple-500" />仅佳明</span>
-            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-orange-500" />待确认</span>
+            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-green-500" />已匹配</span>
+            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-indigo-500" />仅单源</span>
+            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" />待确认</span>
           </div>
         </>
       )}
