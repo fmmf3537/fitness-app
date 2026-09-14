@@ -106,13 +106,17 @@ describe('ReviewsPage', () => {
     render(<ReviewsPage />)
     await screen.findByText(/2026-08-03/)
 
-    await user.click(screen.getByTestId('tab-monthly'))
+    // PillGroup：按 role=tab 断言（不再有 tab-monthly testid）
+    const monthlyTab = screen.getByRole('tab', { name: '月复盘' })
+    expect(screen.getByRole('tab', { name: '周复盘' })).toHaveAttribute('aria-selected', 'true')
+    await user.click(monthlyTab)
     await vi.waitFor(() => {
       expect(globalThis.fetch).toHaveBeenLastCalledWith(
         '/api/ai-reports?type=monthly&limit=50',
         expect.any(Object),
       )
     })
+    expect(monthlyTab).toHaveAttribute('aria-selected', 'true')
     expect(await screen.findByText(/2026-07-01/)).toBeInTheDocument()
   })
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, ApiError } from '../api/client'
+import Button from './ui/Button'
 
 const POLL_INTERVAL_MS = 3000
 
@@ -69,16 +70,16 @@ export default function SyncButton({ onSynced }) {
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <button
-        aria-label="立即同步"
+      <Button
+        variant="primary"
+        ariaLabel="立即同步"
         onClick={start}
         disabled={syncing}
-        className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm text-white shadow hover:bg-indigo-500 disabled:opacity-50"
       >
         {syncing ? '同步中…' : '立即同步'}
-      </button>
+      </Button>
       {syncing && (
-        <span role="status" className="text-sm text-gray-500">
+        <span role="status" className="text-sm text-gray-600">
           同步中（约 1-2 分钟，含 AI 点评生成）
         </span>
       )}

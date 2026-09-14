@@ -1,7 +1,22 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '../api/client'
+import Badge from '../components/ui/Badge'
+import EmptyState from '../components/ui/EmptyState'
+import ErrorState from '../components/ui/ErrorState'
+import Skeleton from '../components/ui/Skeleton'
 import { statusLabel } from '../utils/status'
+
+/** match_status → Badge 变体（与日历图例语义对齐） */
+const MATCH_BADGE = {
+  auto_matched: 'green',
+  manual_matched: 'indigo',
+  pending: 'amber',
+}
+
+function matchBadgeVariant(status) {
+  return MATCH_BADGE[status] || 'gray'
+}
 
 export default function WorkoutListPage() {
   const [searchParams] = useSearchParams()
@@ -11,12 +26,13 @@ export default function WorkoutListPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
+  const load = useCallback(() => {
     if (!month) {
       setLoading(false)
       return
     }
     setLoading(true)
+    setError('')
     api(`/api/workouts/calendar?month=${month}`)
       .then((data) => {
         const day = (data.days || []).find((d) => d.date === date)
@@ -26,6 +42,29 @@ export default function WorkoutListPage() {
       .finally(() => setLoading(false))
   }, [month, date])
 
+  useEffect(() => {
+    load()
+  }, [load])
+
+  // 无 date 参数时兜底，避免渲染空标题
+  if (!date) {
+    return (
+      <EmptyState
+        testId="no-date"
+        title="未指定日期"
+        description="请从训练日历选择一天查看"
+        action={
+          <Link
+            to="/"
+            className="inline-flex min-h-[44px] items-center text-indigo-600 hover:underline"
+          >
+            ← 返回日历
+          </Link>
+        }
+      />
+    )
+  }
+
   return (
     <div>
       <div className="mb-4 flex items-center gap-3">
@@ -34,26 +73,41 @@ export default function WorkoutListPage() {
         </Link>
         <h2 className="text-lg font-bold text-gray-900">{date} 训练列表</h2>
       </div>
-      {error && <p role="alert" className="mb-4 text-sm text-red-600">加载失败：{error}</p>}
+      {error && (
+        <ErrorState
+          message={`加载失败：${error}`}
+          onRetry={load}
+          testId="list-error"
+        />
+      )}
       {loading ? (
-        <p className="text-sm text-gray-500">加载中…</p>
-      ) : workouts.length === 0 ? (
-        <p className="text-sm text-gray-500">当日没有训练记录</p>
-      ) : (
+        <div className="space-y-2">
+          <Skeleton className="h-12" />
+          <Skeleton className="h-12" />
+          <Skeleton className="h-12" />
+        </div>
+      ) : workouts.length === 0 && !error ? (
+        <EmptyState
+          title="当日没有训练记录"
+          description="换个日期看看，或回到日历同步数据"
+        />
+      ) : workouts.length > 0 ? (
         <ul className="space-y-2">
           {workouts.map((w) => (
             <li key={w.id}>
               <Link
                 to={`/workouts/${w.id}`}
-                className="flex items-center justify-between rounded-md border border-gray-200 bg-white px-4 py-3 shadow-sm hover:border-indigo-400"
+                className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm hover:border-indigo-400"
               >
                 <span className="font-medium text-gray-900">{w.title}</span>
-                <span className="text-sm text-gray-500">{statusLabel(w.match_status)}</span>
+                <Badge variant={matchBadgeVariant(w.match_status)}>
+                  {statusLabel(w.match_status)}
+                </Badge>
               </Link>
             </li>
           ))}
         </ul>
-      )}
+      ) : null}
     </div>
   )
 }

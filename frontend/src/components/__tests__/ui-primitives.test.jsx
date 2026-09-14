@@ -47,6 +47,14 @@ describe('Button', () => {
     render(<Button variant="nope">回退</Button>)
     expect(screen.getByRole('button')).toHaveClass('bg-indigo-600')
   })
+
+  it('ariaLabel 透传为 aria-label', () => {
+    render(<Button ariaLabel="立即同步">同步</Button>)
+    expect(screen.getByRole('button', { name: '立即同步' })).toHaveAttribute(
+      'aria-label',
+      '立即同步',
+    )
+  })
 })
 
 describe('Card', () => {

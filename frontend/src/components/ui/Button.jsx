@@ -22,6 +22,7 @@ export default function Button({
   children,
   testId,
   className = '',
+  ariaLabel,
   ref,
 }) {
   const variantClass = VARIANT_CLASS[variant] ?? VARIANT_CLASS.primary
@@ -41,6 +42,7 @@ export default function Button({
       disabled={disabled}
       onClick={onClick}
       data-testid={testId}
+      aria-label={ariaLabel}
       className={classes}
     >
       {children}

@@ -1,9 +1,15 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api/client'
 import HeartRateChart from '../components/HeartRateChart'
 import NextAdviceSection from '../components/NextAdviceSection'
 import SessionReviewSection from '../components/SessionReviewSection'
+import Badge from '../components/ui/Badge'
+import Button from '../components/ui/Button'
+import Card from '../components/ui/Card'
+import ConfirmDialog from '../components/ui/ConfirmDialog'
+import ErrorState from '../components/ui/ErrorState'
+import { SkeletonText } from '../components/ui/Skeleton'
 import { formatDuration, statusLabel } from '../utils/status'
 
 const TABS = [
@@ -11,6 +17,17 @@ const TABS = [
   { key: 'xunji', label: '训记原始' },
   { key: 'garmin', label: '佳明原始' },
 ]
+
+/** match_status → Badge 变体（与日历图例语义对齐） */
+const MATCH_BADGE = {
+  auto_matched: 'green',
+  manual_matched: 'indigo',
+  pending: 'amber',
+}
+
+function matchBadgeVariant(status) {
+  return MATCH_BADGE[status] || 'gray'
+}
 
 function SummaryCard({ workout }) {
   const items = [
@@ -22,10 +39,10 @@ function SummaryCard({ workout }) {
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
       {items.map((item) => (
-        <div key={item.label} className="rounded-lg bg-white p-4 shadow">
-          <p className="text-sm text-gray-500">{item.label}</p>
+        <Card key={item.label}>
+          <p className="text-sm text-gray-600">{item.label}</p>
           <p className="mt-1 text-lg font-bold text-gray-900">{item.value}</p>
-        </div>
+        </Card>
       ))}
     </div>
   )
@@ -33,7 +50,7 @@ function SummaryCard({ workout }) {
 
 function MovementsTable({ movements, setHr }) {
   if (!movements || movements.length === 0) {
-    return <p className="text-sm text-gray-500">无动作数据</p>
+    return <p className="text-sm text-gray-600">无动作数据</p>
   }
   const hrMap = new Map(
     (setHr || []).map((r) => [`${r.movement_name}|${r.set_index}`, r]),
@@ -43,12 +60,12 @@ function MovementsTable({ movements, setHr }) {
   return (
     <div className="space-y-4">
       {movements.map((mv, idx) => (
-        <div key={`${mv.name}-${idx}`} className="rounded-lg bg-white p-4 shadow">
+        <Card key={`${mv.name}-${idx}`}>
           <h3 className="mb-2 font-bold text-gray-900">{mv.name}</h3>
           <div className="overflow-x-auto">
             <table className="w-full text-sm whitespace-nowrap">
             <thead>
-              <tr className="text-left text-gray-500">
+              <tr className="text-left text-gray-600">
                 <th className="py-1">组</th>
                 <th className="py-1">重量 × 次数</th>
                 <th className="py-1">RPE</th>
@@ -90,7 +107,7 @@ function MovementsTable({ movements, setHr }) {
             </tbody>
             </table>
           </div>
-        </div>
+        </Card>
       ))}
     </div>
   )
@@ -98,7 +115,7 @@ function MovementsTable({ movements, setHr }) {
 
 function RawJson({ data, testId }) {
   if (data == null) {
-    return <p className="text-sm text-gray-500">无原始数据</p>
+    return <p className="text-sm text-gray-600">无原始数据</p>
   }
   return (
     <pre
@@ -118,22 +135,24 @@ export default function WorkoutDetailPage() {
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState('fused')
   const [deleting, setDeleting] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
-  useEffect(() => {
+  const load = useCallback(() => {
     setLoading(true)
+    setError('')
     api(`/api/workouts/${id}`)
       .then(setWorkout)
       .catch((err) => setError(err.status === 404 ? '训练不存在' : err.message))
       .finally(() => setLoading(false))
   }, [id])
 
+  useEffect(() => {
+    load()
+  }, [load])
+
   // V3-11：软删除（原始数据保留，可在「设置 → 已删除的训练」恢复）
   const handleDelete = async () => {
-    const ok = window.confirm(
-      '确定删除这次训练吗？关联的 AI 点评与下次建议会一并删除，' +
-        '原始数据保留，之后可在「设置 → 已删除的训练」中恢复。',
-    )
-    if (!ok) return
+    setConfirmOpen(false)
     setDeleting(true)
     try {
       await api(`/api/workouts/${id}`, { method: 'DELETE' })
@@ -144,8 +163,18 @@ export default function WorkoutDetailPage() {
     }
   }
 
-  if (loading) return <p className="text-sm text-gray-500">加载中…</p>
-  if (error) return <p role="alert" className="text-sm text-red-600">{error}</p>
+  if (loading) {
+    return (
+      <div className="space-y-3">
+        <SkeletonText lines={4} testId="detail-skeleton" />
+      </div>
+    )
+  }
+  if (error) {
+    return (
+      <ErrorState message={error} onRetry={load} testId="detail-error" />
+    )
+  }
   if (!workout) return null
 
   return (
@@ -156,8 +185,11 @@ export default function WorkoutDetailPage() {
         </Link>
         <h2 className="text-lg font-bold text-gray-900">
           {workout.title}
-          <span className="ml-2 text-sm font-normal text-gray-500">
-            {workout.date} · {statusLabel(workout.match_status)}
+          <span className="ml-2 text-sm font-normal text-gray-600">
+            {workout.date} ·{' '}
+            <Badge variant={matchBadgeVariant(workout.match_status)}>
+              {statusLabel(workout.match_status)}
+            </Badge>
           </span>
         </h2>
       </div>
@@ -171,10 +203,10 @@ export default function WorkoutDetailPage() {
             role="tab"
             aria-selected={tab === t.key}
             onClick={() => setTab(t.key)}
-            className={`px-4 py-2 text-sm font-medium ${
+            className={`px-4 min-h-[44px] text-sm font-medium ${
               tab === t.key
                 ? 'border-b-2 border-indigo-600 text-indigo-600'
-                : 'text-gray-500 hover:text-gray-800'
+                : 'text-gray-600 hover:text-gray-800'
             }`}
           >
             {t.label}
@@ -187,11 +219,11 @@ export default function WorkoutDetailPage() {
           <div className="space-y-4">
             <MovementsTable movements={workout.movements} setHr={workout.set_hr} />
             {workout.heart_rate && workout.heart_rate.length > 0 ? (
-              <div className="rounded-lg bg-white p-4 shadow">
+              <Card>
                 <HeartRateChart data={workout.heart_rate} />
-              </div>
+              </Card>
             ) : (
-              <p className="text-sm text-gray-500">无心率数据</p>
+              <p className="text-sm text-gray-600">无心率数据</p>
             )}
             <SessionReviewSection workout={workout} />
             <NextAdviceSection workout={workout} />
@@ -202,15 +234,24 @@ export default function WorkoutDetailPage() {
       </div>
 
       <div className="mt-8 border-t border-gray-200 pt-4">
-        <button
-          data-testid="delete-workout"
-          onClick={handleDelete}
+        <Button
+          variant="danger"
+          testId="delete-workout"
           disabled={deleting}
-          className="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
+          onClick={() => setConfirmOpen(true)}
         >
           {deleting ? '删除中…' : '删除此训练'}
-        </button>
+        </Button>
       </div>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        title="确定删除这次训练吗？"
+        description="关联的 AI 点评与下次建议会一并删除，原始数据保留，之后可在「设置 → 已删除的训练」中恢复。"
+        danger
+        onConfirm={handleDelete}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </div>
   )
 }

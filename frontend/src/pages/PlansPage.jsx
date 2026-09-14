@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, ApiError } from '../api/client'
 import ReviewContent from '../components/ReviewContent'
+import Button from '../components/ui/Button'
+import EmptyState from '../components/ui/EmptyState'
+import ErrorState from '../components/ui/ErrorState'
+import Skeleton from '../components/ui/Skeleton'
 import { fieldLabel, parsePlanReview } from '../utils/planReview'
 
 const POLL_INTERVAL_MS = 3000
@@ -190,23 +194,38 @@ export default function PlansPage() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-bold text-gray-900">训练计划</h2>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            data-testid="refresh-button"
+          <Button
+            variant="primary"
+            testId="refresh-button"
             onClick={handleRefresh}
             disabled={refreshing}
-            className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm text-white shadow hover:bg-indigo-500 disabled:opacity-50"
           >
             {refreshing ? '刷新中…' : '刷新计划'}
-          </button>
+          </Button>
           {refreshMsg && <p role="status" className="text-sm text-gray-600">{refreshMsg}</p>}
         </div>
       </div>
 
-      {loadError && <p role="alert" className="text-sm text-red-600">{loadError}</p>}
-      {days === null && !loadError && <p className="text-sm text-gray-500">加载中…</p>}
+      {loadError && (
+        <ErrorState message={loadError} onRetry={loadPlans} testId="plans-error" />
+      )}
+      {days === null && !loadError && (
+        <div className="space-y-3">
+          <Skeleton className="h-24" />
+          <Skeleton className="h-24" />
+          <Skeleton className="h-24" />
+        </div>
+      )}
       {days !== null && days.length === 0 && (
-        <p className="text-sm text-gray-500">暂无计划数据，请点击「刷新计划」拉取训记官方计划</p>
+        <EmptyState
+          title="暂无计划数据"
+          description="点击下方按钮拉取训记官方计划"
+          action={
+            <Button variant="primary" onClick={handleRefresh} disabled={refreshing}>
+              刷新计划
+            </Button>
+          }
+        />
       )}
 
       <ul className="space-y-3">
@@ -215,7 +234,7 @@ export default function PlansPage() {
             <li
               key={day.date}
               data-testid={`rest-day-${day.date}`}
-              className="rounded-lg bg-gray-100 p-3 text-sm text-gray-400"
+              className="rounded-lg bg-gray-50 p-3 text-sm text-gray-600"
             >
               {day.date} · 休息日
             </li>
@@ -226,17 +245,17 @@ export default function PlansPage() {
                   <p className="text-sm font-bold text-gray-900">
                     {day.date} · {day.plan_name || day.plan_ref || '未命名计划'}
                   </p>
-                  {day.title && <p className="mt-0.5 text-xs text-gray-500">{day.title}</p>}
+                  {day.title && <p className="mt-0.5 text-xs text-gray-600">{day.title}</p>}
                 </div>
-                <button
-                  type="button"
-                  data-testid={`review-button-${day.date}`}
+                <Button
+                  variant="primary"
+                  testId={`review-button-${day.date}`}
                   onClick={() => handleReview(day.date)}
                   disabled={!!generating[day.date]}
-                  className="shrink-0 rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50"
+                  className="shrink-0"
                 >
                   {generating[day.date] ? '生成中…' : 'AI 点评'}
-                </button>
+                </Button>
               </div>
               <ul className="mt-2 space-y-1">
                 {(day.movements || []).map((mv, i) => (
@@ -246,7 +265,7 @@ export default function PlansPage() {
                     className="text-sm text-gray-700"
                   >
                     {mv.name}
-                    <span className="ml-2 text-xs text-gray-500">
+                    <span className="ml-2 text-xs text-gray-600">
                       {formatTargetSets(mv.target_sets)}
                     </span>
                   </li>

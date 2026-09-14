@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import SyncButton from '../components/SyncButton'
+import Button from '../components/ui/Button'
 import ErrorState from '../components/ui/ErrorState'
 import Skeleton from '../components/ui/Skeleton'
 import { statusColor } from '../utils/status'
@@ -67,13 +68,13 @@ export default function CalendarPage({ initialMonth }) {
         data-testid="calendar-header"
         className="mb-4 flex flex-wrap items-center justify-between gap-y-2 md:flex-nowrap"
       >
-        <button
-          aria-label="上个月"
+        <Button
+          variant="secondary"
+          ariaLabel="上个月"
           onClick={() => setMonth((m) => shiftMonth(m, -1))}
-          className="rounded-md bg-white px-3 py-1.5 shadow hover:bg-gray-100"
         >
           ← 上个月
-        </button>
+        </Button>
         <h2
           data-testid="current-month"
           className="shrink-0 whitespace-nowrap text-lg font-bold text-gray-900"
@@ -84,13 +85,14 @@ export default function CalendarPage({ initialMonth }) {
           <div data-testid="sync-row" className="flex items-center gap-2 max-md:order-2 max-md:basis-full">
             <SyncButton onSynced={load} />
           </div>
-          <button
-            aria-label="下个月"
+          <Button
+            variant="secondary"
+            ariaLabel="下个月"
             onClick={() => setMonth((m) => shiftMonth(m, 1))}
-            className="rounded-md bg-white px-3 py-1.5 shadow hover:bg-gray-100 max-md:order-1"
+            className="max-md:order-1"
           >
             下个月 →
-          </button>
+          </Button>
         </div>
       </div>
 

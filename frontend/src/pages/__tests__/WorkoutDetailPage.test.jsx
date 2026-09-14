@@ -245,7 +245,6 @@ describe('WorkoutDetailPage', () => {
 
     it('确认删除后调用 DELETE 并返回日历', async () => {
       const user = userEvent.setup()
-      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
       globalThis.fetch = vi.fn((url, options = {}) => {
         if (options.method === 'DELETE') {
           return Promise.resolve(mockResponse({ ok: true, id: 1 }))
@@ -257,9 +256,13 @@ describe('WorkoutDetailPage', () => {
 
       await user.click(screen.getByTestId('delete-workout'))
 
-      // 确认文案写明 AI 点评一并删除、可在“已删除”里恢复
-      expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('AI 点评'))
-      expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('恢复'))
+      // ConfirmDialog：文案写明 AI 点评一并删除、可在“已删除”里恢复
+      const dialog = screen.getByTestId('confirm-dialog')
+      expect(dialog).toHaveTextContent('确定删除这次训练吗？')
+      expect(dialog).toHaveTextContent('AI 点评')
+      expect(dialog).toHaveTextContent('恢复')
+      await user.click(screen.getByTestId('confirm-dialog-confirm'))
+
       await screen.findByText('日历首页')
       expect(globalThis.fetch).toHaveBeenCalledWith(
         '/api/workouts/1',
@@ -269,17 +272,18 @@ describe('WorkoutDetailPage', () => {
 
     it('取消确认则不发送 DELETE，停留在详情页', async () => {
       const user = userEvent.setup()
-      vi.spyOn(window, 'confirm').mockReturnValue(false)
       renderWithHome()
       await screen.findByText('胸部训练')
 
       await user.click(screen.getByTestId('delete-workout'))
+      await user.click(screen.getByTestId('confirm-dialog-cancel'))
 
       expect(globalThis.fetch).not.toHaveBeenCalledWith(
         '/api/workouts/1',
         expect.objectContaining({ method: 'DELETE' }),
       )
       expect(screen.getByText('胸部训练')).toBeInTheDocument()
+      expect(screen.queryByTestId('confirm-dialog')).not.toBeInTheDocument()
     })
   })
 })

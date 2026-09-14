@@ -2,6 +2,11 @@ import { useCallback, useEffect, useState } from 'react'
 import { api, download } from '../api/client'
 import BottomSheet from '../components/BottomSheet'
 import ReviewContent from '../components/ReviewContent'
+import Button from '../components/ui/Button'
+import EmptyState from '../components/ui/EmptyState'
+import ErrorState from '../components/ui/ErrorState'
+import PillGroup from '../components/ui/PillGroup'
+import Skeleton from '../components/ui/Skeleton'
 import useIsMobile from '../hooks/useIsMobile'
 
 const TABS = [
@@ -24,20 +29,20 @@ function ReviewDetail({ report, onExport }) {
           <p>模型：{report.model || '-'}</p>
         </div>
         <div className="flex gap-2">
-          <button
-            data-testid="export-md"
+          <Button
+            variant="secondary"
+            testId="export-md"
             onClick={() => onExport('md')}
-            className="rounded-md border border-gray-300 px-3 py-1 text-sm text-gray-700 hover:bg-gray-100"
           >
             导出 Markdown
-          </button>
-          <button
-            data-testid="export-pdf"
+          </Button>
+          <Button
+            variant="secondary"
+            testId="export-pdf"
             onClick={() => onExport('pdf')}
-            className="rounded-md border border-gray-300 px-3 py-1 text-sm text-gray-700 hover:bg-gray-100"
           >
             导出 PDF
-          </button>
+          </Button>
         </div>
       </div>
       <ReviewContent text={report.content_md || '无内容'} />
@@ -123,36 +128,29 @@ export default function ReviewsPage() {
     ).catch((err) => setError(err.message))
   }
 
-  const pillClass = (active) =>
-    `rounded-md px-3 py-2 text-sm font-medium ${
-      active ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-gray-200'
-    }`
-
   const selectedIndex = reports.findIndex((r) => selected != null && r.id === selected.id)
 
   const navFooter = (
     <div className="flex items-center justify-between gap-2">
-      <button
-        type="button"
-        data-testid="sheet-prev"
+      <Button
+        variant="secondary"
+        testId="sheet-prev"
         disabled={selectedIndex <= 0}
         onClick={() => setSelected(reports[selectedIndex - 1])}
-        className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-40"
       >
         上一篇
-      </button>
-      <span className="text-xs text-gray-400">
+      </Button>
+      <span className="text-xs text-gray-600">
         {selectedIndex + 1} / {reports.length}
       </span>
-      <button
-        type="button"
-        data-testid="sheet-next"
+      <Button
+        variant="secondary"
+        testId="sheet-next"
         disabled={selectedIndex < 0 || selectedIndex >= reports.length - 1}
         onClick={() => setSelected(reports[selectedIndex + 1])}
-        className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-40"
       >
         下一篇
-      </button>
+      </Button>
     </div>
   )
 
@@ -161,26 +159,20 @@ export default function ReviewsPage() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-bold text-gray-900">复盘中心</h1>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex gap-1">
-            {TABS.map((t) => (
-              <button
-                key={t.key}
-                data-testid={`tab-${t.key}`}
-                onClick={() => setTab(t.key)}
-                className={pillClass(tab === t.key)}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-          <button
-            data-testid="generate-button"
+          <PillGroup
+            options={TABS.map((t) => ({ value: t.key, label: t.label }))}
+            value={tab}
+            onChange={setTab}
+            testId="review-tabs"
+          />
+          <Button
+            variant="primary"
+            testId="generate-button"
             onClick={handleGenerate}
             disabled={generating}
-            className="rounded-md bg-green-600 px-3 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
           >
             {generating ? '生成中…' : '立即生成'}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -189,15 +181,30 @@ export default function ReviewsPage() {
           {toast}
         </p>
       )}
-      {loading && <p className="text-sm text-gray-500">加载中…</p>}
+      {loading && (
+        <div className="space-y-2">
+          <Skeleton className="h-20" />
+          <Skeleton className="h-20" />
+        </div>
+      )}
       {error && (
-        <p role="alert" className="text-sm text-red-600">
-          {error}
-        </p>
+        <ErrorState
+          message={error}
+          onRetry={() => load(tab)}
+          testId="reviews-error"
+        />
       )}
 
       {!loading && !error && reports.length === 0 && (
-        <p className="text-sm text-gray-500">暂无复盘报告，可点击「立即生成」。</p>
+        <EmptyState
+          title="暂无复盘报告"
+          description="点击「立即生成」创建本周期复盘"
+          action={
+            <Button variant="primary" onClick={handleGenerate} disabled={generating}>
+              立即生成
+            </Button>
+          }
+        />
       )}
 
       <div className="grid gap-4 md:grid-cols-3">

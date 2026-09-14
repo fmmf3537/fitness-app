@@ -1,11 +1,16 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api/client'
+import Button from '../components/ui/Button'
+import Card from '../components/ui/Card'
+import EmptyState from '../components/ui/EmptyState'
+import ErrorState from '../components/ui/ErrorState'
+import Skeleton from '../components/ui/Skeleton'
 import { formatDateTime } from '../utils/status'
 
 function Side({ title, lines }) {
   return (
     <div className="flex-1 rounded-md bg-gray-50 p-3">
-      <p className="mb-1 text-xs font-medium text-gray-500">{title}</p>
+      <p className="mb-1 text-xs font-medium text-gray-600">{title}</p>
       {lines.map((line, i) => (
         <p key={i} className="text-sm text-gray-800">
           {line}
@@ -36,47 +41,51 @@ function CandidateCard({ candidate, onResolve }) {
   }
 
   return (
-    <li data-testid={`candidate-${candidate.id}`} className="rounded-lg bg-white p-4 shadow">
-      <div className="flex flex-col gap-3 sm:flex-row">
-        {xt ? (
-          <Side title="训记" lines={[xt.title, formatDateTime(xt.start_ms)]} />
-        ) : (
-          <Side title="训记" lines={['无训记记录']} />
+    <li>
+      <Card testId={`candidate-${candidate.id}`}>
+        <div className="flex flex-col gap-3 sm:flex-row">
+          {xt ? (
+            <Side title="训记" lines={[xt.title, formatDateTime(xt.start_ms)]} />
+          ) : (
+            <Side title="训记" lines={['无训记记录']} />
+          )}
+          <div className="flex items-center justify-center text-gray-500 sm:rotate-0 rotate-90">
+            ⇄
+          </div>
+          {ga ? (
+            <Side
+              title="佳明"
+              lines={[ga.name, formatDateTime(ga.start_ts)]}
+            />
+          ) : (
+            <Side title="佳明" lines={['无佳明记录']} />
+          )}
+        </div>
+        <p className="mt-2 text-xs text-gray-600">原因：{candidate.reason}</p>
+        {error && (
+          <p role="alert" className="mt-2 text-sm text-red-600">
+            {error}
+          </p>
         )}
-        <div className="flex items-center justify-center text-gray-400">⇄</div>
-        {ga ? (
-          <Side
-            title="佳明"
-            lines={[ga.name, formatDateTime(ga.start_ts)]}
-          />
-        ) : (
-          <Side title="佳明" lines={['无佳明记录']} />
-        )}
-      </div>
-      <p className="mt-2 text-xs text-gray-500">原因：{candidate.reason}</p>
-      {error && (
-        <p role="alert" className="mt-2 text-sm text-red-600">
-          {error}
-        </p>
-      )}
-      <div className="mt-3 flex gap-2">
-        {xt && (
-          <button
-            onClick={() => handleResolve('merge')}
+        <div className="mt-3 flex gap-2">
+          {xt && (
+            <Button
+              variant="primary"
+              onClick={() => handleResolve('merge')}
+              disabled={resolving}
+            >
+              合并
+            </Button>
+          )}
+          <Button
+            variant="secondary"
+            onClick={() => handleResolve('split')}
             disabled={resolving}
-            className="rounded-md bg-indigo-600 px-4 py-1.5 text-sm text-white hover:bg-indigo-700 disabled:opacity-50"
           >
-            合并
-          </button>
-        )}
-        <button
-          onClick={() => handleResolve('split')}
-          disabled={resolving}
-          className="rounded-md bg-gray-200 px-4 py-1.5 text-sm text-gray-800 hover:bg-gray-300 disabled:opacity-50"
-        >
-          保持分开
-        </button>
-      </div>
+            保持分开
+          </Button>
+        </div>
+      </Card>
     </li>
   )
 }
@@ -86,7 +95,9 @@ export default function CandidatesPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
+  const load = useCallback(() => {
+    setLoading(true)
+    setError('')
     api('/api/match-candidates')
       .then((data) =>
         setCandidates((data.candidates || []).filter((c) => c.status === 'pending')),
@@ -95,6 +106,10 @@ export default function CandidatesPage() {
       .finally(() => setLoading(false))
   }, [])
 
+  useEffect(() => {
+    load()
+  }, [load])
+
   const handleResolved = (id) => {
     setCandidates((list) => list.filter((c) => c.id !== id))
   }
@@ -102,18 +117,30 @@ export default function CandidatesPage() {
   return (
     <div>
       <h2 className="mb-4 text-lg font-bold text-gray-900">待确认队列</h2>
-      {error && <p role="alert" className="mb-4 text-sm text-red-600">加载失败：{error}</p>}
+      {error && (
+        <ErrorState
+          message={`加载失败：${error}`}
+          onRetry={load}
+          testId="candidates-error"
+        />
+      )}
       {loading ? (
-        <p className="text-sm text-gray-500">加载中…</p>
-      ) : candidates.length === 0 ? (
-        <p className="text-sm text-gray-500">没有待确认的候选</p>
-      ) : (
+        <div className="space-y-3">
+          <Skeleton className="h-28" />
+          <Skeleton className="h-28" />
+        </div>
+      ) : candidates.length === 0 && !error ? (
+        <EmptyState
+          title="没有待确认的候选"
+          description="训记与佳明记录已全部匹配完成"
+        />
+      ) : candidates.length > 0 ? (
         <ul className="space-y-3">
           {candidates.map((c) => (
             <CandidateCard key={c.id} candidate={c} onResolve={handleResolved} />
           ))}
         </ul>
-      )}
+      ) : null}
     </div>
   )
 }
