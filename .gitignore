@@ -36,3 +36,19 @@ logs/
 # 本机运维脚本（含绝对路径，机器专用）
 scripts/server_daemon.py
 scripts/start_server_hidden.vbs
+
+# 本地诊断、工具产物与临时文件
+.diag/
+.dsh/
+.workbuddy/
+_backup_*/
+outputs/
+_pytest_*.log
+_uix*_map_*.js
+backend/_*.log
+backend/_*.out
+backend/_*.err
+backend/_verify_*.py
+frontend/_vite.*
+backend/scripts/_*.py
+backend/scripts/fix_dns_and_hosts_*.ps1
