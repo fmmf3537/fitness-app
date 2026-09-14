@@ -43,6 +43,7 @@ export async function api(path, options = {}) {
   const res = await fetch(path, { ...options, headers })
   if (res.status === 401) {
     clearToken()
+    redirectToLogin()
     throw new ApiError(401, 'unauthorized')
   }
   if (res.status === 404) {
@@ -64,6 +65,7 @@ export async function apiForm(path, formData) {
   const res = await fetch(path, { method: 'POST', body: formData, headers })
   if (res.status === 401) {
     clearToken()
+    redirectToLogin()
     throw new ApiError(401, 'unauthorized')
   }
   if (!res.ok) {
@@ -79,6 +81,7 @@ export async function download(path, filename) {
   const res = await fetch(path, { headers })
   if (res.status === 401) {
     clearToken()
+    redirectToLogin()
     throw new ApiError(401, 'unauthorized')
   }
   if (!res.ok) {
@@ -91,6 +94,19 @@ export async function download(path, filename) {
   a.download = filename
   a.click()
   URL.revokeObjectURL(url)
+}
+
+/** UIX-02：401 统一处理——清 token、记住当前路径、跳登录页（login 自身除外） */
+function redirectToLogin() {
+  if (typeof window === 'undefined' || !window.location) return
+  if (window.location.pathname.startsWith('/login')) return
+  try {
+    sessionStorage.setItem('fh_auth_from', window.location.pathname + window.location.search)
+  } catch {
+    // sessionStorage 不可用（隐私模式等）时静默跳过，仅跳转
+  }
+  // 用 href 赋值而非 assign()：jsdom 下 assign 会抛 Not implemented
+  window.location.href = '/login'
 }
 
 export async function login(password) {

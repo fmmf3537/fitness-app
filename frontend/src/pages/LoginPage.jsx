@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { login, setToken } from '../api/client'
 
 export default function LoginPage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -15,7 +16,23 @@ export default function LoginPage() {
     try {
       const data = await login(password)
       setToken(data.token)
-      navigate('/', { replace: true })
+      // 深链接回跳：RequireAuth state > 401 拦截 sessionStorage > 首页
+      const from = location.state?.from
+      let target = '/'
+      if (from?.pathname) {
+        target = from.pathname + (from.search || '')
+      } else {
+        try {
+          const stored = sessionStorage.getItem('fh_auth_from')
+          if (stored) {
+            sessionStorage.removeItem('fh_auth_from')
+            target = stored
+          }
+        } catch {
+          // sessionStorage 不可用时静默回首页
+        }
+      }
+      navigate(target, { replace: true })
     } catch (err) {
       setError(err.status === 401 ? '口令错误' : '登录失败，请稍后重试')
     } finally {
@@ -24,7 +41,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
+    <div className="flex min-h-dvh items-center justify-center bg-gray-50 px-4">
       <form
         onSubmit={handleSubmit}
         className="w-full max-w-sm rounded-lg bg-white p-6 shadow"
@@ -38,7 +55,7 @@ export default function LoginPage() {
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="mb-4 w-full rounded-md border border-gray-300 px-3 py-2 focus:border-indigo-500 focus:outline-none"
+          className="mb-4 w-full min-h-[44px] rounded-md border border-gray-300 px-3 py-2 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 focus:outline-none"
           placeholder="请输入访问口令"
           required
         />
@@ -50,7 +67,7 @@ export default function LoginPage() {
         <button
           type="submit"
           disabled={loading}
-          className="w-full rounded-md bg-indigo-600 py-2 text-white hover:bg-indigo-700 disabled:opacity-50"
+          className="w-full min-h-[44px] rounded-md bg-indigo-600 text-sm font-medium text-white hover:bg-indigo-700 active:bg-indigo-800 disabled:opacity-50"
         >
           {loading ? '登录中…' : '登录'}
         </button>

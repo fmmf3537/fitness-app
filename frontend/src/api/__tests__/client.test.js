@@ -16,6 +16,17 @@ function mockFetch(status, body = {}) {
   })
 }
 
+/** 可写 location stub：便于断言 redirectToLogin 的 href 赋值与 pathname 分支 */
+function stubLocation({ pathname = '/settings', search = '' } = {}) {
+  const loc = { pathname, search, href: '' }
+  Object.defineProperty(window, 'location', {
+    configurable: true,
+    writable: true,
+    value: loc,
+  })
+  return loc
+}
+
 describe('token 存取', () => {
   beforeEach(() => localStorage.clear())
 
@@ -29,8 +40,18 @@ describe('token 存取', () => {
 })
 
 describe('api()', () => {
-  beforeEach(() => localStorage.clear())
-  afterEach(() => vi.unstubAllGlobals())
+  let loc
+
+  beforeEach(() => {
+    localStorage.clear()
+    sessionStorage.clear()
+    loc = stubLocation({ pathname: '/settings', search: '' })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    sessionStorage.clear()
+  })
 
   it('成功时返回 json，带 token 时附加 Authorization 头', async () => {
     setToken('t123')
@@ -57,6 +78,27 @@ describe('api()', () => {
     vi.stubGlobal('fetch', mockFetch(401))
     await expect(api('/api/x')).rejects.toMatchObject({ status: 401 })
     expect(getToken()).toBeNull()
+    expect(sessionStorage.getItem('fh_auth_from')).toBe('/settings')
+    expect(loc.href).toBe('/login')
+  })
+
+  it('401 时 pathname 已是 /login 不写 sessionStorage', async () => {
+    loc = stubLocation({ pathname: '/login', search: '' })
+    setToken('t123')
+    vi.stubGlobal('fetch', mockFetch(401))
+    await expect(api('/api/x')).rejects.toMatchObject({ status: 401 })
+    expect(getToken()).toBeNull()
+    expect(sessionStorage.getItem('fh_auth_from')).toBeNull()
+    expect(loc.href).toBe('')
+  })
+
+  it('401 时记住 pathname+search', async () => {
+    loc = stubLocation({ pathname: '/workouts', search: '?date=2026-08-03' })
+    setToken('t123')
+    vi.stubGlobal('fetch', mockFetch(401))
+    await expect(api('/api/x')).rejects.toMatchObject({ status: 401 })
+    expect(sessionStorage.getItem('fh_auth_from')).toBe('/workouts?date=2026-08-03')
+    expect(loc.href).toBe('/login')
   })
 
   it('404 抛 not found', async () => {
@@ -91,7 +133,15 @@ describe('api()', () => {
 })
 
 describe('login()', () => {
-  afterEach(() => vi.unstubAllGlobals())
+  beforeEach(() => {
+    sessionStorage.clear()
+    stubLocation({ pathname: '/login', search: '' })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    sessionStorage.clear()
+  })
 
   it('成功返回 json', async () => {
     const fetchMock = mockFetch(200, { token: 'tok' })
@@ -109,6 +159,8 @@ describe('login()', () => {
       status: 401,
       message: '口令错误',
     })
+    // login 自身 401 不走统一拦截，不写回跳路径
+    expect(sessionStorage.getItem('fh_auth_from')).toBeNull()
   })
 
   it('其他非 ok 状态抛 request failed', async () => {

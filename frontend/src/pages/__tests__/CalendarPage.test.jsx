@@ -116,4 +116,46 @@ describe('CalendarPage', () => {
       expect(rightGroup).toHaveClass('max-md:contents')
     })
   })
+
+  it('加载失败显示 ErrorState 且不渲染日历网格', async () => {
+    globalThis.fetch = vi.fn(() => Promise.resolve(mockResponse({}, 500)))
+    render(
+      <MemoryRouter>
+        <CalendarPage initialMonth="2026-08" />
+      </MemoryRouter>,
+    )
+
+    const alert = await screen.findByTestId('calendar-error')
+    expect(alert).toHaveAttribute('role', 'alert')
+    expect(alert).toHaveTextContent('加载失败：request failed: 500')
+    expect(document.querySelectorAll('[data-testid^="day-"]')).toHaveLength(0)
+    expect(screen.queryByText('自动匹配')).not.toBeInTheDocument()
+  })
+
+  it('错误态点击重试重新发起请求', async () => {
+    const user = userEvent.setup()
+    let calls = 0
+    globalThis.fetch = vi.fn(() => {
+      calls += 1
+      if (calls === 1) return Promise.resolve(mockResponse({}, 500))
+      return Promise.resolve(mockResponse(CALENDAR_AUG))
+    })
+
+    render(
+      <MemoryRouter>
+        <CalendarPage initialMonth="2026-08" />
+      </MemoryRouter>,
+    )
+
+    await screen.findByTestId('calendar-error')
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1)
+
+    await user.click(screen.getByRole('button', { name: '重试' }))
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledTimes(2)
+    })
+    await screen.findByTestId('day-2026-08-03')
+    expect(screen.queryByTestId('calendar-error')).not.toBeInTheDocument()
+  })
 })

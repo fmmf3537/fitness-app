@@ -266,13 +266,13 @@ export default function CoachPreferencesPage() {
       {editingPref && (
         <div
           data-testid="preference-modal"
-          className="fixed inset-0 z-10 flex items-center justify-center bg-black/30"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
           role="dialog"
           aria-modal="true"
         >
           <form
             onSubmit={handleSaveModal}
-            className="w-full max-w-md rounded-lg bg-white p-4 shadow-lg"
+            className="w-full max-w-md rounded-lg bg-white p-4 shadow-lg mb-[env(safe-area-inset-bottom)]"
           >
             <h3 className="mb-3 text-sm font-medium text-gray-900">
               {editingPref.id != null ? '编辑须知' : '新建须知'}

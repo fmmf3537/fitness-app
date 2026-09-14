@@ -10,7 +10,7 @@ export default function PosterPreviewModal({ dataUrl, sharing, shareError, nativ
       aria-modal="true"
       aria-label="分享海报预览"
     >
-      <div className="flex max-h-full w-full max-w-sm flex-col rounded-xl bg-white p-4 shadow-xl">
+      <div className="flex max-h-full w-full max-w-sm flex-col rounded-xl bg-white p-4 shadow-xl mb-[env(safe-area-inset-bottom)]">
         <div className="min-h-0 flex-1 overflow-auto">
           <img
             data-testid="poster-preview-img"

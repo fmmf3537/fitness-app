@@ -50,7 +50,7 @@ export default function BottomSheet({ open = true, onClose, title, footer, child
           {children}
         </div>
         {footer && (
-          <div data-testid="bottom-sheet-footer" className="shrink-0 border-t border-gray-100 px-4 py-3">
+          <div data-testid="bottom-sheet-footer" className="shrink-0 border-t border-gray-100 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
             {footer}
           </div>
         )}

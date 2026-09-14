@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import SyncButton from '../components/SyncButton'
+import ErrorState from '../components/ui/ErrorState'
+import Skeleton from '../components/ui/Skeleton'
 import { statusColor } from '../utils/status'
 
 function currentMonth() {
@@ -92,50 +94,63 @@ export default function CalendarPage({ initialMonth }) {
         </div>
       </div>
 
-      {error && <p role="alert" className="mb-4 text-sm text-red-600">加载失败：{error}</p>}
-      {loading && <p className="mb-4 text-sm text-gray-500">加载中…</p>}
-
-      <div className="grid grid-cols-7 gap-1">
-        {WEEKDAYS.map((w) => (
-          <div key={w} className="py-1 text-center text-sm font-medium text-gray-500">
-            {w}
+      {error ? (
+        <ErrorState
+          testId="calendar-error"
+          message={`加载失败：${error}`}
+          onRetry={load}
+        />
+      ) : loading ? (
+        <div className="grid grid-cols-7 gap-1">
+          {Array.from({ length: 35 }, (_, i) => (
+            <Skeleton key={i} className="h-16" />
+          ))}
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-7 gap-1">
+            {WEEKDAYS.map((w) => (
+              <div key={w} className="py-1 text-center text-sm font-medium text-gray-500">
+                {w}
+              </div>
+            ))}
+            {cells.map((date, i) =>
+              date === null ? (
+                <div key={`empty-${i}`} />
+              ) : (
+                <button
+                  key={date}
+                  data-testid={`day-${date}`}
+                  onClick={() => navigate(`/workouts?date=${date}`)}
+                  className={`flex min-h-16 flex-col items-center rounded-md border border-gray-200 bg-white p-1 text-sm hover:border-indigo-400 ${
+                    (dayMap[date]?.workouts?.length || 0) > 0 ? 'bg-indigo-50' : ''
+                  }`}
+                >
+                  <span className="text-gray-800">{Number(date.slice(-2))}</span>
+                  <span className="mt-1 flex flex-wrap justify-center gap-1">
+                    {(dayMap[date]?.workouts || []).map((w) => (
+                      <span
+                        key={w.id}
+                        data-testid={`dot-${date}-${w.match_status}`}
+                        title={w.title}
+                        className={`h-2 w-2 rounded-full ${statusColor(w.match_status)}`}
+                      />
+                    ))}
+                  </span>
+                </button>
+              ),
+            )}
           </div>
-        ))}
-        {cells.map((date, i) =>
-          date === null ? (
-            <div key={`empty-${i}`} />
-          ) : (
-            <button
-              key={date}
-              data-testid={`day-${date}`}
-              onClick={() => navigate(`/workouts?date=${date}`)}
-              className={`flex min-h-16 flex-col items-center rounded-md border border-gray-200 bg-white p-1 text-sm hover:border-indigo-400 ${
-                (dayMap[date]?.workouts?.length || 0) > 0 ? 'bg-indigo-50' : ''
-              }`}
-            >
-              <span className="text-gray-800">{Number(date.slice(-2))}</span>
-              <span className="mt-1 flex flex-wrap justify-center gap-1">
-                {(dayMap[date]?.workouts || []).map((w) => (
-                  <span
-                    key={w.id}
-                    data-testid={`dot-${date}-${w.match_status}`}
-                    title={w.title}
-                    className={`h-2 w-2 rounded-full ${statusColor(w.match_status)}`}
-                  />
-                ))}
-              </span>
-            </button>
-          ),
-        )}
-      </div>
 
-      <div className="mt-4 flex flex-wrap gap-3 text-xs text-gray-600">
-        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-green-500" />自动匹配</span>
-        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-500" />手动匹配</span>
-        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-yellow-400" />仅训记</span>
-        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-purple-500" />仅佳明</span>
-        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-orange-500" />待确认</span>
-      </div>
+          <div className="mt-4 flex flex-wrap gap-3 text-xs text-gray-600">
+            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-green-500" />自动匹配</span>
+            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-500" />手动匹配</span>
+            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-yellow-400" />仅训记</span>
+            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-purple-500" />仅佳明</span>
+            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-orange-500" />待确认</span>
+          </div>
+        </>
+      )}
     </div>
   )
 }

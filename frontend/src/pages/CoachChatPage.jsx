@@ -201,7 +201,7 @@ export default function CoachChatPage() {
         </p>
       )}
 
-      <div className="flex items-end gap-2 border-t bg-white p-3">
+      <div className="flex items-end gap-2 border-t bg-white px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <textarea
           data-testid="chat-input"
           value={input}

@@ -394,9 +394,11 @@ export default function BodyMetricsPage() {
       {syncPreview && (
         <div
           data-testid="sync-modal"
-          className="fixed inset-0 z-10 flex items-center justify-center bg-black/30"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
+          role="dialog"
+          aria-modal="true"
         >
-          <div className="w-96 rounded-lg bg-white p-4 shadow-lg">
+          <div className="w-full max-w-sm rounded-xl bg-white p-4 shadow-xl mb-[env(safe-area-inset-bottom)]">
             <h3 className="mb-2 text-sm font-medium text-gray-900">确认同步到训记</h3>
             <p data-testid="sync-summary" className="mb-4 text-sm text-gray-700">
               {syncPreview.summary || '训记将更新该条记录'}
