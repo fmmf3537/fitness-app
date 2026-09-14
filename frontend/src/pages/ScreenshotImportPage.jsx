@@ -1,6 +1,9 @@
 import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, apiForm } from '../api/client'
+import Button from '../components/ui/Button'
+import ConfirmDialog from '../components/ui/ConfirmDialog'
+import useIsMobile from '../hooks/useIsMobile'
 
 const MAX_FILES = 9
 
@@ -143,7 +146,7 @@ function PreviewCard({ card, index, onChange, onConfirm }) {
           </div>
           {mv.sets.map((s, si) => (
             <div key={si} className="mb-1 flex items-center gap-2 text-sm">
-              <span className="w-8 text-gray-400">{si + 1}</span>
+              <span className="w-8 text-gray-600">{si + 1}</span>
               <input
                 data-testid={`set-weight-${index}-${mi}-${si}`}
                 type="number"
@@ -221,17 +224,52 @@ function PreviewCard({ card, index, onChange, onConfirm }) {
 }
 
 export default function ScreenshotImportPage() {
+  const isMobile = useIsMobile()
   const [files, setFiles] = useState([])
   const [extracting, setExtracting] = useState(false)
   const [cards, setCards] = useState([])
   const [globalError, setGlobalError] = useState('')
+  const [reselectOpen, setReselectOpen] = useState(false)
   const inputRef = useRef(null)
+  const pendingFilesRef = useRef(null)
 
-  const addFiles = (fileList) => {
+  const applyFiles = (fileList) => {
     const images = Array.from(fileList).filter((f) => f.type.startsWith('image/'))
     setFiles((prev) => [...prev, ...images].slice(0, MAX_FILES))
     setCards([])
     setGlobalError('')
+  }
+
+  // 已有识别结果时先确认，避免误清校对成果
+  const addFiles = (fileList) => {
+    if (cards.length > 0) {
+      pendingFilesRef.current = fileList
+      setReselectOpen(true)
+      return
+    }
+    applyFiles(fileList)
+  }
+
+  const handleReselectConfirm = () => {
+    setReselectOpen(false)
+    if (pendingFilesRef.current) {
+      applyFiles(pendingFilesRef.current)
+      pendingFilesRef.current = null
+    }
+  }
+
+  const handleReselectCancel = () => {
+    setReselectOpen(false)
+    pendingFilesRef.current = null
+    if (inputRef.current) inputRef.current.value = ''
+  }
+
+  const removeFile = (index) => {
+    setFiles((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  const removeCard = (index) => {
+    setCards((prev) => prev.filter((_, i) => i !== index))
   }
 
   const handleExtract = async () => {
@@ -296,13 +334,13 @@ export default function ScreenshotImportPage() {
   return (
     <div className="space-y-4">
       <h1 className="text-xl font-bold text-gray-900">截图识别补录</h1>
-      <p className="text-sm text-gray-500">
+      <p className="text-sm text-gray-600">
         上传训记/佳明截图，AI 识别为结构化数据，核对确认后写入训练档案并重跑当日匹配。识别阶段不落库。
       </p>
 
       <div
         data-testid="drop-zone"
-        className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-white p-8 text-gray-500 hover:border-indigo-400"
+        className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-white p-8 text-gray-600 hover:border-indigo-400"
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => {
           e.preventDefault()
@@ -310,7 +348,11 @@ export default function ScreenshotImportPage() {
         }}
         onClick={() => inputRef.current?.click()}
       >
-        <p>拖拽截图到此处，或点击选择文件（可多选，最多 {MAX_FILES} 张）</p>
+        <p>
+          {isMobile
+            ? `点击选择截图（可多选，最多 ${MAX_FILES} 张）`
+            : `拖拽截图到此处，或点击选择文件（可多选，最多 ${MAX_FILES} 张）`}
+        </p>
         <input
           data-testid="file-input"
           ref={inputRef}
@@ -325,22 +367,48 @@ export default function ScreenshotImportPage() {
       {files.length > 0 && (
         <ul className="rounded-lg border border-gray-200 bg-white p-3 text-sm">
           {files.map((f, i) => (
-            <li key={`${f.name}-${i}`} className="flex justify-between py-1">
-              <span>{f.name}</span>
-              <span className="text-gray-400">{(f.size / 1024).toFixed(0)} KB</span>
+            <li key={`${f.name}-${i}`} className="flex items-center justify-between gap-2 py-1">
+              <span className="min-w-0 truncate">{f.name}</span>
+              <span className="flex shrink-0 items-center gap-2">
+                <span className="text-gray-600">{(f.size / 1024).toFixed(0)} KB</span>
+                <button
+                  type="button"
+                  className="min-h-[36px] text-sm text-red-600"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    removeFile(i)
+                  }}
+                >
+                  移除
+                </button>
+              </span>
             </li>
           ))}
         </ul>
       )}
 
-      <button
-        data-testid="extract-btn"
-        className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+      <Button
+        variant="primary"
+        testId="extract-btn"
         disabled={files.length === 0 || extracting}
         onClick={handleExtract}
       >
         {extracting ? '识别中…' : '开始识别'}
-      </button>
+      </Button>
+
+      {extracting && (
+        <div data-testid="extract-progress" className="rounded-xl bg-gray-50 p-3">
+          <p className="text-xs font-medium text-gray-700">
+            正在识别 {files.length} 张截图…
+          </p>
+          <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-gray-200">
+            <div className="h-full w-1/3 animate-pulse rounded-full bg-indigo-600" />
+          </div>
+          <p className="mt-2 text-xs text-gray-600">
+            AI 识别中，通常需要 10–20 秒，请耐心等待
+          </p>
+        </div>
+      )}
 
       {globalError && (
         <p data-testid="global-error" className="text-sm text-red-600">
@@ -358,12 +426,29 @@ export default function ScreenshotImportPage() {
               data-testid={`error-card-${i}`}
               className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"
             >
-              <span className="font-medium">{card.filename}：</span>
-              {card.error}
+              <div className="flex items-center justify-between gap-2">
+                <p>
+                  <span className="font-medium">{card.filename}：</span>
+                  {card.error}
+                </p>
+                <Button variant="ghost" onClick={() => removeCard(i)}>
+                  移除
+                </Button>
+              </div>
             </div>
           ),
         )}
       </div>
+
+      <ConfirmDialog
+        open={reselectOpen}
+        title="重新选择图片？"
+        description={`已有 ${cards.length} 张截图的识别结果，其中已确认的进度不会保留。`}
+        confirmText="丢弃并重选"
+        danger
+        onConfirm={handleReselectConfirm}
+        onCancel={handleReselectCancel}
+      />
     </div>
   )
 }

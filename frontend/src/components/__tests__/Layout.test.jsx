@@ -40,6 +40,8 @@ describe('Layout 导航', () => {
     // 桌面端不渲染汉堡按钮与底部 Tab 栏
     expect(screen.queryByTestId('nav-toggle')).not.toBeInTheDocument()
     expect(screen.queryByTestId('bottom-tabs')).not.toBeInTheDocument()
+    // ToastProvider 挂载后容器存在，不破坏既有断言
+    expect(screen.getByTestId('toast-container')).toBeInTheDocument()
   })
 })
 

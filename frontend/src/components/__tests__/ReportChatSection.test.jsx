@@ -146,8 +146,11 @@ describe('ReportChatSection', () => {
     await user.type(input, '问题')
     await user.click(screen.getByTestId('chat-send'))
 
-    expect(await screen.findByRole('alert')).toBeInTheDocument()
+    // 失败气泡出现（border-red-300）+ chat-retry 在气泡旁；输入框已清空
+    const failedBubble = await screen.findByText('问题')
+    expect(failedBubble.className).toMatch(/border-red-300/)
     const retry = await screen.findByTestId('chat-retry')
+    expect(input).toHaveValue('')
     await user.click(retry)
 
     expect(await screen.findByTestId('chat-msg-assistant-4')).toBeInTheDocument()
@@ -156,6 +159,32 @@ describe('ReportChatSection', () => {
     const firstId = JSON.parse(postCalls[0][1].body).client_request_id
     const secondId = JSON.parse(postCalls[1][1].body).client_request_id
     expect(secondId).toBe(firstId)
+  })
+
+  it('乐观上屏：发送后输入框立即清空且 pending 气泡 opacity-70', async () => {
+    let resolvePost
+    globalThis.fetch = vi.fn((url, options) => {
+      if (options?.method === 'POST') {
+        return new Promise((resolve) => {
+          resolvePost = () => resolve(mockResponse(POST_RESULT))
+        })
+      }
+      return Promise.resolve(mockResponse(HISTORY))
+    })
+    const user = userEvent.setup()
+    render(<ReportChatSection reportId={7} />)
+    await user.click(screen.getByTestId('chat-expand-btn'))
+    const input = await screen.findByTestId('chat-input')
+
+    await user.type(input, '乐观问题')
+    await user.click(screen.getByTestId('chat-send'))
+
+    expect(input).toHaveValue('')
+    const pending = screen.getByText('乐观问题')
+    expect(pending.className).toMatch(/opacity-70/)
+
+    resolvePost()
+    expect(await screen.findByTestId('chat-msg-assistant-4')).toBeInTheDocument()
   })
 
   it('空白内容不发送', async () => {

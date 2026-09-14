@@ -5,6 +5,7 @@ import useIsMobile from '../hooks/useIsMobile'
 import useAndroidBackButton from '../hooks/useAndroidBackButton'
 import useNativeStatusBar from '../hooks/useNativeStatusBar'
 import BottomTabs from './BottomTabs'
+import { ToastProvider } from './ui/Toast'
 
 const NAV_LINKS = [
   { to: '/', label: '训练日历', end: true },
@@ -131,7 +132,9 @@ export default function Layout() {
         )}
       </header>
       <main className="mx-auto max-w-5xl px-4 py-6 max-md:pb-32">
-        <Outlet />
+        <ToastProvider>
+          <Outlet />
+        </ToastProvider>
       </main>
       <BottomTabs />
     </div>

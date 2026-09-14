@@ -85,18 +85,16 @@ function mockGet(messages = []) {
 describe('CoachChatPage', () => {
   beforeEach(() => {
     apiMock.mockReset()
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
   })
 
   it('test_renders_empty_state_when_no_messages', async () => {
     mockGet([])
     renderPage()
+    expect(await screen.findByTestId('chat-empty')).toBeInTheDocument()
+    expect(screen.getByText('跟教练说点什么吧')).toBeInTheDocument()
     expect(
-      await screen.findByText(
-        /跟教练说点什么吧——比如「我深蹲时膝盖疼，下周训练怎么调？」/,
-      ),
+      screen.getByText('比如「我深蹲时膝盖疼，下周训练怎么调？」'),
     ).toBeInTheDocument()
-    expect(screen.getByTestId('chat-empty')).toBeInTheDocument()
   })
 
   it('test_displays_messages_in_chronological_order', async () => {
@@ -132,7 +130,26 @@ describe('CoachChatPage', () => {
 
     const input = screen.getByTestId('chat-input')
     await user.type(input, '下周怎么练？')
+    // deferred POST：立即 resolve 会瞬时替换 pending 气泡（竞态），改为手动放行
+    let resolvePost
+    const postGate = new Promise((resolve) => {
+      resolvePost = resolve
+    })
+    const baseImpl = apiMock.getMockImplementation()
+    apiMock.mockImplementation((path, options = {}) => {
+      if (path === '/api/coach/chat' && options.method === 'POST') {
+        return postGate
+      }
+      return baseImpl(path, options)
+    })
     await user.click(screen.getByTestId('chat-send'))
+
+    // 乐观上屏：输入框立即清空，pending 气泡出现
+    expect(input).toHaveValue('')
+    const pending = await screen.findByTestId('chat-msg-user-pending-fixed-request-id-0001')
+    expect(pending.className).toMatch(/opacity-70/)
+
+    resolvePost(POST_RESULT)
 
     await waitFor(() => {
       expect(apiMock).toHaveBeenCalledWith(
@@ -176,8 +193,15 @@ describe('CoachChatPage', () => {
     await user.type(screen.getByTestId('chat-input'), '下周怎么练？')
     await user.click(screen.getByTestId('chat-send'))
 
-    expect(await screen.findByRole('alert')).toBeInTheDocument()
-    expect(screen.getByTestId('chat-input')).toHaveValue('下周怎么练？')
+    // 失败气泡：红边 + 气泡旁重试；输入框已清空
+    const failedBubble = await screen.findByTestId(
+      'chat-msg-user-pending-fixed-request-id-0001',
+    )
+    expect(failedBubble.className).toMatch(/border-red-300/)
+    expect(screen.getByTestId('chat-retry')).toBeInTheDocument()
+    expect(screen.getByTestId('chat-input')).toHaveValue('')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
     await user.click(screen.getByTestId('chat-retry'))
 
     expect(await screen.findByTestId('chat-msg-assistant-4')).toBeInTheDocument()
@@ -207,7 +231,8 @@ describe('CoachChatPage', () => {
     await screen.findByTestId('chat-msg-user-1')
 
     await user.click(screen.getByTestId('chat-clear-btn'))
-    expect(window.confirm).toHaveBeenCalledWith('确定清空所有对话？此操作不可恢复')
+    expect(await screen.findByTestId('confirm-dialog')).toBeInTheDocument()
+    await user.click(screen.getByTestId('confirm-dialog-confirm'))
 
     await waitFor(() => {
       expect(apiMock).toHaveBeenCalledWith('/api/coach/chat', { method: 'DELETE' })

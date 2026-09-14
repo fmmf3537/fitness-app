@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useContext, useEffect, useRef, useState } from 'react'
 import { api, ApiError } from '../api/client'
 import Button from './ui/Button'
+import { ToastContext } from './ui/useToast'
 
 const POLL_INTERVAL_MS = 3000
 
@@ -20,8 +21,10 @@ function failureText(msg) {
 }
 
 export default function SyncButton({ onSynced }) {
+  // 生产路径由 Layout ToastProvider 注入；单测直接挂载时兜底 no-op
+  const toastCtx = useContext(ToastContext)
+  const toast = toastCtx?.toast
   const [syncing, setSyncing] = useState(false)
-  const [toast, setToast] = useState('')
   const [error, setError] = useState('')
   const timerRef = useRef(null)
 
@@ -38,7 +41,7 @@ export default function SyncButton({ onSynced }) {
         setSyncing(false)
         if (st.status === 'success') {
           const d = st.result?.detail || {}
-          setToast(`同步完成：训练 ${d.workouts ?? 0} 条，待确认 ${d.candidates ?? 0} 条`)
+          toast?.(`同步完成：训练 ${d.workouts ?? 0} 条，待确认 ${d.candidates ?? 0} 条`)
           onSynced?.()
         } else {
           setError(failureText(st.error))
@@ -53,7 +56,6 @@ export default function SyncButton({ onSynced }) {
   const start = async () => {
     if (syncing) return
     setSyncing(true)
-    setToast('')
     setError('')
     try {
       await api(`/api/sync/${today()}`, { method: 'POST' })
@@ -83,7 +85,6 @@ export default function SyncButton({ onSynced }) {
           同步中（约 1-2 分钟，含 AI 点评生成）
         </span>
       )}
-      {toast && <p role="status" className="text-sm text-green-600">{toast}</p>}
       {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
     </div>
   )

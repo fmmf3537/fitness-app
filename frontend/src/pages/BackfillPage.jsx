@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api/client'
+import Button from '../components/ui/Button'
 
 const PHASE_LABELS = {
   idle: '空闲',
@@ -83,19 +84,21 @@ export default function BackfillPage() {
   }
 
   const running = Boolean(status?.running)
+  const phaseLabel = status ? PHASE_LABELS[status.phase] || status.phase || '-' : '-'
+  const overallLabel = running ? '运行中' : phaseLabel
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-gray-900">历史数据导入</h1>
-        <button
-          data-testid="backfill-start"
+        <Button
+          variant="primary"
+          testId="backfill-start"
           onClick={handleStart}
           disabled={starting || running}
-          className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {running ? '导入中…' : '开始导入'}
-        </button>
+        </Button>
       </div>
 
       {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
@@ -107,13 +110,20 @@ export default function BackfillPage() {
           className="space-y-4 rounded-lg border border-gray-200 bg-white p-4 shadow-sm"
         >
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-700">
-            <span>
-              整体状态：
-              <span className="font-medium text-gray-900">
-                {running ? '运行中' : PHASE_LABELS[status.phase] || status.phase || '-'}
+            {overallLabel === phaseLabel ? (
+              <span>
+                阶段：
+                <span className="font-medium text-gray-900">{phaseLabel}</span>
               </span>
-            </span>
-            <span>阶段：{PHASE_LABELS[status.phase] || status.phase || '-'}</span>
+            ) : (
+              <>
+                <span>
+                  整体状态：
+                  <span className="font-medium text-gray-900">{overallLabel}</span>
+                </span>
+                <span>阶段：{phaseLabel}</span>
+              </>
+            )}
             <span>总进度：{status.percent ?? 0}%</span>
             <span>预计剩余：{formatEta(status.eta_seconds)}</span>
           </div>

@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import PlansPage from '../PlansPage'
+import { ToastProvider } from '../../components/ui/Toast'
 
 vi.mock('echarts', () => ({
   init: () => ({ setOption: vi.fn(), resize: vi.fn(), dispose: vi.fn() }),
@@ -74,6 +75,10 @@ function routeFetch(routes) {
   })
 }
 
+function renderPage(ui = <PlansPage />) {
+  return render(<ToastProvider>{ui}</ToastProvider>)
+}
+
 describe('PlansPage', () => {
   beforeEach(() => {
     localStorage.setItem('fh_token', 'test-token')
@@ -89,7 +94,7 @@ describe('PlansPage', () => {
       ['/api/plans/upcoming', UPCOMING],
       ['/api/plans/review/', mockResponse({}, 404)],
     ])
-    render(<PlansPage />)
+    renderPage()
 
     // 训练日卡片
     expect((await screen.findAllByText(/三分化·健身房/)).length).toBe(2)
@@ -109,7 +114,7 @@ describe('PlansPage', () => {
       ['/api/plans/review/2026-08-12', REVIEW],
       ['/api/plans/review/', mockResponse({}, 404)],
     ])
-    render(<PlansPage />)
+    renderPage()
 
     const block = await screen.findByTestId('review-2026-08-12')
     expect(block).toHaveTextContent('计划点评')
@@ -140,7 +145,7 @@ describe('PlansPage', () => {
         return mockResponse({ status: 'started', job: 'plan_refresh' }, 202)
       }],
     ])
-    render(<PlansPage />)
+    renderPage()
     await screen.findByText('背·二头')
 
     await user.click(screen.getByTestId('refresh-button'))
@@ -149,7 +154,7 @@ describe('PlansPage', () => {
     await vi.advanceTimersByTimeAsync(3100)
     await vi.advanceTimersByTimeAsync(3100)
     expect(await screen.findByTestId('refresh-button')).not.toBeDisabled()
-    expect(screen.getByText(/计划缓存已刷新/)).toBeInTheDocument()
+    expect(screen.getByTestId('toast-container')).toHaveTextContent('计划缓存已刷新')
   })
 
   it('点击 AI 点评：POST 后按钮 loading，轮询完成后展示点评', async () => {
@@ -167,7 +172,7 @@ describe('PlansPage', () => {
           : mockResponse(REVIEW)],
       ['/api/plans/review/', mockResponse({}, 404)],
     ])
-    render(<PlansPage />)
+    renderPage()
     await screen.findByText('胸·三头·腹')
 
     await user.click(screen.getByTestId('review-button-2026-08-12'))
@@ -187,7 +192,7 @@ describe('PlansPage', () => {
       }],
       ['/api/plans/review/', mockResponse({}, 404)],
     ])
-    render(<PlansPage />)
+    renderPage()
 
     expect(await screen.findByTestId('rest-day-2026-08-13')).toHaveTextContent('休息日')
     expect(screen.queryByTestId('review-button-2026-08-13')).not.toBeInTheDocument()

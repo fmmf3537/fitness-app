@@ -1,6 +1,8 @@
 import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { apiForm } from '../api/client'
+import Button from '../components/ui/Button'
+import useIsMobile from '../hooks/useIsMobile'
 
 const STATUS_LABEL = {
   auto_matched: '自动匹配（已融合训记数据）',
@@ -20,6 +22,7 @@ const ACCEPT =
   '.fit,.tcx,.gpx,.kml,application/gpx+xml,application/octet-stream,text/xml,application/xml'
 
 export default function FitImportPage() {
+  const isMobile = useIsMobile()
   const [file, setFile] = useState(null)
   const [importing, setImporting] = useState(false)
   const [result, setResult] = useState(null)
@@ -63,7 +66,7 @@ export default function FitImportPage() {
   return (
     <div className="space-y-4">
       <h1 className="text-xl font-bold text-gray-900">佳明文件导入</h1>
-      <p className="text-sm text-gray-500">
+      <p className="text-sm text-gray-600">
         佳明接口不可用时的降级通道，也支持 Strava/华为/咕咚/两步路等平台导出的通用格式：
         上传 FIT / TCX / GPX / KML 文件（KML 需含 gx:Track 时间戳轨迹）。
         系统会解析并写入训练档案，自动触发当日匹配融合。
@@ -72,7 +75,7 @@ export default function FitImportPage() {
 
       <div
         data-testid="drop-zone"
-        className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-white p-8 text-gray-500 hover:border-indigo-400"
+        className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-white p-8 text-gray-600 hover:border-indigo-400"
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => {
           e.preventDefault()
@@ -80,7 +83,11 @@ export default function FitImportPage() {
         }}
         onClick={() => inputRef.current?.click()}
       >
-        <p>拖拽 FIT/TCX/GPX/KML 文件到此处，或点击选择文件</p>
+        <p>
+          {isMobile
+            ? '点击选择 FIT/TCX/GPX/KML 文件'
+            : '拖拽 FIT/TCX/GPX/KML 文件到此处，或点击选择文件'}
+        </p>
         <input
           data-testid="file-input"
           ref={inputRef}
@@ -97,14 +104,24 @@ export default function FitImportPage() {
         </p>
       )}
 
-      <button
-        data-testid="import-btn"
-        className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+      <Button
+        variant="primary"
+        testId="import-btn"
         disabled={!file || importing}
         onClick={handleImport}
       >
         {importing ? '导入中…' : '开始导入'}
-      </button>
+      </Button>
+
+      {importing && (
+        <div data-testid="import-progress" className="rounded-xl bg-gray-50 p-3">
+          <p className="text-xs font-medium text-gray-700">正在解析并导入文件…</p>
+          <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-gray-200">
+            <div className="h-full w-1/3 animate-pulse rounded-full bg-indigo-600" />
+          </div>
+          <p className="mt-2 text-xs text-gray-600">通常需要几秒到几十秒</p>
+        </div>
+      )}
 
       {error && (
         <p data-testid="import-error" className="text-sm text-red-600">

@@ -144,4 +144,23 @@ describe('ScreenshotImportPage', () => {
     expect(await screen.findByTestId('error-card-0')).toHaveTextContent('识别结果两次校验均不合法')
     expect(screen.queryByTestId('confirm-btn-0')).not.toBeInTheDocument()
   })
+
+  it('已有卡片时重选文件弹确认框，取消则卡片保留', async () => {
+    mockFetch()
+    const user = userEvent.setup()
+    renderPage()
+    await uploadAndExtract(user)
+    expect(screen.getByTestId('preview-card-0')).toBeInTheDocument()
+
+    const file2 = new File(['y'], 'b.png', { type: 'image/png' })
+    await user.upload(screen.getByTestId('file-input'), file2)
+
+    expect(await screen.findByTestId('confirm-dialog')).toBeInTheDocument()
+    expect(screen.getByText(/重新选择图片/)).toBeInTheDocument()
+    await user.click(screen.getByTestId('confirm-dialog-cancel'))
+
+    expect(screen.queryByTestId('confirm-dialog')).not.toBeInTheDocument()
+    expect(screen.getByTestId('preview-card-0')).toBeInTheDocument()
+    expect(screen.queryByText('b.png')).not.toBeInTheDocument()
+  })
 })

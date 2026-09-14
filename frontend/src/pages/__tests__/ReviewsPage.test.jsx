@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import ReviewsPage from '../ReviewsPage'
+import { ToastProvider } from '../../components/ui/Toast'
 import { installMatchMedia } from '../../test/mockMatchMedia'
 
 vi.mock('echarts', () => ({
@@ -71,6 +72,10 @@ function routeFetch(routes) {
   })
 }
 
+function renderPage(ui = <ReviewsPage />) {
+  return render(<ToastProvider>{ui}</ToastProvider>)
+}
+
 describe('ReviewsPage', () => {
   beforeEach(() => {
     localStorage.setItem('fh_token', 'test-token')
@@ -87,7 +92,7 @@ describe('ReviewsPage', () => {
 
   it('默认加载周复盘列表', async () => {
     globalThis.fetch = routeFetch([['/api/ai-reports?type=weekly', WEEKLY]])
-    render(<ReviewsPage />)
+    renderPage()
     expect(await screen.findByText(/2026-08-03/)).toBeInTheDocument()
     expect(globalThis.fetch).toHaveBeenCalledWith(
       '/api/ai-reports?type=weekly&limit=50',
@@ -103,7 +108,7 @@ describe('ReviewsPage', () => {
       ['/api/ai-reports?type=weekly', WEEKLY],
       ['/api/ai-reports?type=monthly', MONTHLY],
     ])
-    render(<ReviewsPage />)
+    renderPage()
     await screen.findByText(/2026-08-03/)
 
     // PillGroup：按 role=tab 断言（不再有 tab-monthly testid）
@@ -123,7 +128,7 @@ describe('ReviewsPage', () => {
   it('点击报告卡片显示详情与导出按钮，echarts 块渲染为图表', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     globalThis.fetch = routeFetch([['/api/ai-reports?type=weekly', WEEKLY]])
-    render(<ReviewsPage />)
+    renderPage()
     await screen.findByText(/2026-08-03/)
 
     await user.click(screen.getByTestId('report-card-1'))
@@ -136,7 +141,7 @@ describe('ReviewsPage', () => {
   it('导出按钮请求对应格式的导出接口', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     globalThis.fetch = routeFetch([['/api/ai-reports?type=weekly', WEEKLY]])
-    render(<ReviewsPage />)
+    renderPage()
     await screen.findByText(/2026-08-03/)
     await user.click(screen.getByTestId('report-card-1'))
 
@@ -169,7 +174,7 @@ describe('ReviewsPage', () => {
         return mockResponse({ status: 'started', type: 'weekly' })
       }],
     ])
-    render(<ReviewsPage />)
+    renderPage()
     await screen.findByText(/2026-08-03/)
 
     await user.click(screen.getByTestId('generate-button'))
@@ -181,7 +186,7 @@ describe('ReviewsPage', () => {
     })
 
     await vi.advanceTimersByTimeAsync(3100)
-    expect(await screen.findByText('复盘生成完成')).toBeInTheDocument()
+    expect(await screen.findByTestId('toast-container')).toHaveTextContent('复盘生成完成')
   })
 
   it('目标周期已存在报告时提示已存在', async () => {
@@ -191,11 +196,11 @@ describe('ReviewsPage', () => {
       ['/api/ai-reports/generate', () =>
         mockResponse({ status: 'exists', report: WEEKLY.reports[0] })],
     ])
-    render(<ReviewsPage />)
+    renderPage()
     await screen.findByText(/2026-08-03/)
 
     await user.click(screen.getByTestId('generate-button'))
-    expect(await screen.findByText('该周期复盘已存在')).toBeInTheDocument()
+    expect(await screen.findByTestId('toast-container')).toHaveTextContent('该周期复盘已存在')
   })
 })
 
@@ -232,7 +237,7 @@ describe('ReviewsPage 移动端（底部抽屉）', () => {
   it('点击卡片弹出抽屉展示详情，导出 Markdown/PDF 按钮在抽屉内可用', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     globalThis.fetch = routeFetch([['/api/ai-reports?type=weekly', WEEKLY]])
-    render(<ReviewsPage />)
+    renderPage()
     await screen.findByText(/2026-08-03/)
 
     await user.click(screen.getByTestId('report-card-1'))
@@ -263,7 +268,7 @@ describe('ReviewsPage 移动端（底部抽屉）', () => {
   it('抽屉内「上一篇/下一篇」在当前列表内切换，末篇禁用下一篇', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     globalThis.fetch = routeFetch([['/api/ai-reports?type=weekly', WEEKLY_TWO]])
-    render(<ReviewsPage />)
+    renderPage()
     await screen.findByText(/2026-08-03/)
 
     await user.click(screen.getByTestId('report-card-1'))

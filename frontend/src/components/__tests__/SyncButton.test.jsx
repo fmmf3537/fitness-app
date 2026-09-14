@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import SyncButton from '../SyncButton'
+import { ToastProvider } from '../ui/Toast'
 
 function mockResponse(data, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: async () => data }
@@ -30,6 +31,10 @@ const FAILED_429 = {
   error: 'RuntimeError: garmin 429 too many requests', result: null,
 }
 
+function renderSync(ui) {
+  return render(<ToastProvider>{ui}</ToastProvider>)
+}
+
 async function clickSync() {
   await act(async () => {
     fireEvent.click(screen.getByRole('button', { name: '立即同步' }))
@@ -55,7 +60,7 @@ describe('SyncButton', () => {
 
   it('点击后立即 POST 当日同步并显示加载文案，同步中防重复点击', async () => {
     const calls = setupFetch({ statusQueue: [RUNNING] })
-    render(<SyncButton />)
+    renderSync(<SyncButton />)
 
     await clickSync()
 
@@ -71,7 +76,7 @@ describe('SyncButton', () => {
   it('每 3s 轮询状态，成功后 toast 摘要并回调刷新', async () => {
     const calls = setupFetch({ statusQueue: [RUNNING, SUCCESS] })
     const onSynced = vi.fn()
-    render(<SyncButton onSynced={onSynced} />)
+    renderSync(<SyncButton onSynced={onSynced} />)
 
     await clickSync()
     expect(calls.filter((c) => c.url === '/api/sync/status')).toHaveLength(0)
@@ -81,17 +86,19 @@ describe('SyncButton', () => {
     expect(calls.filter((c) => c.url === '/api/sync/status')).toHaveLength(1)
     expect(screen.getByText('同步中（约 1-2 分钟，含 AI 点评生成）')).toBeInTheDocument()
 
-    // 第二次轮询：success → toast + 回调
+    // 第二次轮询：success → toast-container 内摘要 + 回调
     await advance(3000)
     expect(calls.filter((c) => c.url === '/api/sync/status')).toHaveLength(2)
-    expect(screen.getByText('同步完成：训练 2 条，待确认 1 条')).toBeInTheDocument()
+    expect(screen.getByTestId('toast-container')).toHaveTextContent(
+      '同步完成：训练 2 条，待确认 1 条',
+    )
     expect(onSynced).toHaveBeenCalledTimes(1)
     expect(screen.getByRole('button', { name: '立即同步' })).not.toBeDisabled()
   })
 
   it('同步失败展示错误，佳明 429 给出针对性提示', async () => {
     setupFetch({ statusQueue: [FAILED_429] })
-    render(<SyncButton />)
+    renderSync(<SyncButton />)
 
     await clickSync()
     await advance(3000)
@@ -104,7 +111,7 @@ describe('SyncButton', () => {
 
   it('POST 返回 409 时提示已有同步进行中', async () => {
     setupFetch({ postStatus: 409, postData: { detail: '已有同步任务进行中' } })
-    render(<SyncButton />)
+    renderSync(<SyncButton />)
 
     await clickSync()
 

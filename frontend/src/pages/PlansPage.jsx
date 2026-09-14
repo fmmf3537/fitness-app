@@ -5,6 +5,7 @@ import Button from '../components/ui/Button'
 import EmptyState from '../components/ui/EmptyState'
 import ErrorState from '../components/ui/ErrorState'
 import Skeleton from '../components/ui/Skeleton'
+import { useToast } from '../components/ui/useToast'
 import { fieldLabel, parsePlanReview } from '../utils/planReview'
 
 const POLL_INTERVAL_MS = 3000
@@ -67,6 +68,7 @@ function PlanReviewBlock({ report }) {
 }
 
 export default function PlansPage() {
+  const { toast } = useToast()
   const [days, setDays] = useState(null)
   const [loadError, setLoadError] = useState('')
   const [refreshing, setRefreshing] = useState(false)
@@ -119,7 +121,7 @@ export default function PlansPage() {
         }
         setRefreshing(false)
         if (st.status === 'success') {
-          setRefreshMsg('计划缓存已刷新')
+          toast('计划缓存已刷新')
           loadPlans()
         } else {
           setRefreshMsg(`刷新失败：${st.error || '未知错误'}`)
@@ -129,7 +131,7 @@ export default function PlansPage() {
         setRefreshMsg(`刷新失败：${e.message}`)
       }
     }, POLL_INTERVAL_MS)
-  }, [loadPlans])
+  }, [loadPlans, toast])
 
   const handleRefresh = async () => {
     if (refreshing) return

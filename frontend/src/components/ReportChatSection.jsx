@@ -1,7 +1,68 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
 import { uuidv4 } from '../utils/uuid'
+import Button from './ui/Button'
 import SimpleMarkdown from './SimpleMarkdown'
+
+/** 将 created_at 格式化为「今天 HH:mm」或「MM-dd HH:mm」 */
+function formatMsgTime(createdAt) {
+  if (!createdAt) return null
+  const d = new Date(createdAt)
+  if (Number.isNaN(d.getTime())) return null
+  const now = new Date()
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mm = String(d.getMinutes()).padStart(2, '0')
+  const isToday =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate()
+  if (isToday) return `今天 ${hh}:${mm}`
+  const mo = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${mo}-${day} ${hh}:${mm}`
+}
+
+function FailIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className="shrink-0"
+    >
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" y1="8" x2="12" y2="12" />
+      <line x1="12" y1="16" x2="12.01" y2="16" />
+    </svg>
+  )
+}
+
+function ChatExpandIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className="shrink-0"
+    >
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    </svg>
+  )
+}
 
 /**
  * V3-8 报告追问对话区块：内嵌于报告详情（桌面分栏与移动端 BottomSheet 共用）。
@@ -18,8 +79,13 @@ export default function ReportChatSection({ reportId }) {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
-  const [failed, setFailed] = useState(null) // { text, requestId }
+  const [failed, setFailed] = useState(null) // { text, requestId, tempId }
   const threadRef = useRef(null)
+  const inputRef = useRef(null)
+
+  const resetTextareaHeight = () => {
+    if (inputRef.current) inputRef.current.style.height = 'auto'
+  }
 
   // 切换报告时重置对话状态
   useEffect(() => {
@@ -51,20 +117,28 @@ export default function ReportChatSection({ reportId }) {
     }
   }, [messages, sending])
 
-  const doSend = async (text, requestId) => {
+  const doSend = async (text, requestId, tempId) => {
     setSending(true)
-    setError('')
+    setMessages((prev) =>
+      prev.map((m) => (m.id === tempId ? { ...m, pending: true, failed: false } : m)),
+    )
     try {
       const data = await api(`/api/ai-reports/${reportId}/messages`, {
         method: 'POST',
         body: JSON.stringify({ content: text, client_request_id: requestId }),
       })
-      setMessages((prev) => [...prev, data.user_message, data.assistant_message])
-      setInput('')
+      setMessages((prev) => [
+        ...prev.filter((m) => m.id !== tempId),
+        data.user_message,
+        data.assistant_message,
+      ])
       setFailed(null)
-    } catch (err) {
-      setError(err.status === 401 ? '未登录' : err.message || '发送失败，请重试')
-      setFailed({ text, requestId })
+      resetTextareaHeight()
+    } catch {
+      setMessages((prev) =>
+        prev.map((m) => (m.id === tempId ? { ...m, pending: false, failed: true } : m)),
+      )
+      setFailed({ text, requestId, tempId })
     } finally {
       setSending(false)
     }
@@ -74,12 +148,20 @@ export default function ReportChatSection({ reportId }) {
     const text = input.trim()
     if (!text || sending) return
     // V3-8b：HTTP 明文 WebView 无 crypto.randomUUID（安全上下文限定），走兼容实现
-    doSend(text, uuidv4())
+    const requestId = uuidv4()
+    const tempId = `pending-${requestId}`
+    setMessages((prev) => [
+      ...prev,
+      { id: tempId, role: 'user', content: text, pending: true },
+    ])
+    setInput('')
+    resetTextareaHeight()
+    doSend(text, requestId, tempId)
   }
 
   const handleRetry = () => {
     if (!failed || sending) return
-    doSend(failed.text, failed.requestId)
+    doSend(failed.text, failed.requestId, failed.tempId)
   }
 
   const handleKeyDown = (e) => {
@@ -90,15 +172,38 @@ export default function ReportChatSection({ reportId }) {
     }
   }
 
+  const metaLine = (m, _isUser) => {
+    const parts = []
+    const time = formatMsgTime(m.created_at)
+    if (time) parts.push(time)
+    if (m.prompt_tokens != null || m.completion_tokens != null) {
+      const p = m.prompt_tokens ?? 0
+      const c = m.completion_tokens ?? 0
+      parts.push(`${p + c} tokens`)
+    }
+    if (m.cost_estimate != null && m.cost_estimate !== '') {
+      parts.push(`¥${m.cost_estimate}`)
+    }
+    return parts.length ? parts.join(' · ') : null
+  }
+
+  const userBubbleClass = (m) => {
+    const base = 'max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-sm px-3 py-2 text-sm text-white'
+    if (m.failed) return `${base} border-2 border-red-300 bg-indigo-600/70`
+    if (m.pending) return `${base} bg-indigo-600 opacity-70`
+    return `${base} bg-indigo-600`
+  }
+
   if (!expanded) {
     return (
       <button
         type="button"
         data-testid="chat-expand-btn"
         onClick={() => setExpanded(true)}
-        className="mt-4 w-full rounded-lg border border-dashed border-indigo-300 bg-indigo-50 px-4 py-3 text-sm font-medium text-indigo-700 hover:bg-indigo-100"
+        className="mt-4 flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-indigo-300 bg-indigo-50 px-4 py-3 text-sm font-medium text-indigo-700 hover:bg-indigo-100"
       >
-        💬 追问 AI 教练
+        <ChatExpandIcon />
+        追问 AI 教练
       </button>
     )
   }
@@ -114,7 +219,7 @@ export default function ReportChatSection({ reportId }) {
           type="button"
           data-testid="chat-collapse-btn"
           onClick={() => setExpanded(false)}
-          className="text-xs text-gray-500 hover:text-gray-700"
+          className="text-xs text-gray-600 hover:text-gray-700"
         >
           收起
         </button>
@@ -125,31 +230,59 @@ export default function ReportChatSection({ reportId }) {
         data-testid="chat-thread"
         className="mb-3 max-h-80 space-y-2 overflow-y-auto pr-1"
       >
-        <p className="text-xs text-gray-400" data-testid="chat-memory-hint">
+        <p className="text-xs text-gray-600" data-testid="chat-memory-hint">
           AI 回答会参考你的长期记忆（须知 / 对话要点 / 训练统计）
         </p>
         {messages.length === 0 && !sending && (
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-gray-600">
             对报告有疑问？直接提问，教练会结合报告内容解答。
           </p>
+        )}
+        {error && !failed && (
+          <p role="alert" className="text-xs text-red-600">{error}</p>
         )}
         {messages.map((m) =>
           m.role === 'user' ? (
             <div key={m.id} className="flex justify-end">
-              <div
-                data-testid={`chat-msg-user-${m.id}`}
-                className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-indigo-600 px-3 py-2 text-sm text-white"
-              >
-                {m.content}
+              <div className="max-w-[85%]">
+                <div
+                  data-testid={`chat-msg-user-${m.id}`}
+                  className={userBubbleClass(m)}
+                >
+                  {m.content}
+                </div>
+                {m.failed && (
+                  <div className="mt-0.5 flex items-center justify-end gap-1.5 text-xs text-red-600">
+                    <FailIcon />
+                    发送失败
+                    <button
+                      type="button"
+                      data-testid="chat-retry"
+                      onClick={handleRetry}
+                      disabled={sending}
+                      className="min-h-[36px] rounded-lg px-2 font-medium underline disabled:opacity-40"
+                    >
+                      重试
+                    </button>
+                  </div>
+                )}
+                {metaLine(m, true) && (
+                  <p className="mt-0.5 text-right text-xs text-gray-600">{metaLine(m, true)}</p>
+                )}
               </div>
             </div>
           ) : (
             <div key={m.id} className="flex justify-start">
-              <div
-                data-testid={`chat-msg-assistant-${m.id}`}
-                className="max-w-[85%] rounded-2xl rounded-bl-sm border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800"
-              >
-                <SimpleMarkdown text={m.content} />
+              <div className="max-w-[85%]">
+                <div
+                  data-testid={`chat-msg-assistant-${m.id}`}
+                  className="rounded-2xl rounded-bl-sm border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800"
+                >
+                  <SimpleMarkdown text={m.content} />
+                </div>
+                {metaLine(m, false) && (
+                  <p className="mt-0.5 text-xs text-gray-600">{metaLine(m, false)}</p>
+                )}
               </div>
             </div>
           ),
@@ -166,43 +299,30 @@ export default function ReportChatSection({ reportId }) {
         )}
       </div>
 
-      {error && (
-        <p role="alert" className="mb-2 flex items-center gap-2 text-xs text-red-600">
-          {error}
-          {failed && (
-            <button
-              type="button"
-              data-testid="chat-retry"
-              onClick={handleRetry}
-              disabled={sending}
-              className="rounded border border-red-300 px-2 py-0.5 text-red-600 hover:bg-red-50 disabled:opacity-40"
-            >
-              重试
-            </button>
-          )}
-        </p>
-      )}
-
       <div className="flex items-end gap-2">
         <textarea
+          ref={inputRef}
           data-testid="chat-input"
           value={input}
           onChange={(e) => setInput(e.target.value)}
+          onInput={(e) => {
+            e.target.style.height = 'auto'
+            e.target.style.height = `${Math.min(e.target.scrollHeight, 6 * 24)}px`
+          }}
           onKeyDown={handleKeyDown}
-          rows={2}
+          rows={1}
           maxLength={1000}
           placeholder="输入你的问题（回车发送，Shift+回车换行）"
-          className="min-w-0 flex-1 resize-none rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+          className="max-h-36 min-h-[44px] min-w-0 flex-1 resize-none rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
         />
-        <button
-          type="button"
-          data-testid="chat-send"
+        <Button
+          variant="primary"
+          testId="chat-send"
           onClick={handleSend}
           disabled={sending || !input.trim()}
-          className="shrink-0 rounded-md bg-green-600 px-3 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
         >
           {sending ? '发送中…' : '发送'}
-        </button>
+        </Button>
       </div>
     </div>
   )

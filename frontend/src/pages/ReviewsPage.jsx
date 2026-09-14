@@ -7,6 +7,7 @@ import EmptyState from '../components/ui/EmptyState'
 import ErrorState from '../components/ui/ErrorState'
 import PillGroup from '../components/ui/PillGroup'
 import Skeleton from '../components/ui/Skeleton'
+import { useToast } from '../components/ui/useToast'
 import useIsMobile from '../hooks/useIsMobile'
 
 const TABS = [
@@ -52,13 +53,13 @@ function ReviewDetail({ report, onExport }) {
 
 export default function ReviewsPage() {
   const isMobile = useIsMobile()
+  const { toast } = useToast()
   const [tab, setTab] = useState('weekly')
   const [reports, setReports] = useState([])
   const [selected, setSelected] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [generating, setGenerating] = useState(false)
-  const [toast, setToast] = useState('')
 
   const load = useCallback(
     (currentTab) => {
@@ -74,7 +75,6 @@ export default function ReviewsPage() {
 
   useEffect(() => {
     setSelected(null)
-    setToast('')
     load(tab)
   }, [tab, load])
 
@@ -89,7 +89,7 @@ export default function ReviewsPage() {
             if (data.error) {
               setError(`生成失败：${data.error}`)
             } else {
-              setToast('复盘生成完成')
+              toast('复盘生成完成')
               load(tab)
             }
           }
@@ -97,10 +97,9 @@ export default function ReviewsPage() {
         .catch(() => {})
     }, 3000)
     return () => clearInterval(timer)
-  }, [generating, tab, load])
+  }, [generating, tab, load, toast])
 
   const handleGenerate = () => {
-    setToast('')
     setError('')
     api('/api/ai-reports/generate', {
       method: 'POST',
@@ -108,7 +107,7 @@ export default function ReviewsPage() {
     })
       .then((data) => {
         if (data.status === 'exists') {
-          setToast('该周期复盘已存在')
+          toast('该周期复盘已存在', 'info')
         } else {
           setGenerating(true)
         }
@@ -176,11 +175,6 @@ export default function ReviewsPage() {
         </div>
       </div>
 
-      {toast && (
-        <p role="status" className="text-sm text-green-600">
-          {toast}
-        </p>
-      )}
       {loading && (
         <div className="space-y-2">
           <Skeleton className="h-20" />
