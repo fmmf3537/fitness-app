@@ -342,3 +342,12 @@ git push origin main
 - 提示词：`docs/cursor-prompts/DEPLOY-UIX10-KIMI.md`；验收重点：复盘中心周复盘详情（评分卡头 / 正文分卡 / 追问 CTA / 分享本周海报）
 - 结果：health ok；线上 bundle 由 `index-CNMQ3Z4t.js` 变为 `index-esVTsrbH.js`，特征串「就这份复盘追问教练 / 待加强 / 分享本周海报」均在线上 bundle 中检出
 - 注：本地同源码构建哈希为 `index-DexDOfnd.js`（不含审核方 mt-4 修订的本地缓存构建），与线上不一致属预期——线上构建自含修订的 `7d659c3`，bundle 哈希跨环境可比性以"特征串检出"为准
+
+**2026-09-15 · Phase A 部署（待确认队列合并预览 + UI）** — 已部署，线上验证通过
+
+- 范围：`647ca6e → 0abfa21`（代码提交 `fb39696`；**首次含 backend 重建**：新增只读接口 `GET /api/match-candidates/{id}/preview`，无 schema 变更、无迁移）
+- 部署前本地亲手回归：后端 998 passed/6 skipped/覆盖率 92.35%≥85%；前端 413 passed
+- 结果：health ok；alembic 保持 `c8d9e0f1a2b3 (head)`（入口自动 upgrade 为 no-op）；bundle `index-esVTsrbH.js` → `index-CAjrRzR9.js`；新接口路由已注册（未登录 401，鉴权正常拦截）；postgres/backup StartedAt 未动
+- 备份：`backups_predeploy_20260915_2353/`（36.7 MB dump）；回滚锚点 `647ca6e`
+- **踩坑**：CLI 后台构建任务沿用 60s 默认超时被强杀（死在 frontend npm ci 阶段）——`docker compose up --build` 先构建镜像再重建容器，生产零影响；重跑设 3600s 即成功。教训：**全量构建（backend pip + frontend npm）必须显式设长超时**
+- 另注：服务器 HEAD 曾在第 0 步停在 `647ca6e`（= 7d659c3 + 2 docs-only）而非预期的 7d659c3——提示词推送与执行之间存在时间差时属正常，以"代码等同 + 无分叉"判定即可放行
