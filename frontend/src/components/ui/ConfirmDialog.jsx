@@ -1,5 +1,6 @@
-import { useEffect, useRef } from 'react'
+import { useId, useRef } from 'react'
 import Button from './Button'
+import useModalAccessibility from '../../hooks/useModalAccessibility'
 
 /**
  * 居中确认弹窗，替换全站 6 处 window.confirm。
@@ -16,32 +17,10 @@ export default function ConfirmDialog({
   onCancel,
 }) {
   const cancelRef = useRef(null)
-
-  // 打开期间锁定 body 滚动，关闭/卸载时恢复
-  useEffect(() => {
-    if (!open) return undefined
-    const original = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => {
-      document.body.style.overflow = original
-    }
-  }, [open])
-
-  // Esc 关闭
-  useEffect(() => {
-    if (!open) return undefined
-    const onKey = (e) => {
-      if (e.key === 'Escape') onCancel?.()
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [open, onCancel])
-
-  // 打开时焦点落到取消按钮
-  useEffect(() => {
-    if (!open) return
-    cancelRef.current?.focus()
-  }, [open])
+  const dialogRef = useRef(null)
+  const titleId = useId()
+  const descriptionId = useId()
+  useModalAccessibility({ open, containerRef: dialogRef, initialFocusRef: cancelRef, onClose: onCancel })
 
   if (!open) return null
 
@@ -53,17 +32,20 @@ export default function ConfirmDialog({
         onClick={onCancel}
       />
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="confirm-dialog-title"
+        aria-labelledby={titleId}
+        aria-describedby={description != null && description !== '' ? descriptionId : undefined}
+        tabIndex={-1}
         data-testid="confirm-dialog"
         className="relative w-full max-w-sm rounded-xl bg-white dark:bg-gray-900 p-5 shadow-xl mb-[env(safe-area-inset-bottom)]"
       >
-        <h2 id="confirm-dialog-title" className="text-base font-semibold text-gray-900 dark:text-gray-100">
+        <h2 id={titleId} className="text-base font-semibold text-gray-900 dark:text-gray-100">
           {title}
         </h2>
         {description != null && description !== '' && (
-          <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">{description}</p>
+          <p id={descriptionId} className="mt-1 text-sm text-gray-600 dark:text-gray-400">{description}</p>
         )}
         <div className="mt-4 flex gap-3">
           <Button
@@ -72,6 +54,7 @@ export default function ConfirmDialog({
             className="flex-1"
             onClick={onCancel}
             testId="confirm-dialog-cancel"
+            dataDialogClose
           >
             {cancelText}
           </Button>

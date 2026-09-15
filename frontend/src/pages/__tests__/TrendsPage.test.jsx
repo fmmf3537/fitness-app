@@ -77,7 +77,7 @@ describe('TrendsPage', () => {
     render(<TrendsPage />)
     await screen.findByTestId('trend-chart-volume')
 
-    await user.click(screen.getByRole('tab', { name: '12 周' }))
+    await user.click(screen.getByRole('button', { name: '12 周' }))
 
     await vi.waitFor(() => {
       expect(globalThis.fetch).toHaveBeenLastCalledWith(
@@ -86,7 +86,7 @@ describe('TrendsPage', () => {
       )
     })
 
-    await user.click(screen.getByRole('tab', { name: '4 周' }))
+    await user.click(screen.getByRole('button', { name: '4 周' }))
     await vi.waitFor(() => {
       expect(globalThis.fetch).toHaveBeenLastCalledWith(
         '/api/stats/trends?weeks=4',

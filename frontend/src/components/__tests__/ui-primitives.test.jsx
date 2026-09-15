@@ -1,4 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
+import { useState } from 'react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import Badge from '../ui/Badge'
 import Button from '../ui/Button'
@@ -87,19 +89,20 @@ describe('PillGroup', () => {
     { value: '12', label: '近 12 周' },
   ]
 
-  it('渲染 options，激活项 aria-selected 与 bg-indigo-600', () => {
+  it('筛选选项使用 button + aria-pressed，不伪装成没有 tabpanel 的 tab', () => {
     render(<PillGroup options={options} value="4" onChange={() => {}} />)
-    const tabs = screen.getAllByRole('tab')
-    expect(tabs).toHaveLength(2)
-    expect(tabs[0]).toHaveAttribute('aria-selected', 'true')
-    expect(tabs[0]).toHaveClass('bg-indigo-600')
-    expect(tabs[1]).toHaveAttribute('aria-selected', 'false')
+    const buttons = screen.getAllByRole('button')
+    expect(screen.getByRole('group', { name: '筛选选项' })).toBeInTheDocument()
+    expect(buttons).toHaveLength(2)
+    expect(buttons[0]).toHaveAttribute('aria-pressed', 'true')
+    expect(buttons[0]).toHaveClass('bg-indigo-600')
+    expect(buttons[1]).toHaveAttribute('aria-pressed', 'false')
   })
 
   it('点击触发 onChange 并传出对应 value', () => {
     const onChange = vi.fn()
     render(<PillGroup options={options} value="4" onChange={onChange} />)
-    fireEvent.click(screen.getByRole('tab', { name: '近 12 周' }))
+    fireEvent.click(screen.getByRole('button', { name: '近 12 周' }))
     expect(onChange).toHaveBeenCalledWith('12')
   })
 })
@@ -160,6 +163,38 @@ describe('ConfirmDialog', () => {
     expect(confirm).toHaveClass('bg-red-600')
     fireEvent.click(confirm)
     expect(onConfirm).toHaveBeenCalled()
+  })
+
+  it('打开后聚焦取消按钮，Tab 焦点留在弹窗内，关闭后回到触发按钮', async () => {
+    const user = userEvent.setup()
+    function Harness() {
+      const [open, setOpen] = useState(false)
+      return <>
+        <button type="button" onClick={() => setOpen(true)}>打开确认</button>
+        <ConfirmDialog open={open} title="确认操作" onConfirm={() => {}} onCancel={() => setOpen(false)} />
+      </>
+    }
+    render(<Harness />)
+    const trigger = screen.getByRole('button', { name: '打开确认' })
+    await user.click(trigger)
+    const cancel = screen.getByTestId('confirm-dialog-cancel')
+    const confirm = screen.getByTestId('confirm-dialog-confirm')
+    expect(cancel).toHaveFocus()
+    confirm.focus()
+    fireEvent.keyDown(confirm, { key: 'Tab' })
+    expect(cancel).toHaveFocus()
+    cancel.focus()
+    fireEvent.keyDown(cancel, { key: 'Tab', shiftKey: true })
+    expect(confirm).toHaveFocus()
+    await user.click(cancel)
+    expect(trigger).toHaveFocus()
+  })
+
+  it('标题和描述通过唯一 id 关联到 dialog', () => {
+    render(<ConfirmDialog open title="标题" description="描述" onConfirm={() => {}} onCancel={() => {}} />)
+    const dialog = screen.getByRole('dialog')
+    expect(document.getElementById(dialog.getAttribute('aria-labelledby'))).toHaveTextContent('标题')
+    expect(document.getElementById(dialog.getAttribute('aria-describedby'))).toHaveTextContent('描述')
   })
 })
 

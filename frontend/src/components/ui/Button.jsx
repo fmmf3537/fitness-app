@@ -11,7 +11,7 @@ const VARIANT_CLASS = {
 }
 
 const BASE =
-  'inline-flex items-center justify-center gap-1.5 rounded-lg px-4 text-sm font-medium min-h-[44px] transition disabled:cursor-not-allowed disabled:opacity-50'
+  'inline-flex items-center justify-center gap-1.5 rounded-lg px-4 text-sm font-medium min-h-[44px] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50'
 
 export default function Button({
   variant = 'primary',
@@ -23,6 +23,7 @@ export default function Button({
   testId,
   className = '',
   ariaLabel,
+  dataDialogClose = false,
   ref,
 }) {
   const variantClass = VARIANT_CLASS[variant] ?? VARIANT_CLASS.primary
@@ -43,6 +44,7 @@ export default function Button({
       onClick={onClick}
       data-testid={testId}
       aria-label={ariaLabel}
+      data-dialog-close={dataDialogClose ? '' : undefined}
       className={classes}
     >
       {children}

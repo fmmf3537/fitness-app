@@ -1,6 +1,7 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
+import { useState } from 'react'
 import BottomSheet from '../BottomSheet'
 
 describe('BottomSheet', () => {
@@ -95,5 +96,37 @@ describe('BottomSheet', () => {
     )
     await user.click(screen.getByText('正文内容'))
     expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('打开后聚焦关闭按钮，Esc 关闭并把焦点还给触发按钮', async () => {
+    const user = userEvent.setup()
+    function Harness() {
+      const [open, setOpen] = useState(false)
+      return <>
+        <button type="button" onClick={() => setOpen(true)}>打开报告</button>
+        <BottomSheet open={open} onClose={() => setOpen(false)} title="报告标题">
+          <button type="button">正文操作</button>
+        </BottomSheet>
+      </>
+    }
+    render(<Harness />)
+    const trigger = screen.getByRole('button', { name: '打开报告' })
+    await user.click(trigger)
+    expect(screen.getByRole('button', { name: '关闭' })).toHaveFocus()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+  })
+
+  it('具有标题关联、44px 关闭热区与循环焦点', () => {
+    render(<BottomSheet open onClose={() => {}} title="报告标题"><button type="button">正文操作</button></BottomSheet>)
+    const dialog = screen.getByRole('dialog')
+    expect(document.getElementById(dialog.getAttribute('aria-labelledby'))).toHaveTextContent('报告标题')
+    const close = screen.getByRole('button', { name: '关闭' })
+    expect(close).toHaveClass('min-h-[44px]', 'min-w-[44px]')
+    const action = screen.getByRole('button', { name: '正文操作' })
+    action.focus()
+    fireEvent.keyDown(action, { key: 'Tab' })
+    expect(close).toHaveFocus()
   })
 })

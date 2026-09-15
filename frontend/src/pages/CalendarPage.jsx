@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import SyncButton from '../components/SyncButton'
 import Button from '../components/ui/Button'
 import ErrorState from '../components/ui/ErrorState'
 import Skeleton from '../components/ui/Skeleton'
 import { statusColor } from '../utils/status'
+import { useCandidateQueue } from '../components/useCandidateQueue'
 
 function currentMonth() {
   const d = new Date()
@@ -22,6 +23,7 @@ const WEEKDAYS = ['一', '二', '三', '四', '五', '六', '日']
 
 export default function CalendarPage({ initialMonth }) {
   const navigate = useNavigate()
+  const { pendingCount, error: candidateError } = useCandidateQueue()
   const [month, setMonth] = useState(initialMonth || currentMonth())
   const [days, setDays] = useState([])
   const [error, setError] = useState('')
@@ -95,6 +97,20 @@ export default function CalendarPage({ initialMonth }) {
           </Button>
         </div>
       </div>
+
+      {pendingCount > 0 && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/50 p-3 text-sm text-amber-900 dark:text-amber-200">
+          <span><strong>{pendingCount} 条记录待确认</strong><span className="block text-xs">请检查是否为同一次训练</span></span>
+          <Link className="shrink-0 rounded-lg px-3 py-2 font-medium text-amber-900 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900" to="/candidates">
+            去处理 →
+          </Link>
+        </div>
+      )}
+      {pendingCount === null && candidateError && (
+        <p role="status" className="mb-4 text-sm text-amber-700 dark:text-amber-300">
+          待确认数量暂时无法刷新
+        </p>
+      )}
 
       {error ? (
         <ErrorState

@@ -1,11 +1,14 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { api, clearToken } from '../api/client'
+import { clearToken } from '../api/client'
 import useIsMobile from '../hooks/useIsMobile'
 import useAndroidBackButton from '../hooks/useAndroidBackButton'
 import useNativeStatusBar from '../hooks/useNativeStatusBar'
 import BottomTabs from './BottomTabs'
 import { ToastProvider } from './ui/Toast'
+import SyncTaskProvider from './SyncTaskProvider'
+import CandidateQueueProvider from './CandidateQueueProvider'
+import { useCandidateQueue } from './useCandidateQueue'
 
 // UIX-06：桌面导航 13→8；导入/身体数据/教练须知撤入「我的」或汉堡
 const NAV_LINKS = [
@@ -29,23 +32,26 @@ const SECONDARY_LINKS = [
 ]
 
 export default function Layout() {
+  return (
+    <ToastProvider>
+      <SyncTaskProvider>
+        <CandidateQueueProvider>
+          <LayoutContent />
+        </CandidateQueueProvider>
+      </SyncTaskProvider>
+    </ToastProvider>
+  )
+}
+
+function LayoutContent() {
   const navigate = useNavigate()
   const isMobile = useIsMobile()
-  const [pendingCount, setPendingCount] = useState(0)
+  const { pendingCount } = useCandidateQueue()
   const [menuOpen, setMenuOpen] = useState(false)
 
   const closeMenu = useCallback(() => setMenuOpen(false), [])
   useAndroidBackButton({ isOverlayOpen: menuOpen, closeOverlay: closeMenu })
   useNativeStatusBar()
-
-  useEffect(() => {
-    api('/api/match-candidates')
-      .then((data) => {
-        const count = (data.candidates || []).filter((c) => c.status === 'pending').length
-        setPendingCount(count)
-      })
-      .catch(() => {})
-  }, [])
 
   const handleLogout = () => {
     clearToken()
@@ -127,9 +133,7 @@ export default function Layout() {
         )}
       </header>
       <main className="mx-auto max-w-5xl px-4 py-6 max-md:pb-32">
-        <ToastProvider>
-          <Outlet />
-        </ToastProvider>
+        <Outlet />
       </main>
       <BottomTabs />
     </div>

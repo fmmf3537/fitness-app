@@ -71,7 +71,7 @@ describe('AIReportsPage', () => {
     render(<AIReportsPage />)
     await screen.findByText('胸部训练')
 
-    await user.click(screen.getByRole('tab', { name: '按日查询' }))
+    await user.click(screen.getByRole('button', { name: '按日查询' }))
 
     await vi.waitFor(() => {
       expect(globalThis.fetch).toHaveBeenLastCalledWith(
@@ -87,7 +87,7 @@ describe('AIReportsPage', () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<AIReportsPage />)
     await screen.findByText('胸部训练')
-    await user.click(screen.getByRole('tab', { name: '按日查询' }))
+    await user.click(screen.getByRole('button', { name: '按日查询' }))
     await vi.waitFor(() => {
       expect(globalThis.fetch).toHaveBeenLastCalledWith(
         '/api/ai-reports?date=2026-08-03',
@@ -112,7 +112,7 @@ describe('AIReportsPage', () => {
     render(<AIReportsPage />)
     await screen.findByText('胸部训练')
 
-    await user.click(screen.getByRole('tab', { name: '下次建议' }))
+    await user.click(screen.getByRole('button', { name: '下次建议' }))
     await vi.waitFor(() => {
       expect(globalThis.fetch).toHaveBeenLastCalledWith(
         '/api/ai-reports?limit=50&type=next_advice',
@@ -120,7 +120,7 @@ describe('AIReportsPage', () => {
       )
     })
 
-    await user.click(screen.getByRole('tab', { name: '单次点评' }))
+    await user.click(screen.getByRole('button', { name: '单次点评' }))
     await vi.waitFor(() => {
       expect(globalThis.fetch).toHaveBeenLastCalledWith(
         '/api/ai-reports?limit=50&type=session_review',
@@ -128,7 +128,7 @@ describe('AIReportsPage', () => {
       )
     })
 
-    await user.click(screen.getByRole('tab', { name: '全部' }))
+    await user.click(screen.getByRole('button', { name: '全部' }))
     await vi.waitFor(() => {
       expect(globalThis.fetch).toHaveBeenLastCalledWith(
         '/api/ai-reports?limit=50',
@@ -142,8 +142,8 @@ describe('AIReportsPage', () => {
     render(<AIReportsPage />)
     await screen.findByText('胸部训练')
 
-    await user.click(screen.getByRole('tab', { name: '按日查询' }))
-    await user.click(screen.getByRole('tab', { name: '下次建议' }))
+    await user.click(screen.getByRole('button', { name: '按日查询' }))
+    await user.click(screen.getByRole('button', { name: '下次建议' }))
 
     await vi.waitFor(() => {
       expect(globalThis.fetch).toHaveBeenLastCalledWith(
@@ -177,7 +177,7 @@ describe('AIReportsPage', () => {
     render(<AIReportsPage />)
     expect(await screen.findByText('暂无 AI 报告')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('tab', { name: '按日查询' }))
+    await user.click(screen.getByRole('button', { name: '按日查询' }))
     expect(await screen.findByText('当日暂无 AI 点评')).toBeInTheDocument()
   })
 

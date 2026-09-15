@@ -1,91 +1,36 @@
-import { useContext, useEffect, useRef, useState } from 'react'
-import { api, ApiError } from '../api/client'
+import { useEffect, useRef } from 'react'
 import Button from './ui/Button'
-import { ToastContext } from './ui/useToast'
-
-const POLL_INTERVAL_MS = 3000
-
-function today() {
-  const d = new Date()
-  const mm = String(d.getMonth() + 1).padStart(2, '0')
-  const dd = String(d.getDate()).padStart(2, '0')
-  return `${d.getFullYear()}-${mm}-${dd}`
-}
-
-function failureText(msg) {
-  const text = msg || '未知错误'
-  if (/429|too many|too frequent/i.test(text)) {
-    return `同步失败：${text}（佳明接口限频，请稍后重试）`
-  }
-  return `同步失败：${text}`
-}
+import { useSyncTask, syncResultText } from './useSyncTask'
 
 export default function SyncButton({ onSynced }) {
-  // 生产路径由 Layout ToastProvider 注入；单测直接挂载时兜底 no-op
-  const toastCtx = useContext(ToastContext)
-  const toast = toastCtx?.toast
-  const [syncing, setSyncing] = useState(false)
-  const [error, setError] = useState('')
-  const timerRef = useRef(null)
-
-  useEffect(() => () => clearTimeout(timerRef.current), [])
-
-  const poll = () => {
-    timerRef.current = setTimeout(async () => {
-      try {
-        const st = await api('/api/sync/status')
-        if (st.running) {
-          poll()
-          return
-        }
-        setSyncing(false)
-        if (st.status === 'success') {
-          const d = st.result?.detail || {}
-          toast?.(`同步完成：训练 ${d.workouts ?? 0} 条，待确认 ${d.candidates ?? 0} 条`)
-          onSynced?.()
-        } else {
-          setError(failureText(st.error))
-        }
-      } catch (err) {
-        setSyncing(false)
-        setError(failureText(err.message))
-      }
-    }, POLL_INTERVAL_MS)
-  }
-
-  const start = async () => {
-    if (syncing) return
-    setSyncing(true)
-    setError('')
-    try {
-      await api(`/api/sync/${today()}`, { method: 'POST' })
-      poll()
-    } catch (err) {
-      setSyncing(false)
-      if (err instanceof ApiError && err.status === 409) {
-        setError('已有同步任务进行中，请稍候')
-      } else {
-        setError(failureText(err.message))
-      }
+  const { task, checking, submitting, queryError, startError, revision, start, refresh } = useSyncTask()
+  const seen = useRef(revision)
+  useEffect(() => {
+    if (seen.current !== revision) {
+      seen.current = revision
+      // A failed sync may have imported some records too.
+      onSynced?.()
     }
-  }
-
+  }, [revision, onSynced])
+  const running = task?.running
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Button
-        variant="primary"
-        ariaLabel="立即同步"
-        onClick={start}
-        disabled={syncing}
-      >
-        {syncing ? '同步中…' : '立即同步'}
+      <Button variant="primary" ariaLabel="同步今日" onClick={start}
+        disabled={checking || submitting || running || !!queryError || !task}>
+        {submitting ? '正在发起…' : running ? '同步中…' : checking && !task ? '查询同步状态…' : '同步今日'}
       </Button>
-      {syncing && (
-        <span role="status" className="text-sm text-gray-600 dark:text-gray-400">
-          同步中（约 1-2 分钟，含 AI 点评生成）
-        </span>
-      )}
-      {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+      {running && <span role="status" className="text-sm text-gray-600 dark:text-gray-400">
+        {task.date || '当前任务'} 同步中，可继续浏览其他页面。
+      </span>}
+      {!queryError && !running && task?.status && <p role={task.status === 'failed' ? 'alert' : 'status'}
+        className={`text-sm ${task.status === 'failed' ? 'text-red-600' : 'text-gray-600 dark:text-gray-400'}`}>
+        最近一次任务{task.date ? `（${task.date}）` : ''}：{syncResultText(task)}
+        {task.finished_at && <span className="block">结束时间（服务端记录）：{task.finished_at.replace('T', ' ')}</span>}
+      </p>}
+      {!queryError && task?.status === null && <span className="text-sm text-gray-600 dark:text-gray-400">服务端暂无最近任务记录</span>}
+      {queryError && <div><p role="alert" className="text-sm text-amber-700 dark:text-amber-300">{queryError}</p>
+        <Button variant="secondary" onClick={refresh} disabled={checking}>重新查询状态</Button></div>}
+      {startError && !queryError && <p role="alert" className="text-sm text-amber-700 dark:text-amber-300">{startError}</p>}
     </div>
   )
 }

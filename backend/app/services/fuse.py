@@ -27,6 +27,31 @@ def _extract_movements(train: XunjiTrain | None) -> str | None:
     return json.dumps(movements, ensure_ascii=False)
 
 
+def build_fused_workout_values(
+    day: date,
+    *,
+    xunji: XunjiTrain | None = None,
+    garmin: GarminActivity | None = None,
+    match_status: str,
+) -> dict:
+    """返回融合后的字段值，供只读预览和正式入库共同使用。"""
+    if xunji is None and garmin is None:
+        raise ValueError("xunji 与 garmin 至少提供一个")
+    return {
+        "date": day,
+        "title": (xunji.title if xunji else None) or (garmin.name if garmin else None),
+        "xunji_train_id": xunji.id if xunji else None,
+        "garmin_activity_id": garmin.id if garmin else None,
+        "match_status": match_status,
+        "tags": garmin.activity_type if garmin else None,
+        "duration_s": garmin.duration_s if garmin else None,
+        "calories": garmin.calories if garmin else None,
+        "avg_hr": garmin.avg_hr if garmin else None,
+        "max_hr": garmin.max_hr if garmin else None,
+        "movements_json": _extract_movements(xunji),
+    }
+
+
 def fuse_workout(
     session: Session,
     day: date,
@@ -36,21 +61,9 @@ def fuse_workout(
     match_status: str,
 ) -> Workout:
     """按 PRD §5.2 融合两侧原始记录，产出 workout 行（保留两侧外键）。"""
-    if xunji is None and garmin is None:
-        raise ValueError("xunji 与 garmin 至少提供一个")
-    workout = Workout(
-        date=day,
-        title=(xunji.title if xunji else None) or (garmin.name if garmin else None),
-        xunji_train_id=xunji.id if xunji else None,
-        garmin_activity_id=garmin.id if garmin else None,
-        match_status=match_status,
-        tags=garmin.activity_type if garmin else None,
-        duration_s=garmin.duration_s if garmin else None,
-        calories=garmin.calories if garmin else None,
-        avg_hr=garmin.avg_hr if garmin else None,
-        max_hr=garmin.max_hr if garmin else None,
-        movements_json=_extract_movements(xunji),
-    )
+    workout = Workout(**build_fused_workout_values(
+        day, xunji=xunji, garmin=garmin, match_status=match_status,
+    ))
     session.add(workout)
     session.commit()
     return workout

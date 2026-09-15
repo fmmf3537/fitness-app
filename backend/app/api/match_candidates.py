@@ -1,4 +1,5 @@
-"""M6 待确认队列 API：列出 pending 候选，合并/保持分开（PRD US-2 AC2）。"""
+"""M6 待确认队列 API：列出、预览并处理候选（PRD US-2 AC2）。"""
+import json
 from datetime import date, datetime
 from typing import Literal
 
@@ -9,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.api.auth import require_auth
 from app.db import get_session
 from app.models import GarminActivity, MatchCandidate, XunjiTrain
-from app.services.fuse import fuse_workout
+from app.services.fuse import build_fused_workout_values, fuse_workout
 
 router = APIRouter(
     prefix="/api/match-candidates", tags=["match-candidates"],
@@ -73,6 +74,63 @@ def list_candidates(session: Session = Depends(get_session)) -> dict:
     return {"candidates": [_serialize(c, session) for c in rows]}
 
 
+def _pending_pair(candidate_id: int, session: Session):
+    c = session.get(MatchCandidate, candidate_id)
+    if c is None:
+        raise HTTPException(status_code=404, detail="候选不存在")
+    if c.status != "pending":
+        raise HTTPException(status_code=409, detail="候选已处理")
+    train = session.get(XunjiTrain, c.xunji_train_id) if c.xunji_train_id else None
+    activity = (
+        session.get(GarminActivity, c.garmin_activity_id)
+        if c.garmin_activity_id else None
+    )
+    return c, train, activity
+
+
+@router.get("/{candidate_id}/preview")
+def preview_candidate_merge(
+    candidate_id: int,
+    session: Session = Depends(get_session),
+) -> dict:
+    """按正式融合规则返回只读预览，不写入 workout 或改变候选状态。"""
+    c, train, activity = _pending_pair(candidate_id, session)
+    if train is None or activity is None:
+        raise HTTPException(status_code=422, detail="缺少一侧记录，无法合并")
+    day = date.fromisoformat(train.datestr)
+    values = build_fused_workout_values(
+        day, xunji=train, garmin=activity, match_status="manual_matched",
+    )
+    from app.api.workouts import extract_heart_rate_series
+
+    return {
+        "candidate_id": c.id,
+        "workout": {
+            "date": values["date"].isoformat(),
+            "title": values["title"],
+            "match_status": values["match_status"],
+            "tags": values["tags"],
+            "duration_s": values["duration_s"],
+            "calories": values["calories"],
+            "avg_hr": values["avg_hr"],
+            "max_hr": values["max_hr"],
+            "movements": json.loads(values["movements_json"]) if values["movements_json"] else [],
+            "heart_rate": extract_heart_rate_series(activity.raw_json),
+        },
+        "field_sources": {
+            "date": "xunji",
+            "title": "xunji",
+            "movements": "xunji",
+            "tags": "garmin",
+            "duration_s": "garmin",
+            "calories": "garmin",
+            "avg_hr": "garmin",
+            "max_hr": "garmin",
+            "heart_rate": "garmin",
+        },
+    }
+
+
 @router.post("/{candidate_id}/resolve")
 def resolve_candidate(
     candidate_id: int,
@@ -80,16 +138,7 @@ def resolve_candidate(
     session: Session = Depends(get_session),
 ) -> dict:
     """合并 → manual_matched 融合记录；保持分开 → 两侧各自成档。"""
-    c = session.get(MatchCandidate, candidate_id)
-    if c is None:
-        raise HTTPException(status_code=404, detail="候选不存在")
-    if c.status != "pending":
-        raise HTTPException(status_code=409, detail="候选已处理")
-
-    train = session.get(XunjiTrain, c.xunji_train_id) if c.xunji_train_id else None
-    activity = (
-        session.get(GarminActivity, c.garmin_activity_id) if c.garmin_activity_id else None
-    )
+    c, train, activity = _pending_pair(candidate_id, session)
     if train is not None:
         day = date.fromisoformat(train.datestr)
     elif activity is not None and activity.start_ts is not None:

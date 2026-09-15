@@ -227,6 +227,7 @@ export default function ReviewsPage() {
             value={tab}
             onChange={setTab}
             testId="review-tabs"
+            ariaLabel="复盘周期"
           />
           <Button
             variant="primary"

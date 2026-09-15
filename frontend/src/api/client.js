@@ -53,7 +53,11 @@ export async function api(path, options = {}) {
     throw new ApiError(409, 'conflict')
   }
   if (!res.ok) {
-    throw new ApiError(res.status, `request failed: ${res.status}`)
+    throw new ApiError(
+      res.status,
+      `request failed: ${res.status}`,
+      await extractDetail(res),
+    )
   }
   return res.json()
 }

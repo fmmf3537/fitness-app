@@ -228,12 +228,14 @@ export default function AIReportsPage() {
             value={mode}
             onChange={setMode}
             testId="mode-tabs"
+            ariaLabel="查询方式"
           />
           <PillGroup
             options={TYPE_OPTIONS}
             value={typeFilter}
             onChange={setTypeFilter}
             testId="type-filter-tabs"
+            ariaLabel="报告类型"
           />
           {mode === 'bydate' && (
             <input

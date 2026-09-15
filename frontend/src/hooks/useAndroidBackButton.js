@@ -26,9 +26,10 @@ export default function useAndroidBackButton({ isOverlayOpen = false, closeOverl
         closeOverlay()
         return
       }
-      const dialog = document.querySelector('[role="dialog"]')
+      const dialogs = document.querySelectorAll('[role="dialog"][aria-modal="true"]')
+      const dialog = dialogs[dialogs.length - 1]
       if (dialog) {
-        const closeBtn = dialog.querySelector('[data-testid="bottom-sheet-close"]')
+        const closeBtn = dialog.querySelector('[data-dialog-close]')
         if (closeBtn) {
           closeBtn.click()
           return

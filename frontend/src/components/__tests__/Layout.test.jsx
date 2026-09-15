@@ -12,7 +12,13 @@ function mockResponse(data, status = 200) {
 describe('Layout 导航', () => {
   beforeEach(() => {
     localStorage.setItem('fh_token', 'test-token')
-    globalThis.fetch = vi.fn(() => Promise.resolve(mockResponse({ candidates: [] })))
+    globalThis.fetch = vi.fn((url) =>
+      Promise.resolve(mockResponse(
+        String(url).includes('/api/sync/status')
+          ? { running: false, status: null }
+          : { candidates: [] },
+      )),
+    )
   })
 
   it('包含全部页面导航链接', async () => {
@@ -46,13 +52,31 @@ describe('Layout 导航', () => {
     // ToastProvider 挂载后容器存在，不破坏既有断言
     expect(screen.getByTestId('toast-container')).toBeInTheDocument()
   })
+
+  it('桌面导航使用共享候选数量显示徽章', async () => {
+    globalThis.fetch = vi.fn((url) => Promise.resolve(mockResponse(
+      String(url).includes('/api/sync/status')
+        ? { running: false, status: null }
+        : { candidates: [{ id: 1, status: 'pending' }, { id: 2, status: 'pending' }] },
+    )))
+    render(
+      <MemoryRouter><Routes><Route element={<Layout />}><Route path="/" element={<div>home</div>} /></Route></Routes></MemoryRouter>,
+    )
+    expect(await screen.findByTestId('pending-badge')).toHaveTextContent('2')
+  })
 })
 
 describe('Layout 移动端汉堡菜单与底部 Tab', () => {
   beforeEach(() => {
     installMatchMedia(true)
     localStorage.setItem('fh_token', 'test-token')
-    globalThis.fetch = vi.fn(() => Promise.resolve(mockResponse({ candidates: [] })))
+    globalThis.fetch = vi.fn((url) =>
+      Promise.resolve(mockResponse(
+        String(url).includes('/api/sync/status')
+          ? { running: false, status: null }
+          : { candidates: [] },
+      )),
+    )
   })
 
   afterEach(() => {

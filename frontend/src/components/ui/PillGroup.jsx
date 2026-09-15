@@ -1,9 +1,9 @@
 /**
  * 分段/胶囊切换组（用于 TrendsPage 周期切换、AIReportsPage/ReviewsPage 类型切换的后续迁移）。
  */
-export default function PillGroup({ options = [], value, onChange, testId }) {
+export default function PillGroup({ options = [], value, onChange, testId, ariaLabel = '筛选选项' }) {
   return (
-    <div data-testid={testId} className="flex flex-wrap gap-1" role="tablist">
+    <div data-testid={testId} className="flex flex-wrap gap-1" role="group" aria-label={ariaLabel}>
       {options.map((option) => {
         const active = option.value === value
         const classes = [
@@ -16,8 +16,7 @@ export default function PillGroup({ options = [], value, onChange, testId }) {
           <button
             key={String(option.value)}
             type="button"
-            role="tab"
-            aria-selected={active}
+            aria-pressed={active}
             className={classes}
             onClick={() => onChange?.(option.value)}
           >

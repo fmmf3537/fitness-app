@@ -89,6 +89,7 @@ export default function TrendsPage() {
           value={weeks}
           onChange={setWeeks}
           testId="weeks-toggle"
+          ariaLabel="趋势周期"
         />
       </div>
 

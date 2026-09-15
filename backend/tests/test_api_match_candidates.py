@@ -83,6 +83,56 @@ def test_list_candidates_requires_auth(client):
 
 # ---------- POST /api/match-candidates/{id}/resolve ----------
 
+def test_preview_uses_fusion_rules_without_writing(client, auth, session):
+    candidate = _make_time_close_candidate(session)
+    before_count = session.query(Workout).count()
+
+    resp = client.get(
+        f"/api/match-candidates/{candidate.id}/preview", headers=auth,
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["candidate_id"] == candidate.id
+    assert body["workout"] == {
+        "date": DAY.isoformat(),
+        "title": "训练",
+        "match_status": "manual_matched",
+        "tags": "strength_training",
+        "duration_s": 3600,
+        "calories": 300,
+        "avg_hr": 120,
+        "max_hr": 150,
+        "movements": [],
+        "heart_rate": [],
+    }
+    assert body["field_sources"]["title"] == "xunji"
+    assert body["field_sources"]["duration_s"] == "garmin"
+    assert session.query(Workout).count() == before_count
+    assert session.get(MatchCandidate, candidate.id).status == "pending"
+
+
+def test_preview_rejects_single_side_and_resolved_candidates(client, auth, session):
+    activity = make_garmin_activity(session, DAY, activity_id="preview-single")
+    single = MatchCandidate(
+        garmin_activity_id=activity.id,
+        reason="garmin_only_strength",
+        status="pending",
+    )
+    session.add(single)
+    session.commit()
+    assert client.get(
+        f"/api/match-candidates/{single.id}/preview", headers=auth,
+    ).status_code == 422
+
+    candidate = _make_time_close_candidate(session)
+    candidate.status = "split"
+    session.commit()
+    assert client.get(
+        f"/api/match-candidates/{candidate.id}/preview", headers=auth,
+    ).status_code == 409
+
+
 def test_resolve_merge_creates_manual_matched_workout(client, auth, session):
     candidate = _make_time_close_candidate(session)
     resp = client.post(

@@ -76,8 +76,8 @@ describe('useAndroidBackButton 返回键语义', () => {
     render(
       <MemoryRouter initialEntries={['/reviews']}>
         <Probe />
-        <div role="dialog">
-          <button data-testid="bottom-sheet-close" onClick={onClose}>
+        <div role="dialog" aria-modal="true">
+          <button data-dialog-close onClick={onClose}>
             ✕
           </button>
         </div>
@@ -87,6 +87,21 @@ describe('useAndroidBackButton 返回键语义', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
     expect(backSpy).not.toHaveBeenCalled()
     expect(App.minimizeApp).not.toHaveBeenCalled()
+  })
+
+  it('多个 dialog 同时存在时只关闭最上层', () => {
+    const closeFirst = vi.fn()
+    const closeLast = vi.fn()
+    render(
+      <MemoryRouter initialEntries={['/reviews']}>
+        <Probe />
+        <div role="dialog" aria-modal="true"><button data-dialog-close onClick={closeFirst}>关闭一</button></div>
+        <div role="dialog" aria-modal="true"><button data-dialog-close onClick={closeLast}>关闭二</button></div>
+      </MemoryRouter>,
+    )
+    backHandler()
+    expect(closeFirst).not.toHaveBeenCalled()
+    expect(closeLast).toHaveBeenCalledTimes(1)
   })
 
   it('分支二：非根路由执行 history.back()', () => {

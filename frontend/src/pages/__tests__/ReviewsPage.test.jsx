@@ -113,9 +113,8 @@ describe('ReviewsPage', () => {
     renderPage()
     await screen.findByText(/2026-08-03/)
 
-    // PillGroup：按 role=tab 断言（不再有 tab-monthly testid）
-    const monthlyTab = screen.getByRole('tab', { name: '月复盘' })
-    expect(screen.getByRole('tab', { name: '周复盘' })).toHaveAttribute('aria-selected', 'true')
+    const monthlyTab = screen.getByRole('button', { name: '月复盘' })
+    expect(screen.getByRole('button', { name: '周复盘' })).toHaveAttribute('aria-pressed', 'true')
     await user.click(monthlyTab)
     await vi.waitFor(() => {
       expect(globalThis.fetch).toHaveBeenLastCalledWith(
@@ -123,7 +122,7 @@ describe('ReviewsPage', () => {
         expect.any(Object),
       )
     })
-    expect(monthlyTab).toHaveAttribute('aria-selected', 'true')
+    expect(monthlyTab).toHaveAttribute('aria-pressed', 'true')
     expect(await screen.findByText(/2026-07-01/)).toBeInTheDocument()
   })
 

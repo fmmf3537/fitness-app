@@ -1,8 +1,25 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render as renderUI, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import CalendarPage from '../CalendarPage'
+import { SyncTaskContext } from '../../components/useSyncTask'
+import { CandidateQueueContext } from '../../components/useCandidateQueue'
+
+// Calendar unit tests isolate the shared task state; lifecycle coverage lives in SyncButton tests.
+function render(ui, queue = { candidates: [], pendingCount: 0, error: '', loading: false }) {
+  return renderUI(
+    <SyncTaskContext.Provider
+      value={{ task: { running: false, status: null }, revision: 0 }}
+    >
+      <CandidateQueueContext.Provider
+        value={queue}
+      >
+        {ui}
+      </CandidateQueueContext.Provider>
+    </SyncTaskContext.Provider>,
+  )
+}
 
 function mockResponse(data, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: async () => data }
@@ -58,6 +75,24 @@ describe('CalendarPage', () => {
         headers: expect.objectContaining({ Authorization: 'Bearer test-token' }),
       }),
     )
+  })
+
+  it('有待确认记录时显示真实数量和处理入口', async () => {
+    render(
+      <MemoryRouter><CalendarPage initialMonth="2026-08" /></MemoryRouter>,
+      { candidates: [{ id: 1 }, { id: 2 }], pendingCount: 2, error: '', loading: false },
+    )
+    expect(await screen.findByText('2 条记录待确认')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /去处理/ })).toHaveAttribute('href', '/candidates')
+  })
+
+  it('候选初次加载失败不伪装成 0', async () => {
+    render(
+      <MemoryRouter><CalendarPage initialMonth="2026-08" /></MemoryRouter>,
+      { candidates: null, pendingCount: null, error: 'offline', loading: false },
+    )
+    expect(await screen.findByText('待确认数量暂时无法刷新')).toBeInTheDocument()
+    expect(screen.queryByText(/条记录待确认/)).not.toBeInTheDocument()
   })
 
   it('翻月按钮触发新月份请求', async () => {
