@@ -82,7 +82,7 @@ export default function BottomTabs() {
   return (
     <nav
       data-testid="bottom-tabs"
-      className="fixed inset-x-0 bottom-0 z-40 flex border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 pb-[env(safe-area-inset-bottom)]"
+      className="fixed inset-x-0 bottom-0 z-40 flex border-t border-gray-200/80 bg-white/95 shadow-[0_-8px_24px_rgba(15,23,42,0.05)] backdrop-blur-xl dark:border-gray-700 dark:bg-gray-900/95 pb-[env(safe-area-inset-bottom)]"
     >
       {TABS.map(({ to, label, end, Icon: TabIcon }) => (
         <NavLink
@@ -90,7 +90,7 @@ export default function BottomTabs() {
           to={to}
           end={end}
           className={({ isActive }) =>
-            `flex flex-1 flex-col items-center gap-0.5 py-2 text-xs font-medium ${
+            `flex min-h-[56px] flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[11px] font-semibold ${
               isActive ? 'text-indigo-600' : 'text-gray-500'
             }`
           }

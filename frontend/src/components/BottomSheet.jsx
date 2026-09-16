@@ -9,7 +9,7 @@ import useModalAccessibility from '../hooks/useModalAccessibility'
  * - title：顶部标题栏插槽；footer：底部操作区插槽（如上一篇/下一篇按钮）；
  * - 不做滑动手势（保持简单）。
  */
-export default function BottomSheet({ open = true, onClose, title, footer, children }) {
+export default function BottomSheet({ open = true, onClose, title, footer, children, fullScreenMobile = false }) {
   const sheetRef = useRef(null)
   const closeRef = useRef(null)
   const titleId = useId()
@@ -31,7 +31,7 @@ export default function BottomSheet({ open = true, onClose, title, footer, child
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="relative flex max-h-[85vh] max-h-[85dvh] w-full min-w-0 flex-col rounded-t-2xl bg-white dark:bg-gray-900 shadow-xl"
+        className={`relative flex max-h-[85vh] max-h-[85dvh] w-full min-w-0 flex-col rounded-t-2xl bg-white dark:bg-gray-900 shadow-xl ${fullScreenMobile ? 'max-md:h-[100dvh] max-md:max-h-[100dvh] max-md:rounded-none' : ''}`}
       >
         <div className="flex items-center justify-between gap-2 border-b border-gray-100 dark:border-gray-800 px-4 py-3">
           <div id={titleId} className="min-w-0 flex-1 truncate text-sm font-bold text-gray-900 dark:text-gray-100">{title}</div>

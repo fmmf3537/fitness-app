@@ -346,7 +346,7 @@ describe('SettingsPage', () => {
     renderPage()
     expect(await screen.findByRole('heading', { name: '我的' })).toBeInTheDocument()
     const menu = screen.getByTestId('feature-menu')
-    expect(within(menu).getByText('功能')).toBeInTheDocument()
+    expect(within(menu).getByText('数据与教练')).toBeInTheDocument()
     const items = [
       ['AI 报告', '/ai-reports'],
       ['复盘中心', '/reviews'],

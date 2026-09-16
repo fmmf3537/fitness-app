@@ -10,12 +10,12 @@ import Skeleton from '../components/ui/Skeleton'
 
 // UIX-06：「我的」功能菜单（承载从一级导航撤下的低频入口）
 const FEATURE_MENU = [
-  { to: '/ai-reports', label: 'AI 报告' },
-  { to: '/reviews', label: '复盘中心' },
-  { to: '/candidates', label: '待确认队列' },
-  { to: '/body-metrics', label: '身体数据' },
-  { to: '/import', label: '数据导入' },
-  { to: '/coach?tab=prefs', label: '教练须知' },
+  { to: '/body-metrics', label: '身体数据', icon: '◒' },
+  { to: '/import', label: '数据导入', icon: '⇧' },
+  { to: '/candidates', label: '待确认队列', icon: '⇄' },
+  { to: '/ai-reports', label: 'AI 报告', icon: '✦' },
+  { to: '/reviews', label: '复盘中心', icon: '◎' },
+  { to: '/coach?tab=prefs', label: '教练须知', icon: '◇' },
 ]
 
 export default function SettingsPage() {
@@ -140,16 +140,28 @@ export default function SettingsPage() {
     <div className="space-y-4">
       <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">我的</h1>
 
-      <Card className="mb-4" testId="feature-menu">
-        <h2 className="mb-1 text-sm font-semibold text-gray-900 dark:text-gray-100">功能</h2>
+      <Card className="overflow-hidden border-0 bg-gradient-to-br from-indigo-500 via-indigo-600 to-violet-700 text-white shadow-lg shadow-indigo-200/60 dark:shadow-none" testId="profile-hero">
+        <div className="flex items-center gap-4">
+          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-white/20 text-2xl font-black ring-1 ring-white/30">我</div>
+          <div className="min-w-0 flex-1">
+            <p className="text-xl font-black">健身看板用户</p>
+            <p className="mt-1 text-sm text-indigo-100">{profileGender ? `${profileGender === 'male' ? '男' : '女'} · ${profileBirthDate || '出生日期未设置'}` : '完善资料，让分析更准确'}</p>
+          </div>
+          {usage && <div className="text-right"><p className="text-xs text-indigo-100">本月 AI 用量</p><p className="mt-1 text-lg font-black">¥{usage.total_cost.toFixed(2)}</p></div>}
+        </div>
+      </Card>
+
+      <Card className="mb-4 p-2" testId="feature-menu">
+        <h2 className="px-2 pb-2 pt-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-300">数据与教练</h2>
         <div className="divide-y divide-gray-100">
           {FEATURE_MENU.map((item) => (
             <Link
               key={item.to}
               to={item.to}
-              className="flex min-h-[44px] items-center justify-between text-sm text-gray-700 dark:text-gray-300"
+              aria-label={item.label}
+              className="flex min-h-[52px] items-center justify-between rounded-lg px-2 text-sm text-gray-700 transition hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
             >
-              <span>{item.label}</span>
+              <span className="flex items-center gap-3"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 font-bold text-indigo-600 dark:bg-indigo-950">{item.icon}</span>{item.label}</span>
               <span className="text-gray-400" aria-hidden="true">
                 ›
               </span>

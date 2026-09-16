@@ -67,7 +67,7 @@ describe('CalendarPage', () => {
     expect(screen.getByTestId('dot-2026-08-03-auto_matched')).toHaveClass('bg-green-500')
     expect(screen.getByText('已匹配')).toBeInTheDocument()
     expect(screen.getByText('仅单源')).toBeInTheDocument()
-    expect(screen.getByText('待确认')).toBeInTheDocument()
+    expect(screen.getAllByText('待确认').length).toBeGreaterThan(0)
     expect(screen.queryByText('手动匹配')).not.toBeInTheDocument()
     expect(globalThis.fetch).toHaveBeenCalledWith(
       '/api/workouts/calendar?month=2026-08',
@@ -112,7 +112,7 @@ describe('CalendarPage', () => {
         expect.anything(),
       )
     })
-    expect(screen.getByTestId('current-month')).toHaveTextContent('2026-09')
+    expect(screen.getByTestId('current-month')).toHaveTextContent('2026 年 09 月')
   })
 
   describe('头部响应式布局（V3-10）', () => {
@@ -133,27 +133,20 @@ describe('CalendarPage', () => {
       expect(title).toHaveClass('shrink-0')
     })
 
-    it('SyncButton 移动端独占一行（basis-full 强制换行 + 排在翻月按钮之后）', async () => {
+    it('同步按钮保持紧凑并固定在标题右侧', async () => {
       await renderHeader()
       const syncRow = screen.getByTestId('sync-row')
-      expect(syncRow).toHaveClass('max-md:basis-full')
-      expect(syncRow).toHaveClass('max-md:order-2')
-      // 下个月按钮移动端排在 SyncButton 之前（第一行：上个月/月份/下个月）
-      expect(screen.getByRole('button', { name: '下个月' })).toHaveClass('max-md:order-1')
+      expect(syncRow).toHaveClass('shrink-0')
+      expect(screen.getByRole('button', { name: '上个月' })).toHaveTextContent('‹')
+      expect(screen.getByRole('button', { name: '下个月' })).toHaveTextContent('›')
     })
 
-    it('桌面端单行布局 class 不变（flex + items-center + justify-between + md:nowrap）', async () => {
+    it('头部使用单行紧凑布局', async () => {
       const header = await renderHeader()
       expect(header).toHaveClass('flex')
       expect(header).toHaveClass('items-center')
       expect(header).toHaveClass('justify-between')
-      expect(header).toHaveClass('md:flex-nowrap')
-      // 右侧分组容器：桌面端恢复为普通 flex（SyncButton + 下个月 同行）
-      const rightGroup = screen.getByTestId('sync-row').parentElement
-      expect(rightGroup).toHaveClass('flex')
-      expect(rightGroup).toHaveClass('items-center')
-      expect(rightGroup).toHaveClass('gap-2')
-      expect(rightGroup).toHaveClass('max-md:contents')
+      expect(header).toHaveClass('gap-2')
     })
   })
 

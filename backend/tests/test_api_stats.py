@@ -108,6 +108,14 @@ class TestStatsTrends:
         assert data["sleep_volume"] == [
             {"date": today.isoformat(), "sleep_hours": 7.2, "volume_tons": 1.08}
         ]
+        assert data["summary"] == {
+            "current_week_sessions": 1,
+            "current_week_volume_tons": 1.08,
+            "volume_change_pct": 116.0,
+            "training_streak_days": 1,
+            "best_set": {"movement": "杠铃深蹲", "weight": 100.0, "reps": 5.0},
+            "sleep_under_6h_volume_change_pct": None,
+        }
 
     def test_out_of_range_data_excluded(self, client, auth, session):
         today = date.today()

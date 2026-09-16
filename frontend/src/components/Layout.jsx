@@ -9,6 +9,9 @@ import { ToastProvider } from './ui/Toast'
 import SyncTaskProvider from './SyncTaskProvider'
 import CandidateQueueProvider from './CandidateQueueProvider'
 import { useCandidateQueue } from './useCandidateQueue'
+import Onboarding from './Onboarding'
+import PageErrorBoundary from './PageErrorBoundary'
+import NetworkStatus from './NetworkStatus'
 
 // UIX-06：桌面导航 13→8；导入/身体数据/教练须知撤入「我的」或汉堡
 const NAV_LINKS = [
@@ -76,11 +79,14 @@ function LayoutContent() {
     ) : null
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-      <header className="bg-white dark:bg-gray-900 shadow-sm pt-[env(safe-area-inset-top)]">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
+    <div className="min-h-screen bg-[#f5f7fb] dark:bg-gray-950 md:bg-gradient-to-b md:from-gray-50 md:to-gray-100/60 md:dark:from-gray-950 md:dark:to-black">
+      <a href="#main-content" className="sr-only z-50 rounded-md bg-white px-4 py-2 text-sm font-semibold text-indigo-700 shadow focus:not-sr-only focus:fixed focus:left-4 focus:top-4">
+        跳到主要内容
+      </a>
+      <header className="sticky top-0 z-40 border-b border-white/70 bg-white/90 shadow-sm backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/90 pt-[env(safe-area-inset-top)]">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-3 py-2.5 md:px-4 md:py-3">
           <div className="flex items-center gap-2">
-            <span className="text-lg font-bold text-gray-900 dark:text-gray-100">健身看板</span>
+            <span className="flex items-center gap-2 text-lg font-black tracking-tight text-gray-950 dark:text-white"><span className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-600 text-sm text-white shadow-sm max-md:hidden">F</span>健身看板</span>
             {!isMobile && (
               <nav className="ml-4 flex gap-1">
                 {NAV_LINKS.map((link) => (
@@ -95,7 +101,7 @@ function LayoutContent() {
           <div className="flex items-center gap-2">
             <button
               onClick={handleLogout}
-              className="rounded-md px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
+              className="rounded-md px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 max-md:hidden"
             >
               退出登录
             </button>
@@ -132,10 +138,14 @@ function LayoutContent() {
           </nav>
         )}
       </header>
-      <main className="mx-auto max-w-5xl px-4 py-6 max-md:pb-32">
-        <Outlet />
+      <NetworkStatus />
+      <main id="main-content" tabIndex={-1} className="mx-auto max-w-6xl px-4 py-6 max-md:px-3 max-md:py-4 max-md:pb-28">
+        <PageErrorBoundary>
+          <Outlet />
+        </PageErrorBoundary>
       </main>
       <BottomTabs />
+      <Onboarding />
     </div>
   )
 }

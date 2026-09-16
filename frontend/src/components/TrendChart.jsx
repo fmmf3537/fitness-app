@@ -24,7 +24,7 @@ export default function TrendChart({ option, testId, ariaLabel = '趋势图表' 
       data-testid={testId}
       role="img"
       aria-label={ariaLabel}
-      className="h-72 w-full"
+      className="h-60 w-full sm:h-72"
     />
   )
 }

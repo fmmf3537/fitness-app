@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import Layout from '../Layout'
 import BottomTabs from '../BottomTabs'
 import Card from '../ui/Card'
@@ -59,6 +59,6 @@ describe('暗色类映射抽查', () => {
         <BottomTabs />
       </MemoryRouter>,
     )
-    expect(screen.getByTestId('bottom-tabs')).toHaveClass('dark:bg-gray-900')
+    expect(screen.getByTestId('bottom-tabs')).toHaveClass('dark:bg-gray-900/95')
   })
 })

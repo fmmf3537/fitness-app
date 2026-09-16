@@ -307,6 +307,7 @@ export default function ReviewsPage() {
 
       {isMobile && selected && (
         <BottomSheet
+          fullScreenMobile
           title={`${selected.date || '-'} ~ ${selected.period_end || selected.date || '-'}`}
           onClose={() => setSelected(null)}
           footer={navFooter}

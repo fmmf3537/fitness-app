@@ -15,12 +15,12 @@ export default function CoachHubPage() {
   }
 
   return (
-    <div data-testid="coach-hub" className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b bg-white dark:bg-gray-900 px-4 py-3">
+    <div data-testid="coach-hub" className="flex min-h-[calc(100dvh-10.5rem)] flex-col md:min-h-0">
+      <div className="flex items-center justify-between px-1 pb-3 md:border-b md:bg-white md:px-4 md:py-3 dark:md:bg-gray-900">
         <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">教练中心</h1>
       </div>
 
-      <div className="px-4 pt-3">
+      <div className="pb-3 md:px-4 md:pt-3">
         <div className="flex rounded-lg bg-gray-100 dark:bg-gray-800 p-1" role="tablist">
           <button
             type="button"

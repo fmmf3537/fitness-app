@@ -63,6 +63,9 @@ def stats_trends(
         .all()
     )
 
+    sleep_volume = stats_service.sleep_volume_series(
+        [(r.date, r.sleep_json) for r in sleep_rows], workouts
+    )
     return {
         "weeks": weeks,
         "weekly_volume": weekly_volume,
@@ -70,7 +73,6 @@ def stats_trends(
         "body_metrics": stats_service.body_metrics_series(
             [(r.date, r.type, r.value) for r in metric_rows]
         ),
-        "sleep_volume": stats_service.sleep_volume_series(
-            [(r.date, r.sleep_json) for r in sleep_rows], workouts
-        ),
+        "sleep_volume": sleep_volume,
+        "summary": stats_service.trend_summary(workouts, weekly_volume, sleep_volume),
     }

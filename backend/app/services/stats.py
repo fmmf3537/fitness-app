@@ -180,3 +180,57 @@ def sleep_volume_series(sleep_rows: list[tuple[date, object]], workouts: list[di
             "volume_tons": round(kg_by_date.get(d, 0.0) / 1000, 2),
         })
     return result
+
+
+def trend_summary(workouts: list[dict], weekly_volume: list[dict], sleep_volume: list[dict]) -> dict:
+    """从同一批真实趋势数据生成页面摘要；数据不足的结论返回 None。"""
+    latest = weekly_volume[-1] if weekly_volume else None
+    previous = weekly_volume[-2] if len(weekly_volume) > 1 else None
+    volume_change_pct = None
+    if latest and previous and previous["volume_tons"] > 0:
+        volume_change_pct = round(
+            (latest["volume_tons"] - previous["volume_tons"])
+            / previous["volume_tons"] * 100, 1,
+        )
+
+    dates = sorted({w["date"] for w in workouts if isinstance(w.get("date"), date)}, reverse=True)
+    streak_days = 0
+    if dates:
+        streak_days = 1
+        for newer, older in zip(dates, dates[1:]):
+            if newer - older != timedelta(days=1):
+                break
+            streak_days += 1
+
+    best_set = None
+    for workout in workouts:
+        for movement in workout.get("movements") or []:
+            if not isinstance(movement, dict):
+                continue
+            for item in movement.get("sets") or []:
+                if not isinstance(item, dict) or not item.get("done", True):
+                    continue
+                weight, reps = _to_float(item.get("weight")), _to_float(item.get("reps"))
+                if weight <= 0 or reps <= 0:
+                    continue
+                candidate = {"movement": movement.get("name") or "未命名动作", "weight": weight, "reps": reps}
+                if best_set is None or (weight, reps) > (best_set["weight"], best_set["reps"]):
+                    best_set = candidate
+
+    low = [row["volume_tons"] for row in sleep_volume if row["sleep_hours"] < 6]
+    rested = [row["volume_tons"] for row in sleep_volume if row["sleep_hours"] >= 6]
+    sleep_volume_change_pct = None
+    if low and rested and sum(rested) > 0:
+        sleep_volume_change_pct = round(
+            ((sum(low) / len(low)) - (sum(rested) / len(rested)))
+            / (sum(rested) / len(rested)) * 100, 1,
+        )
+
+    return {
+        "current_week_sessions": latest["sessions"] if latest else 0,
+        "current_week_volume_tons": latest["volume_tons"] if latest else 0,
+        "volume_change_pct": volume_change_pct,
+        "training_streak_days": streak_days,
+        "best_set": best_set,
+        "sleep_under_6h_volume_change_pct": sleep_volume_change_pct,
+    }

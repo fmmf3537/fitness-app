@@ -31,17 +31,17 @@ function matchBadgeVariant(status) {
 
 function SummaryCard({ workout }) {
   const items = [
-    { label: '时长', value: formatDuration(workout.duration_s) },
-    { label: '热量', value: workout.calories != null ? `${workout.calories} 千卡` : '-' },
-    { label: '平均心率', value: workout.avg_hr != null ? `${workout.avg_hr} bpm` : '-' },
-    { label: '最大心率', value: workout.max_hr != null ? `${workout.max_hr} bpm` : '-' },
+    { icon: '⏱', label: '时长', value: formatDuration(workout.duration_s) },
+    { icon: '🔥', label: '热量', value: workout.calories != null ? `${workout.calories} 千卡` : '-' },
+    { icon: '♥', label: '平均心率', value: workout.avg_hr != null ? `${workout.avg_hr} bpm` : '-' },
+    { icon: '↗', label: '最大心率', value: workout.max_hr != null ? `${workout.max_hr} bpm` : '-' },
   ]
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+    <div className="grid grid-cols-4 overflow-hidden rounded-2xl bg-gradient-to-br from-indigo-600 to-violet-600 p-2 text-white shadow-lg shadow-indigo-200/60 dark:shadow-none sm:gap-3 sm:bg-none sm:p-0 sm:text-inherit sm:shadow-none">
       {items.map((item) => (
-        <Card key={item.label}>
-          <p className="text-sm text-gray-600 dark:text-gray-400">{item.label}</p>
-          <p className="mt-1 text-lg font-bold text-gray-900 dark:text-gray-100">{item.value}</p>
+        <Card key={item.label} className="min-w-0 rounded-none border-0 border-r border-white/20 bg-transparent p-2 text-center shadow-none last:border-r-0 sm:rounded-2xl sm:border sm:border-gray-200 sm:bg-gradient-to-br sm:from-white sm:to-gray-50 sm:p-4 sm:text-left dark:sm:border-gray-700 dark:sm:from-gray-900 dark:sm:to-gray-950">
+          <p className="truncate text-[10px] font-medium text-indigo-100 sm:text-xs sm:text-gray-600 dark:sm:text-gray-300"><span className="hidden sm:inline sm:mr-1 sm:text-indigo-600">{item.icon}</span>{item.label}</p>
+          <p className="mt-1 truncate text-sm font-black tracking-tight text-white sm:text-xl sm:text-gray-950 dark:sm:text-white">{item.value}</p>
         </Card>
       ))}
     </div>
@@ -179,19 +179,30 @@ export default function WorkoutDetailPage() {
 
   return (
     <div>
-      <div className="mb-4 flex items-center gap-3">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
         <Link to="/" className="text-sm text-indigo-600 hover:underline">
           ← 返回日历
         </Link>
-        <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">
+        <h2 className="min-w-0 text-xl font-black tracking-tight text-gray-950 dark:text-white">
           {workout.title}
-          <span className="ml-2 text-sm font-normal text-gray-600 dark:text-gray-400">
+          <span className="mt-1 block text-sm font-normal text-gray-600 dark:text-gray-300">
             {workout.date} ·{' '}
             <Badge variant={matchBadgeVariant(workout.match_status)}>
               {statusLabel(workout.match_status)}
             </Badge>
           </span>
         </h2>
+        </div>
+        <details className="relative shrink-0">
+          <summary aria-label="更多操作" className="flex min-h-11 min-w-11 cursor-pointer list-none items-center justify-center rounded-xl border border-gray-200 bg-white text-xl shadow-sm dark:border-gray-700 dark:bg-gray-900">⋯</summary>
+          <div className="absolute right-0 z-20 mt-2 w-48 overflow-hidden rounded-xl border border-gray-200 bg-white p-1 shadow-xl dark:border-gray-700 dark:bg-gray-900">
+            <button type="button" onClick={() => setTab('xunji')} className="block min-h-11 w-full rounded-lg px-3 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800">查看原始数据</button>
+            <Button variant="danger" testId="delete-workout" disabled={deleting} onClick={() => setConfirmOpen(true)} className="w-full justify-start border-0 shadow-none">
+              {deleting ? '删除中…' : '删除此训练'}
+            </Button>
+          </div>
+        </details>
       </div>
 
       <SummaryCard workout={workout} />
@@ -203,7 +214,7 @@ export default function WorkoutDetailPage() {
             role="tab"
             aria-selected={tab === t.key}
             onClick={() => setTab(t.key)}
-            className={`px-4 min-h-[44px] text-sm font-medium ${
+            className={`px-4 min-h-[44px] text-sm font-medium transition-all duration-150 ${
               tab === t.key
                 ? 'border-b-2 border-indigo-600 text-indigo-600'
                 : 'text-gray-600 dark:text-gray-400 hover:text-gray-800'
@@ -231,17 +242,6 @@ export default function WorkoutDetailPage() {
         )}
         {tab === 'xunji' && <RawJson data={workout.xunji_raw} testId="xunji-raw" />}
         {tab === 'garmin' && <RawJson data={workout.garmin_raw} testId="garmin-raw" />}
-      </div>
-
-      <div className="mt-8 border-t border-gray-200 dark:border-gray-700 pt-4">
-        <Button
-          variant="danger"
-          testId="delete-workout"
-          disabled={deleting}
-          onClick={() => setConfirmOpen(true)}
-        >
-          {deleting ? '删除中…' : '删除此训练'}
-        </Button>
       </div>
 
       <ConfirmDialog

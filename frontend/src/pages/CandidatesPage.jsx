@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { api } from '../api/client'
 import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
@@ -200,6 +200,20 @@ function CandidateCard({ candidate, onResolve, onStale }) {
 
 export default function CandidatesPage() {
   const { candidates, loading, refreshing, error, refresh, removeCandidate } = useCandidateQueue()
+  const [reasonFilter, setReasonFilter] = useState('all')
+  const [sortOrder, setSortOrder] = useState('newest')
+
+  const visibleCandidates = useMemo(() => {
+    const rows = reasonFilter === 'all'
+      ? [...(candidates || [])]
+      : (candidates || []).filter((candidate) => candidate.reason === reasonFilter)
+    rows.sort((a, b) => {
+      const left = String(a.created_at || '')
+      const right = String(b.created_at || '')
+      return sortOrder === 'newest' ? right.localeCompare(left) : left.localeCompare(right)
+    })
+    return rows
+  }, [candidates, reasonFilter, sortOrder])
 
   const handleResolved = (id) => {
     removeCandidate(id)
@@ -208,7 +222,20 @@ export default function CandidatesPage() {
 
   return (
     <div>
-      <h2 className="mb-4 text-lg font-bold text-gray-900 dark:text-gray-100">待确认队列</h2>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">待确认队列</h2>
+        <div className="flex gap-2">
+          <select aria-label="候选类型" value={reasonFilter} onChange={(event) => setReasonFilter(event.target.value)} className="min-h-11 rounded-lg border border-gray-300 bg-white px-2 text-sm dark:border-gray-600 dark:bg-gray-900">
+            <option value="all">全部类型</option>
+            <option value="time_close">时间接近</option>
+            <option value="garmin_only_strength">佳明单边力量</option>
+          </select>
+          <select aria-label="候选排序" value={sortOrder} onChange={(event) => setSortOrder(event.target.value)} className="min-h-11 rounded-lg border border-gray-300 bg-white px-2 text-sm dark:border-gray-600 dark:bg-gray-900">
+            <option value="newest">最新优先</option>
+            <option value="oldest">最早优先</option>
+          </select>
+        </div>
+      </div>
       {refreshing && <p role="status" className="mb-3 text-sm text-gray-600 dark:text-gray-400">正在刷新待确认记录…</p>}
       {error && (
         <ErrorState
@@ -229,9 +256,10 @@ export default function CandidatesPage() {
         />
       ) : candidates?.length > 0 ? (
         <ul className="space-y-3">
-          {candidates.map((c) => (
+          {visibleCandidates.map((c) => (
             <CandidateCard key={c.id} candidate={c} onResolve={handleResolved} onStale={refresh} />
           ))}
+          {visibleCandidates.length === 0 && <li><EmptyState title="当前筛选没有候选" description="切换类型查看其他待确认记录" /></li>}
         </ul>
       ) : null}
     </div>

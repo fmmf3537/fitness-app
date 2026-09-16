@@ -9,6 +9,23 @@ import Skeleton from '../components/ui/Skeleton'
 import useIsMobile from '../hooks/useIsMobile'
 import { uuidv4 } from '../utils/uuid'
 
+const QUICK_QUESTIONS = [
+  '复盘我最近一次训练',
+  '解读我最近的睡眠表现',
+  '下次训练应该注意什么？',
+  '分析我的体重与体脂趋势',
+]
+const FAILED_DRAFT_KEY = 'fh_coach_failed_message'
+
+function readFailedDraft() {
+  try {
+    const draft = JSON.parse(localStorage.getItem(FAILED_DRAFT_KEY) || 'null')
+    return draft?.text && draft?.requestId && draft?.tempId ? draft : null
+  } catch {
+    return null
+  }
+}
+
 /** 将 created_at 格式化为「今天 HH:mm」或「MM-dd HH:mm」 */
 function formatMsgTime(createdAt) {
   if (!createdAt) return null
@@ -76,7 +93,9 @@ export default function CoachChatPage({ embedded = false }) {
       .then((data) => {
         const list = data.messages || []
         list.sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')))
-        setMessages(list)
+        const draft = readFailedDraft()
+        setMessages(draft ? [...list, { id: draft.tempId, role: 'user', content: draft.text, failed: true }] : list)
+        setFailed(draft)
         setLoaded(true)
       })
       .catch((err) => {
@@ -115,12 +134,15 @@ export default function CoachChatPage({ embedded = false }) {
         data.assistant_message,
       ])
       setFailed(null)
+      localStorage.removeItem(FAILED_DRAFT_KEY)
       resetTextareaHeight()
     } catch {
       setMessages((prev) =>
         prev.map((m) => (m.id === tempId ? { ...m, pending: false, failed: true } : m)),
       )
-      setFailed({ text, requestId, tempId })
+      const draft = { text, requestId, tempId }
+      setFailed(draft)
+      localStorage.setItem(FAILED_DRAFT_KEY, JSON.stringify(draft))
     } finally {
       setSending(false)
     }
@@ -152,6 +174,7 @@ export default function CoachChatPage({ embedded = false }) {
       await api('/api/coach/chat', { method: 'DELETE' })
       setMessages([])
       setFailed(null)
+      localStorage.removeItem(FAILED_DRAFT_KEY)
     } catch (err) {
       setError(err.status === 401 || err.status === 404 ? '未登录' : err.message || '清空失败')
     }
@@ -195,9 +218,9 @@ export default function CoachChatPage({ embedded = false }) {
       )}
 
       {embedded && (
-        <div className="flex justify-end px-4 pt-2">
+        <div className="flex justify-end pb-2">
           <Button variant="danger" testId="chat-clear-btn" onClick={() => setClearOpen(true)}>
-            清空对话
+            清空
           </Button>
         </div>
       )}
@@ -205,7 +228,7 @@ export default function CoachChatPage({ embedded = false }) {
       <div
         ref={threadRef}
         data-testid="chat-thread"
-        className="flex-1 space-y-3 overflow-y-auto p-4"
+        className="flex-1 space-y-3 overflow-y-auto py-2 sm:p-4"
       >
         {!loaded && (
           <div className="space-y-3" data-testid="chat-loading">
@@ -215,12 +238,23 @@ export default function CoachChatPage({ embedded = false }) {
           </div>
         )}
         {loaded && messages.length === 0 && !sending && (
-          <div className="flex justify-center py-8">
+          <div className="mx-auto w-full max-w-xl py-2 sm:py-8">
+            <div className="mb-4 rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50 to-white p-4 text-center shadow-sm dark:border-indigo-900 dark:from-indigo-950/60 dark:to-gray-900 sm:mb-6 sm:p-5">
+              <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-600 text-2xl text-white">✦</div>
             <EmptyState
               testId="chat-empty"
               title="跟教练说点什么吧"
               description="比如「我深蹲时膝盖疼，下周训练怎么调？」"
             />
+            </div>
+            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-300">快捷提问</p>
+            <div className="grid grid-cols-2 gap-2">
+              {QUICK_QUESTIONS.map((question) => (
+                <button key={question} type="button" onClick={() => setInput(question)} className="min-h-11 rounded-xl border border-gray-200 bg-white px-3 text-left text-sm text-gray-700 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:text-indigo-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
+                  {question} <span aria-hidden="true" className="float-right text-indigo-500">→</span>
+                </button>
+              ))}
+            </div>
           </div>
         )}
         {messages.map((m) =>
@@ -279,7 +313,8 @@ export default function CoachChatPage({ embedded = false }) {
               data-testid="chat-thinking"
               className="rounded-2xl rounded-bl-sm bg-gray-100 dark:bg-gray-800 px-3 py-2 text-sm text-gray-500"
             >
-              教练思考中…
+              <span className="mr-2">教练思考中</span>
+              <span className="inline-flex gap-1" aria-hidden="true"><i className="thinking-dot">●</i><i className="thinking-dot">●</i><i className="thinking-dot">●</i></span>
             </div>
           </div>
         )}
@@ -291,7 +326,7 @@ export default function CoachChatPage({ embedded = false }) {
         </div>
       )}
 
-      <div className="flex items-end gap-2 border-t bg-white dark:bg-gray-900 px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <div className="sticky bottom-0 flex items-end gap-2 rounded-2xl border border-gray-200 bg-white p-2 shadow-lg dark:border-gray-700 dark:bg-gray-900">
         <textarea
           ref={inputRef}
           data-testid="chat-input"
@@ -305,7 +340,7 @@ export default function CoachChatPage({ embedded = false }) {
           rows={1}
           maxLength={4000}
           placeholder="输入你的问题（回车发送，Shift+回车换行）"
-          className="max-h-36 min-h-[44px] min-w-0 flex-1 resize-none rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+          className="max-h-36 min-h-[44px] min-w-0 flex-1 resize-none rounded-xl border-0 bg-transparent px-2 py-2 text-sm focus:outline-none"
         />
         <Button
           variant="primary"

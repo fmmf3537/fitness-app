@@ -11,6 +11,7 @@ import ErrorState from '../components/ui/ErrorState'
 import PillGroup from '../components/ui/PillGroup'
 import Skeleton from '../components/ui/Skeleton'
 import useIsMobile from '../hooks/useIsMobile'
+import usePullToRefresh from '../hooks/usePullToRefresh'
 import { fmtCost } from '../utils/format'
 
 const MODE_OPTIONS = [
@@ -193,6 +194,7 @@ export default function AIReportsPage() {
   }
 
   const selectedIndex = reports.findIndex((r) => selected != null && r.id === selected.id)
+  const { pulling, bind: pullBind } = usePullToRefresh(() => load(true))
 
   const navFooter = (
     <div className="flex items-center justify-between gap-2">
@@ -219,7 +221,8 @@ export default function AIReportsPage() {
   )
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" {...pullBind}>
+      {pulling && <p role="status" className="text-center text-xs text-indigo-600">正在刷新报告…</p>}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">AI 训练点评</h1>
         <div className="flex flex-wrap items-center gap-2">
@@ -310,6 +313,7 @@ export default function AIReportsPage() {
 
       {isMobile && selected && (
         <BottomSheet
+          fullScreenMobile
           title={selected.workout_title || '未命名训练'}
           onClose={() => setSelected(null)}
           footer={navFooter}

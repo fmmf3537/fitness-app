@@ -79,6 +79,8 @@ export default function BodyMetricsPage() {
   const availableTypes = METRIC_DEFS.map((d) => d.type).filter((t) => grouped[t]?.length)
   const activeTrend = availableTypes.includes(trendType) ? trendType : availableTypes[0]
   const activeDef = METRIC_DEFS.find((d) => d.type === activeTrend)
+  const latestWeight = grouped.weight?.at(-1)
+  const latestBodyfat = grouped.bodyfat?.at(-1)
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -168,7 +170,25 @@ export default function BodyMetricsPage() {
         </p>
       )}
 
-      <Card>
+      {records && (latestWeight || latestBodyfat) && (
+        <div className="grid grid-cols-2 gap-3" data-testid="bodymetrics-hero">
+          {latestWeight && <Card className="bg-white text-gray-950 shadow-sm dark:bg-gray-900 dark:text-white">
+            <p className="text-xs text-gray-600 dark:text-gray-300">当前体重</p>
+            <p className="mt-2 text-3xl font-black">{latestWeight.value}<span className="ml-1 text-sm font-medium text-gray-500">{latestWeight.unit}</span></p>
+            <p className="mt-1 text-xs text-emerald-600">记录于 {latestWeight.date}</p>
+          </Card>}
+          {latestBodyfat && <Card className="bg-white text-gray-950 shadow-sm dark:bg-gray-900 dark:text-white">
+            <p className="text-xs text-gray-600 dark:text-gray-300">当前体脂</p>
+            <p className="mt-2 text-3xl font-black">{latestBodyfat.value}<span className="ml-1 text-sm font-medium">{latestBodyfat.unit}</span></p>
+            <p className="mt-1 text-xs text-gray-500">记录于 {latestBodyfat.date}</p>
+          </Card>}
+        </div>
+      )}
+
+      <div className="grid gap-3 sm:grid-cols-2">
+      <Card className="transition hover:-translate-y-0.5 hover:shadow-md">
+        <p className="mb-1 text-sm font-semibold text-gray-900 dark:text-gray-100">用图片估算体脂</p>
+        <p className="mb-3 text-xs text-gray-600 dark:text-gray-300">识别体脂秤截图并导入真实数据</p>
         <Button
           variant="primary"
           testId="open-image-import"
@@ -177,7 +197,7 @@ export default function BodyMetricsPage() {
             setImportMsg('')
           }}
         >
-          {showImport ? '收起图片导入' : '体脂秤图片导入'}
+          {showImport ? '收起图片导入' : '选择图片'}
         </Button>
         {showImport && (
           <div className="mt-3">
@@ -192,13 +212,15 @@ export default function BodyMetricsPage() {
         )}
       </Card>
 
-      <Card>
+      <Card className="transition hover:-translate-y-0.5 hover:shadow-md">
+        <p className="mb-1 text-sm font-semibold text-gray-900 dark:text-gray-100">用皮脂钳估算</p>
+        <p className="mb-3 text-xs text-gray-600 dark:text-gray-300">根据测量点数据计算体脂率</p>
         <Button
           variant="secondary"
           testId="open-skinfold"
           onClick={() => setShowSkinfold((v) => !v)}
         >
-          {showSkinfold ? '收起皮脂钳测量' : '皮脂钳测量'}
+          {showSkinfold ? '收起皮脂钳测量' : '开始测量'}
         </Button>
         {showSkinfold && (
           <div className="mt-3">
@@ -206,6 +228,7 @@ export default function BodyMetricsPage() {
           </div>
         )}
       </Card>
+      </div>
 
       {records && !hasHeight && (
         <div
@@ -240,7 +263,7 @@ export default function BodyMetricsPage() {
             className="rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900"
           />
           {formType === 'blood_pressure' ? (
-            <>
+            <div className="flex items-center overflow-hidden rounded-lg border border-gray-300 bg-white dark:border-gray-600 dark:bg-gray-900">
               <input
                 type="number"
                 inputMode="decimal"
@@ -249,8 +272,9 @@ export default function BodyMetricsPage() {
                 data-testid="metric-bp-systolic"
                 value={formBpSystolic}
                 onChange={(e) => setFormBpSystolic(e.target.value)}
-                className="w-28 rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900"
+                className="w-24 border-0 bg-transparent px-3 py-2 text-sm focus:outline-none"
               />
+              <span className="text-gray-400">/</span>
               <input
                 type="number"
                 inputMode="decimal"
@@ -259,9 +283,9 @@ export default function BodyMetricsPage() {
                 data-testid="metric-bp-diastolic"
                 value={formBpDiastolic}
                 onChange={(e) => setFormBpDiastolic(e.target.value)}
-                className="w-28 rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900"
+                className="w-24 border-0 bg-transparent px-3 py-2 text-sm focus:outline-none"
               />
-            </>
+            </div>
           ) : (
             <input
               type="number"
@@ -399,7 +423,7 @@ export default function BodyMetricsPage() {
       {syncPreview && (
         <div
           data-testid="sync-modal"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
           role="dialog"
           aria-modal="true"
         >

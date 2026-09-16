@@ -63,7 +63,7 @@ describe('Card', () => {
   it('基础四件套类名', () => {
     render(<Card testId="card">内容</Card>)
     const el = screen.getByTestId('card')
-    expect(el).toHaveClass('rounded-xl')
+    expect(el).toHaveClass('rounded-2xl')
     expect(el).toHaveClass('border-gray-200')
     expect(el).toHaveClass('bg-white')
     expect(el).toHaveClass('shadow-sm')

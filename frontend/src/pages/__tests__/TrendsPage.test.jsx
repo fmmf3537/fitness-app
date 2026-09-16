@@ -98,7 +98,8 @@ describe('TrendsPage', () => {
   it('空数据不渲染空坐标轴，显示 EmptyState', async () => {
     globalThis.fetch = vi.fn(() => Promise.resolve(mockResponse(EMPTY_TRENDS)))
     render(<TrendsPage />)
-    expect(await screen.findAllByText('暂无趋势数据')).toHaveLength(4)
+    expect(await screen.findAllByText('暂无趋势数据')).toHaveLength(1)
+    expect(screen.getByRole('link', { name: '去同步训练' })).toHaveAttribute('href', '/')
     expect(screen.queryByTestId('trend-chart-volume')).not.toBeInTheDocument()
     expect(screen.queryByTestId('trend-chart-sleep')).not.toBeInTheDocument()
   })
