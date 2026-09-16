@@ -133,18 +133,18 @@ describe('CalendarPage', () => {
       expect(title).toHaveClass('shrink-0')
     })
 
-    it('同步按钮保持紧凑并固定在标题右侧', async () => {
+    it('同步区域在移动端可独占一行，不挤压月份标题', async () => {
       await renderHeader()
       const syncRow = screen.getByTestId('sync-row')
-      expect(syncRow).toHaveClass('shrink-0')
+      expect(syncRow).toHaveClass('max-md:w-full')
       expect(screen.getByRole('button', { name: '上个月' })).toHaveTextContent('‹')
       expect(screen.getByRole('button', { name: '下个月' })).toHaveTextContent('›')
     })
 
-    it('头部使用单行紧凑布局', async () => {
+    it('头部允许安全换行', async () => {
       const header = await renderHeader()
       expect(header).toHaveClass('flex')
-      expect(header).toHaveClass('items-center')
+      expect(header).toHaveClass('flex-wrap')
       expect(header).toHaveClass('justify-between')
       expect(header).toHaveClass('gap-2')
     })

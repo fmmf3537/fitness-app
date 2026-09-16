@@ -9,13 +9,13 @@ vi.mock('@capacitor/core', () => ({
 }))
 vi.mock('@capacitor/filesystem', () => ({
   Filesystem: { writeFile: (...args) => writeFile(...args) },
-  Directory: { Cache: 'CACHE' },
+  Directory: { Cache: 'CACHE', Documents: 'DOCUMENTS' },
 }))
 vi.mock('@capacitor/share', () => ({
   Share: { share: (...args) => share(...args) },
 }))
 
-import { sharePosterImage, isNativeShare } from '../sharePoster'
+import { sharePosterImage, savePosterImage, isNativeShare } from '../sharePoster'
 
 const DATA_URL = 'data:image/png;base64,QUJD'
 const FILENAME = 'fitness-poster-2026-08-12.png'
@@ -73,5 +73,23 @@ describe('isNativeShare', () => {
     expect(isNativeShare()).toBe(true)
     isNativePlatform.mockReturnValue(false)
     expect(isNativeShare()).toBe(false)
+  })
+})
+
+describe('savePosterImage', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('原生端保存到 Documents，而不是分享缓存', async () => {
+    isNativePlatform.mockReturnValue(true)
+    writeFile.mockResolvedValue({ uri: 'file:///documents/poster.png' })
+    const result = await savePosterImage({ dataUrl: DATA_URL, filename: FILENAME })
+    expect(writeFile).toHaveBeenCalledWith({
+      path: FILENAME,
+      data: 'QUJD',
+      directory: 'DOCUMENTS',
+      recursive: true,
+    })
+    expect(share).not.toHaveBeenCalled()
+    expect(result.mode).toBe('native-save')
   })
 })

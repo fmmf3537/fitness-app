@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { api } from '../api/client'
 import { buildPosterData, renderPosterDataUrl } from '../utils/poster'
-import { isNativeShare, sharePosterImage } from '../utils/sharePoster'
+import { isNativeShare, savePosterImage, sharePosterImage } from '../utils/sharePoster'
 import PosterPreviewModal from './PosterPreviewModal'
 
 /**
@@ -23,6 +23,10 @@ export default function SharePosterButton({
   const [error, setError] = useState('')
   const [sharing, setSharing] = useState(false)
   const [shareError, setShareError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
+  const [saveMessage, setSaveMessage] = useState('')
+  const filename = `${report?.type || 'workout'}-${posterDate || 'share'}.png`
 
   const handleGenerate = async () => {
     if (generating) return
@@ -52,13 +56,28 @@ export default function SharePosterButton({
     try {
       await sharePosterImage({
         dataUrl,
-        filename: `fitness-poster-${posterDate || 'share'}.png`,
-        title: '训练分享海报',
+        filename,
+        title: report?.type === 'monthly' ? '月度训练成绩单' : report?.type === 'weekly' ? '本周训练战报' : '训练分享海报',
       })
     } catch (err) {
       setShareError(err.message || '分享失败')
     } finally {
       setSharing(false)
+    }
+  }
+
+  const handleSave = async () => {
+    if (saving) return
+    setSaving(true)
+    setSaveError('')
+    setSaveMessage('')
+    try {
+      const result = await savePosterImage({ dataUrl, filename })
+      setSaveMessage(result.mode === 'download' ? '已开始下载 PNG' : '已保存到本地文档目录')
+    } catch (err) {
+      setSaveError(err.message || '保存失败')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -74,7 +93,7 @@ export default function SharePosterButton({
         >
           {generating ? '生成中…' : label}
         </button>
-        {report?.score == null && (
+        {report?.type === 'session_review' && report?.score == null && (
           <span data-testid="share-poster-hint" className="text-xs text-gray-400">
             重新生成点评可解锁评分海报
           </span>
@@ -89,12 +108,18 @@ export default function SharePosterButton({
         <PosterPreviewModal
           dataUrl={dataUrl}
           sharing={sharing}
+          saving={saving}
           shareError={shareError}
+          saveError={saveError}
+          saveMessage={saveMessage}
           native={isNativeShare()}
           onShare={handleShare}
+          onSave={handleSave}
           onClose={() => {
             setDataUrl('')
             setShareError('')
+            setSaveError('')
+            setSaveMessage('')
           }}
         />
       )}

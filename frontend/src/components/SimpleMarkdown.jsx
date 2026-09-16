@@ -13,6 +13,41 @@ const HR_RE = /^\s*-{3,}\s*$/
 const INLINE_CODE_RE = /(`[^`\n]+`)/g
 const BOLD_RE = /(\*\*[^\n]+?\*\*)/g
 
+function splitTableRow(line) {
+  const source = String(line || '').trim()
+  const cells = []
+  let cell = ''
+  let escaped = false
+  for (const char of source) {
+    if (escaped) {
+      cell += char
+      escaped = false
+    } else if (char === '\\') {
+      escaped = true
+    } else if (char === '|') {
+      cells.push(cell.trim())
+      cell = ''
+    } else {
+      cell += char
+    }
+  }
+  cells.push(cell.trim())
+  if (source.startsWith('|')) cells.shift()
+  if (source.endsWith('|')) cells.pop()
+  return cells
+}
+
+function parseTableSeparator(line, expectedColumns) {
+  const cells = splitTableRow(line)
+  if (cells.length !== expectedColumns || cells.length === 0) return null
+  const aligns = []
+  for (const cell of cells) {
+    if (!/^:?-{3,}:?$/.test(cell)) return null
+    aligns.push(cell.startsWith(':') && cell.endsWith(':') ? 'center' : cell.endsWith(':') ? 'right' : 'left')
+  }
+  return aligns
+}
+
 /** 行内解析：先切 `code`（其内容不再解析），再切 **加粗**。 */
 function renderInline(text, keyPrefix) {
   const nodes = []
@@ -60,7 +95,9 @@ export default function SimpleMarkdown({ text }) {
     }
   }
 
-  ;(text || '').split('\n').forEach((line) => {
+  const lines = (text || '').split('\n')
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const line = lines[lineIndex]
     if (line.trimStart().startsWith('```')) {
       flushList()
       if (inFence) {
@@ -70,11 +107,29 @@ export default function SimpleMarkdown({ text }) {
       } else {
         inFence = true
       }
-      return
+      continue
     }
     if (inFence) {
       fenceLines.push(line)
-      return
+      continue
+    }
+    const header = splitTableRow(line)
+    const aligns = line.includes('|') && lineIndex + 1 < lines.length
+      ? parseTableSeparator(lines[lineIndex + 1], header.length)
+      : null
+    if (aligns) {
+      flushList()
+      const rows = []
+      lineIndex += 2
+      while (lineIndex < lines.length && lines[lineIndex].trim() && lines[lineIndex].includes('|')) {
+        const row = splitTableRow(lines[lineIndex])
+        if (row.length !== header.length) break
+        rows.push(row)
+        lineIndex += 1
+      }
+      lineIndex -= 1
+      blocks.push({ type: 'table', header, aligns, rows })
+      continue
     }
     if (UL_RE.test(line)) {
       if (listType !== 'ul') {
@@ -82,7 +137,7 @@ export default function SimpleMarkdown({ text }) {
         listType = 'ul'
       }
       listItems.push(line.replace(UL_RE, ''))
-      return
+      continue
     }
     if (OL_RE.test(line)) {
       if (listType !== 'ol') {
@@ -90,11 +145,11 @@ export default function SimpleMarkdown({ text }) {
         listType = 'ol'
       }
       listItems.push(line.replace(OL_RE, ''))
-      return
+      continue
     }
     flushList()
     blocks.push({ type: 'line', text: line })
-  })
+  }
   if (inFence && fenceLines.length > 0) {
     blocks.push({ type: 'pre', text: fenceLines.join('\n') })
   }
@@ -135,6 +190,34 @@ export default function SimpleMarkdown({ text }) {
                 </li>
               ))}
             </ol>
+          )
+        }
+        if (block.type === 'table') {
+          return (
+            <div key={i} className="max-w-full overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700">
+              <table className="min-w-full border-collapse text-sm text-gray-800 dark:text-gray-200">
+                <thead className="bg-gray-50 dark:bg-gray-800/80">
+                  <tr>
+                    {block.header.map((cell, j) => (
+                      <th key={j} scope="col" style={{ textAlign: block.aligns[j] }} className="whitespace-nowrap border-b border-gray-200 px-3 py-2 font-semibold dark:border-gray-700">
+                        {renderInline(cell, `th${i}-${j}`)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                  {block.rows.map((row, rowIndex) => (
+                    <tr key={rowIndex}>
+                      {row.map((cell, j) => (
+                        <td key={j} style={{ textAlign: block.aligns[j] }} className="min-w-28 break-words px-3 py-2 align-top">
+                          {renderInline(cell, `td${i}-${rowIndex}-${j}`)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )
         }
         const line = block.text

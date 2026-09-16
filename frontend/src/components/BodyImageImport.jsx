@@ -222,6 +222,7 @@ export default function BodyImageImport({ onImported }) {
           <div className="flex items-center gap-3">
             <Button
               variant="primary"
+              size="compact"
               testId="confirm-import-btn"
               disabled={confirming || !result.metrics.some((m) => m.selected)}
               onClick={handleConfirm}

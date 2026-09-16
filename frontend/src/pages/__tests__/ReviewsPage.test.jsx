@@ -218,6 +218,31 @@ describe('ReviewsPage', () => {
     await user.click(screen.getByTestId('generate-button'))
     expect(await screen.findByTestId('toast-container')).toHaveTextContent('该周期复盘已存在')
   })
+
+  it('每篇复盘可确认后重新生成，完成后保留报告 ID 并刷新内容', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    const updated = { ...WEEKLY.reports[0], content_md: '## 最新周报\n包含周四新增训练' }
+    globalThis.fetch = routeFetch([
+      ['/api/ai-reports/period/1/regenerate/status', () => mockResponse({
+        report_id: 1, running: false, error: null, report: updated,
+      })],
+      ['/api/ai-reports/period/1/regenerate', (url, options) => {
+        expect(options.method).toBe('POST')
+        return mockResponse({ status: 'started', report_id: 1, type: 'weekly' })
+      }],
+      ['/api/ai-reports?type=weekly', WEEKLY],
+    ])
+    renderPage()
+    await screen.findByText(/2026-08-03/)
+    await user.click(screen.getByTestId('report-card-1'))
+    await user.click(screen.getByTestId('regenerate-review'))
+    expect(screen.getByTestId('confirm-dialog')).toHaveTextContent('当前最新的真实数据')
+    await user.click(screen.getByTestId('confirm-dialog-confirm'))
+
+    await vi.advanceTimersByTimeAsync(3100)
+    expect(await screen.findByRole('heading', { name: '最新周报' })).toBeInTheDocument()
+    expect(screen.getByTestId('toast-container')).toHaveTextContent('复盘已按最新数据重新生成')
+  })
 })
 
 const WEEKLY_TWO = {

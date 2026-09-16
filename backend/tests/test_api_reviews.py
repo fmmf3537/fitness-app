@@ -75,6 +75,29 @@ class SyncManager:
         return None
 
 
+class SyncPeriodRegenManager:
+    def __init__(self, session, running=()):
+        self.session = session
+        self.running = set(running)
+        self.calls = []
+        self.errors = {}
+
+    def start(self, report_id):
+        if report_id in self.running:
+            return False
+        self.calls.append(report_id)
+        report = self.session.get(AIReport, report_id)
+        report.content_md = "## 更新后\n使用最新数据"
+        self.session.commit()
+        return True
+
+    def is_running(self, report_id):
+        return report_id in self.running
+
+    def last_error(self, report_id):
+        return self.errors.get(report_id)
+
+
 @pytest.fixture
 def sync_manager(session):
     manager = SyncManager(session)
@@ -83,6 +106,16 @@ def sync_manager(session):
         yield manager
     finally:
         app.dependency_overrides.pop(ai_reports_api.get_review_manager, None)
+
+
+@pytest.fixture
+def sync_period_regen_manager(session):
+    manager = SyncPeriodRegenManager(session)
+    app.dependency_overrides[ai_reports_api.get_period_review_regen_manager] = lambda: manager
+    try:
+        yield manager
+    finally:
+        app.dependency_overrides.pop(ai_reports_api.get_period_review_regen_manager, None)
 
 
 # ---------- 导出 ----------
@@ -198,6 +231,48 @@ class TestGenerate:
         ).json()
         assert status["running"] is False
         assert status["report"] is None
+
+
+class TestRegeneratePeriodReview:
+    def test_regenerate_weekly_and_poll_updated_report(
+            self, client, auth, session, sync_period_regen_manager):
+        report = make_weekly_report(session)
+        response = client.post(
+            f"/api/ai-reports/period/{report.id}/regenerate", headers=auth
+        )
+        assert response.status_code == 200
+        assert response.json()["status"] == "started"
+        assert sync_period_regen_manager.calls == [report.id]
+
+        status = client.get(
+            f"/api/ai-reports/period/{report.id}/regenerate/status", headers=auth
+        )
+        assert status.status_code == 200
+        assert status.json()["running"] is False
+        assert status.json()["report"]["id"] == report.id
+        assert "更新后" in status.json()["report"]["content_md"]
+
+    def test_regenerate_rejects_session_review(
+            self, client, auth, session, sync_period_regen_manager):
+        report = AIReport(
+            type="session_review", period_start=date(2026, 8, 3),
+            period_end=date(2026, 8, 3), content_md="旧点评",
+        )
+        session.add(report)
+        session.commit()
+        response = client.post(
+            f"/api/ai-reports/period/{report.id}/regenerate", headers=auth
+        )
+        assert response.status_code == 400
+
+    def test_regenerate_conflict_and_not_found(
+            self, client, auth, session, sync_period_regen_manager):
+        report = make_weekly_report(session)
+        sync_period_regen_manager.running.add(report.id)
+        assert client.post(
+            f"/api/ai-reports/period/{report.id}/regenerate", headers=auth
+        ).status_code == 409
+        assert client.post("/api/ai-reports/period/999/regenerate", headers=auth).status_code == 404
 
 
 # ---------- 生成管理器（后台线程） ----------

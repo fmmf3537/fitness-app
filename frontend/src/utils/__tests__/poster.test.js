@@ -197,6 +197,28 @@ describe('buildPosterData', () => {
     expect(d.pr).toBeNull()
     expect(d.weekCount).toBeNull()
   })
+
+  it('周期复盘保留真实周期汇总用于专属海报', () => {
+    const payload = {
+      report: { id: 9, type: 'weekly', date: '2026-08-03', period_end: '2026-08-09' },
+      workout: null,
+      prs: [],
+      week_count: null,
+      period: {
+        type: 'weekly', start: '2026-08-03', end: '2026-08-09',
+        workout_count: 4, training_days: 3, total_volume_kg: 12500,
+        total_duration_s: 10800, total_calories: 1500, volume_change_pct: 12.5,
+        top_part: '胸', prs: [{ movement: '深蹲', weight: 120, unit: 'kg' }],
+      },
+    }
+    const data = buildPosterData(payload)
+    expect(data.period.workout_count).toBe(4)
+    const ctx = createMockCtx()
+    drawPoster(ctx, data)
+    expect(texts(ctx)).toContain('我的本周训练战报')
+    expect(texts(ctx)).toContain('本周刷新 1 项个人最佳')
+    expect(texts(ctx)).toContain('12.5 吨')
+  })
 })
 
 describe('drawPoster 六种形态', () => {

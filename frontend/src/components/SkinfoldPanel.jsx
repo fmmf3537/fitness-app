@@ -300,6 +300,7 @@ export default function SkinfoldPanel({ onSaved }) {
           <Button
             type="submit"
             variant="primary"
+            size="compact"
             testId="submit-skinfold"
             disabled={profileMissing || submitting}
           >

@@ -2192,8 +2192,9 @@ def _generate_period_review(
     period_start: date,
     *,
     chat_fn: Callable[[list[dict]], dict] | None = None,
+    replace_report: AIReport | None = None,
 ) -> AIReport:
-    """周/月复盘共用生成流程：组装 prompt → 调用模型 → 落库 ai_report。"""
+    """周/月复盘共用生成流程；replace_report 仅在生成成功后原位更新。"""
     # V5-2 / V5-3：周/月无具体 workout；l3 锚点 = start，查前 12 周不含本期
     from app.services.memory_distill import compose_memory_section_for
     from app.services.longterm_stats import filter_period_l3, query_longterm_stats
@@ -2248,20 +2249,40 @@ def _generate_period_review(
     model = result.get("model") or llm.PROVIDERS[provider]["default_model"]
     cost = llm.compute_cost(provider, prompt_tokens, completion_tokens)
 
-    report = AIReport(
-        type=report_type,
-        workout_id=None,
-        period_start=start,
-        period_end=end,
-        model=model,
-        prompt_tokens=prompt_tokens,
-        completion_tokens=completion_tokens,
-        cost_estimate=round(cost, 6),
-        content_md=content,
-    )
-    session.add(report)
+    report = replace_report or AIReport(type=report_type, workout_id=None)
+    report.period_start = start
+    report.period_end = end
+    report.model = model
+    report.prompt_tokens = prompt_tokens
+    report.completion_tokens = completion_tokens
+    report.cost_estimate = round(cost, 6)
+    report.content_md = content
+    report.created_at = datetime.now()
+    if replace_report is None:
+        session.add(report)
     session.commit()
     return report
+
+
+def regenerate_period_review(
+    session: Session,
+    report_id: int,
+    *,
+    chat_fn: Callable[[list[dict]], dict] | None = None,
+) -> AIReport:
+    """按报告原周期读取最新真实数据，成功后原位替换；失败时旧报告保持不变。"""
+    report = session.get(AIReport, report_id)
+    if report is None:
+        raise ValueError("报告不存在")
+    if report.type not in ("weekly", "monthly") or report.period_start is None:
+        raise ValueError("仅周复盘和月复盘支持重新生成")
+    return _generate_period_review(
+        session,
+        report.type,
+        report.period_start,
+        chat_fn=chat_fn,
+        replace_report=report,
+    )
 
 
 def generate_weekly_review(

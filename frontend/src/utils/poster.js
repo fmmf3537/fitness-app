@@ -118,7 +118,93 @@ export function buildPosterData(payload = {}) {
     pr: prs.length > 0 ? prs[0] : null,
     highlights: Array.isArray(w?.highlights) ? w.highlights : [],
     weekCount: typeof payload.week_count === 'number' ? payload.week_count : null,
+    period: payload.period || null,
   }
+}
+
+function periodMetric(label, value) {
+  return value == null ? null : { label, value: String(value) }
+}
+
+function drawPeriodPoster(ctx, data) {
+  const period = data.period
+  const isMonthly = period.type === 'monthly'
+  ctx.fillStyle = '#111827'
+  ctx.fillRect(0, 0, POSTER_WIDTH, POSTER_HEIGHT)
+  ctx.fillStyle = '#818cf8'
+  ctx.fillRect(64, 72, 120, 10)
+  ctx.fillStyle = '#ffffff'
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'middle'
+  ctx.font = `bold 38px ${FONT_STACK}`
+  ctx.fillText('健身看板', 64, 125)
+  ctx.fillStyle = '#a5b4fc'
+  ctx.font = `30px ${FONT_STACK}`
+  ctx.fillText(`${period.start} — ${period.end}`, 64, 180)
+
+  const prCount = period.prs?.length || 0
+  const headline = prCount > 0
+    ? `${isMonthly ? '本月' : '本周'}刷新 ${prCount} 项个人最佳`
+    : `${isMonthly ? '本月' : '本周'}完成 ${period.workout_count} 次训练`
+  ctx.fillStyle = '#ffffff'
+  ctx.font = `bold 68px ${FONT_STACK}`
+  ctx.fillText(isMonthly ? '我的月度训练成绩单' : '我的本周训练战报', 64, 300)
+  ctx.fillStyle = '#c7d2fe'
+  ctx.font = `bold 40px ${FONT_STACK}`
+  ctx.fillText(headline, 64, 385)
+
+  const metrics = [
+    periodMetric('训练次数', `${period.workout_count} 次`),
+    periodMetric('训练天数', `${period.training_days} 天`),
+    periodMetric('总容量', period.total_volume_kg > 0
+      ? period.total_volume_kg >= 1000
+        ? `${fmtNum(period.total_volume_kg / 1000)} 吨`
+        : `${fmtNum(period.total_volume_kg)} kg`
+      : null),
+    periodMetric('总时长', period.total_duration_s > 0 ? formatDuration(period.total_duration_s) : null),
+  ].filter(Boolean)
+  metrics.forEach((item, index) => {
+    const col = index % 2
+    const row = Math.floor(index / 2)
+    const x = 64 + col * 480
+    const y = 500 + row * 190
+    ctx.fillStyle = '#1f2937'
+    roundedRect(ctx, x, y, 440, 150, 28)
+    ctx.fill()
+    ctx.fillStyle = '#ffffff'
+    ctx.font = `bold 48px ${FONT_STACK}`
+    ctx.fillText(item.value, x + 28, y + 58)
+    ctx.fillStyle = '#9ca3af'
+    ctx.font = `28px ${FONT_STACK}`
+    ctx.fillText(item.label, x + 28, y + 112)
+  })
+
+  let y = 900
+  if (period.volume_change_pct != null) {
+    const sign = period.volume_change_pct >= 0 ? '+' : ''
+    ctx.fillStyle = '#818cf8'
+    ctx.font = `bold 36px ${FONT_STACK}`
+    ctx.fillText(`相比上一周期，训练容量 ${sign}${period.volume_change_pct}%`, 64, y)
+    y += 70
+  }
+  if (period.top_part) {
+    ctx.fillStyle = '#e5e7eb'
+    ctx.font = `32px ${FONT_STACK}`
+    ctx.fillText(`投入最多的部位：${period.top_part}`, 64, y)
+    y += 64
+  }
+  if (prCount > 0) {
+    const pr = period.prs[0]
+    ctx.fillStyle = '#fbbf24'
+    ctx.font = `bold 38px ${FONT_STACK}`
+    ctx.fillText(`🏆 ${pr.movement} ${fmtNum(pr.weight)}${pr.unit || 'kg'} 新纪录`, 64, y)
+  }
+
+  ctx.fillStyle = '#818cf8'
+  ctx.fillRect(64, POSTER_HEIGHT - 150, POSTER_WIDTH - 128, 2)
+  ctx.fillStyle = '#9ca3af'
+  ctx.font = `26px ${FONT_STACK}`
+  ctx.fillText('每一次训练，都算数。  ·  由健身看板生成', 64, POSTER_HEIGHT - 96)
 }
 
 /** 圆角矩形路径（兼容无 ctx.roundRect 的环境） */
@@ -345,6 +431,10 @@ function drawWatermark(ctx) {
 
 /** 在 1080×1440 的 2D context 上绘制海报 */
 export function drawPoster(ctx, data) {
+  if (data.period) {
+    drawPeriodPoster(ctx, data)
+    return
+  }
   ctx.fillStyle = COLOR_BG
   ctx.fillRect(0, 0, POSTER_WIDTH, POSTER_HEIGHT)
   drawBrandBar(ctx, data)

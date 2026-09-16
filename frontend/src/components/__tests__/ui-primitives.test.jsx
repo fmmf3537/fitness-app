@@ -165,6 +165,14 @@ describe('ConfirmDialog', () => {
     expect(onConfirm).toHaveBeenCalled()
   })
 
+  it('compact 保存按钮使用紧凑规格', () => {
+    render(<Button size="compact">保存</Button>)
+    const btn = screen.getByRole('button', { name: '保存' })
+    expect(btn).toHaveClass('min-h-9')
+    expect(btn).toHaveClass('px-3')
+    expect(btn).not.toHaveClass('min-h-[44px]')
+  })
+
   it('打开后聚焦取消按钮，Tab 焦点留在弹窗内，关闭后回到触发按钮', async () => {
     const user = userEvent.setup()
     function Harness() {

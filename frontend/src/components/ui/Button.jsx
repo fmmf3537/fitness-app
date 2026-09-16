@@ -11,10 +11,18 @@ const VARIANT_CLASS = {
 }
 
 const BASE =
-  'inline-flex items-center justify-center gap-1.5 rounded-lg px-4 text-sm font-medium min-h-[44px] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50'
+  'inline-flex items-center justify-center gap-1.5 rounded-lg text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50'
+
+const SIZE_CLASS = {
+  compact: 'min-h-9 px-3 text-xs',
+  default: 'min-h-[44px] px-4',
+  large: 'min-h-12 px-5 text-base',
+  icon: 'h-11 w-11 p-0',
+}
 
 export default function Button({
   variant = 'primary',
+  size = 'default',
   fullWidth = false,
   type = 'button',
   disabled = false,
@@ -29,6 +37,7 @@ export default function Button({
   const variantClass = VARIANT_CLASS[variant] ?? VARIANT_CLASS.primary
   const classes = [
     BASE,
+    SIZE_CLASS[size] ?? SIZE_CLASS.default,
     variantClass,
     fullWidth ? 'w-full' : '',
     className,

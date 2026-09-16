@@ -319,6 +319,7 @@ export default function CoachPreferencesPage({ embedded = false }) {
               <Button
                 type="submit"
                 variant="primary"
+                size="compact"
                 testId="pref-save-btn"
                 disabled={saving}
               >

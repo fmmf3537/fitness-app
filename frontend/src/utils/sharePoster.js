@@ -23,6 +23,21 @@ export function downloadDataUrl(dataUrl, filename) {
   a.remove()
 }
 
+export async function savePosterImage({ dataUrl, filename = 'fitness-poster.png' }) {
+  if (!Capacitor.isNativePlatform()) {
+    downloadDataUrl(dataUrl, filename)
+    return { mode: 'download' }
+  }
+  const base64 = String(dataUrl).split(',')[1] || ''
+  const saved = await Filesystem.writeFile({
+    path: filename,
+    data: base64,
+    directory: Directory.Documents,
+    recursive: true,
+  })
+  return { mode: 'native-save', uri: saved.uri }
+}
+
 /**
  * 分享海报图片。
  * @returns {Promise<{mode: 'native', uri: string} | {mode: 'download'}>}

@@ -219,6 +219,58 @@ def get_review_manager() -> ReviewGenerateManager:
     return default_review_manager
 
 
+class PeriodReviewRegenManager:
+    """周/月复盘按 report_id 重新生成，保留报告 ID 与关联追问。"""
+
+    def __init__(self, runner=None):
+        self._runner = runner
+        self._lock = threading.Lock()
+        self._running: set[int] = set()
+        self._errors: dict[int, str] = {}
+
+    @staticmethod
+    def _default_runner(report_id: int) -> None:
+        from app.db import SessionLocal
+
+        session = SessionLocal()
+        try:
+            ai_service.regenerate_period_review(session, report_id)
+        finally:
+            session.close()
+
+    def start(self, report_id: int) -> bool:
+        with self._lock:
+            if report_id in self._running:
+                return False
+            self._running.add(report_id)
+            self._errors.pop(report_id, None)
+        threading.Thread(target=self._run, args=(report_id,), daemon=True).start()
+        return True
+
+    def _run(self, report_id: int) -> None:
+        try:
+            (self._runner or self._default_runner)(report_id)
+        except Exception as exc:  # noqa: BLE001
+            self._errors[report_id] = str(exc)
+        finally:
+            with self._lock:
+                self._running.discard(report_id)
+
+    def is_running(self, report_id: int) -> bool:
+        with self._lock:
+            return report_id in self._running
+
+    def last_error(self, report_id: int) -> str | None:
+        return self._errors.get(report_id)
+
+
+default_period_review_regen_manager = PeriodReviewRegenManager()
+
+
+def get_period_review_regen_manager() -> PeriodReviewRegenManager:
+    return default_period_review_regen_manager
+
+
 class GenerateRequest(BaseModel):
     type: Literal["weekly", "monthly"]
     date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
@@ -273,6 +325,39 @@ def generate_status(
         "running": manager.is_running(type),
         "error": manager.last_error(type),
         "report": _serialize_report(session, report) if report else None,
+    }
+
+
+@router.post("/period/{report_id}/regenerate")
+def regenerate_period_report(
+    report_id: int,
+    session: Session = Depends(get_session),
+    manager: PeriodReviewRegenManager = Depends(get_period_review_regen_manager),
+) -> dict:
+    report = session.get(AIReport, report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="报告不存在")
+    if report.type not in ("weekly", "monthly"):
+        raise HTTPException(status_code=400, detail="仅周复盘和月复盘支持重新生成")
+    if not manager.start(report_id):
+        raise HTTPException(status_code=409, detail="该复盘正在重新生成中")
+    return {"status": "started", "report_id": report_id, "type": report.type}
+
+
+@router.get("/period/{report_id}/regenerate/status")
+def regenerate_period_report_status(
+    report_id: int,
+    session: Session = Depends(get_session),
+    manager: PeriodReviewRegenManager = Depends(get_period_review_regen_manager),
+) -> dict:
+    report = session.get(AIReport, report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="报告不存在")
+    return {
+        "report_id": report_id,
+        "running": manager.is_running(report_id),
+        "error": manager.last_error(report_id),
+        "report": _serialize_report(session, report),
     }
 
 

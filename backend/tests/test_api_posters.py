@@ -241,3 +241,27 @@ class TestPosterDataDegraded:
         assert data["report"]["score"] == 88
         assert data["report"]["date"] == "2026-08-03"
         assert data["report"]["workout_title"] is None
+
+    def test_weekly_report_includes_real_period_summary(self, client, auth, session):
+        session.add(Workout(
+            date=date(2026, 8, 5), title="腿", match_status="auto_matched",
+            duration_s=3600, calories=420,
+            movements_json=_movements_json([
+                {"name": "深蹲", "sets": [{"weight": 100, "unit": "kg", "reps": 5, "done": True}]},
+            ]),
+        ))
+        report = AIReport(
+            type="weekly", period_start=date(2026, 8, 3), period_end=date(2026, 8, 9),
+            model="deepseek-chat", content_md="本周复盘",
+        )
+        session.add(report)
+        session.commit()
+
+        response = client.get(f"/api/posters/data?report_id={report.id}", headers=auth)
+        assert response.status_code == 200
+        period = response.json()["period"]
+        assert period["type"] == "weekly"
+        assert period["workout_count"] == 1
+        assert period["training_days"] == 1
+        assert period["total_volume_kg"] == 500
+        assert period["total_duration_s"] == 3600

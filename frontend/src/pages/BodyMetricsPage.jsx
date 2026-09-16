@@ -309,6 +309,7 @@ export default function BodyMetricsPage() {
           <Button
             type="submit"
             variant="primary"
+            size="compact"
             testId="submit-metric"
             disabled={submitting}
           >
@@ -406,6 +407,7 @@ export default function BodyMetricsPage() {
                     {isSyncable(r.type) && !r.synced_to_xunji && (
                       <Button
                         variant="ghost"
+                        size="compact"
                         testId={`sync-btn-${r.id}`}
                         onClick={() => handleSyncPreview(r)}
                         className="text-xs"

@@ -6,6 +6,7 @@ import ReviewSections from '../components/ReviewSections'
 import ScoreBadge from '../components/ScoreBadge'
 import SharePosterButton from '../components/SharePosterButton'
 import Button from '../components/ui/Button'
+import ConfirmDialog from '../components/ui/ConfirmDialog'
 import EmptyState from '../components/ui/EmptyState'
 import ErrorState from '../components/ui/ErrorState'
 import PillGroup from '../components/ui/PillGroup'
@@ -59,7 +60,7 @@ function formatPosterFallbackTitle(report) {
 }
 
 /** 复盘详情：评分卡头 + 正文分卡 + 追问 CTA + 周海报，桌面分栏与移动端抽屉复用。 */
-function ReviewDetail({ report, onExport }) {
+function ReviewDetail({ report, onExport, onRegenerate, regenerating }) {
   const periodText = formatPeriodRange(report.date, report.period_end)
   const posterLabel =
     report.type === 'monthly' ? '分享本月海报' : '分享本周海报'
@@ -78,6 +79,16 @@ function ReviewDetail({ report, onExport }) {
           <div className="flex gap-2">
             <Button
               variant="secondary"
+              size="compact"
+              testId="regenerate-review"
+              disabled={regenerating}
+              onClick={() => onRegenerate(report)}
+            >
+              {regenerating ? '重新生成中…' : '重新生成'}
+            </Button>
+            <Button
+              variant="secondary"
+              size="compact"
               testId="export-md"
               onClick={() => onExport('md')}
             >
@@ -85,6 +96,7 @@ function ReviewDetail({ report, onExport }) {
             </Button>
             <Button
               variant="secondary"
+              size="compact"
               testId="export-pdf"
               onClick={() => onExport('pdf')}
             >
@@ -124,6 +136,8 @@ export default function ReviewsPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [generating, setGenerating] = useState(false)
+  const [regeneratingId, setRegeneratingId] = useState(null)
+  const [regenConfirm, setRegenConfirm] = useState(null)
 
   const load = useCallback(
     (currentTab) => {
@@ -163,6 +177,30 @@ export default function ReviewsPage() {
     return () => clearInterval(timer)
   }, [generating, tab, load, toast])
 
+  useEffect(() => {
+    if (!regeneratingId) return undefined
+    const timer = setInterval(() => {
+      api(`/api/ai-reports/period/${regeneratingId}/regenerate/status`)
+        .then((data) => {
+          if (!data.running) {
+            setRegeneratingId(null)
+            if (data.error) {
+              setError(`重新生成失败：${data.error}`)
+            } else {
+              setSelected(data.report)
+              toast('复盘已按最新数据重新生成')
+              load(tab)
+            }
+          }
+        })
+        .catch((err) => {
+          setRegeneratingId(null)
+          setError(err.message)
+        })
+    }, 3000)
+    return () => clearInterval(timer)
+  }, [regeneratingId, tab, load, toast])
+
   const handleGenerate = () => {
     setError('')
     api('/api/ai-reports/generate', {
@@ -189,6 +227,16 @@ export default function ReviewsPage() {
       `/api/ai-reports/${selected.id}/export?format=${format}`,
       `${selected.type}_${start}_${end}.${format}`,
     ).catch((err) => setError(err.message))
+  }
+
+  const handleRegenerateConfirm = () => {
+    if (!regenConfirm) return
+    const reportId = regenConfirm.id
+    setRegenConfirm(null)
+    setError('')
+    api(`/api/ai-reports/period/${reportId}/regenerate`, { method: 'POST' })
+      .then(() => setRegeneratingId(reportId))
+      .catch((err) => setError(err.status === 409 ? '该复盘正在重新生成中' : err.message))
   }
 
   const selectedIndex = reports.findIndex((r) => selected != null && r.id === selected.id)
@@ -295,7 +343,12 @@ export default function ReviewsPage() {
         {!isMobile && (
           <div className="md:col-span-2">
             {selected ? (
-              <ReviewDetail report={selected} onExport={handleExport} />
+              <ReviewDetail
+                report={selected}
+                onExport={handleExport}
+                onRegenerate={setRegenConfirm}
+                regenerating={regeneratingId === selected.id}
+              />
             ) : (
               <div className="flex h-48 items-center justify-center rounded-lg border border-dashed border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-950 text-sm text-gray-500">
                 选择左侧报告查看详情
@@ -312,9 +365,22 @@ export default function ReviewsPage() {
           onClose={() => setSelected(null)}
           footer={navFooter}
         >
-          <ReviewDetail report={selected} onExport={handleExport} />
+          <ReviewDetail
+            report={selected}
+            onExport={handleExport}
+            onRegenerate={setRegenConfirm}
+            regenerating={regeneratingId === selected.id}
+          />
         </BottomSheet>
       )}
+      <ConfirmDialog
+        open={Boolean(regenConfirm)}
+        title={`重新生成${regenConfirm?.type === 'monthly' ? '月复盘' : '周复盘'}？`}
+        description="将读取该周期当前最新的真实数据。只有新报告生成成功后才会替换现有内容，已有追问记录会保留。"
+        confirmText="重新生成"
+        onConfirm={handleRegenerateConfirm}
+        onCancel={() => setRegenConfirm(null)}
+      />
     </div>
   )
 }

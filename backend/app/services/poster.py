@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -20,6 +20,7 @@ from app.services.ai import (
     _int_or_none,
     _parse_movements,
     query_pr_events,
+    query_period_training_summary,
 )
 from app.services.stats import week_monday
 
@@ -224,6 +225,7 @@ def build_poster_data(session: Session, report: AIReport) -> dict[str, Any]:
             "id": report.id,
             "type": report.type,
             "date": day.isoformat() if day else None,
+            "period_end": report.period_end.isoformat() if report.period_end else None,
             "workout_title": workout.title if workout else None,
             "score": report.score,
             "one_liner": report.one_liner,
@@ -232,8 +234,37 @@ def build_poster_data(session: Session, report: AIReport) -> dict[str, Any]:
         "workout": None,
         "prs": [],
         "week_count": None,
+        "period": None,
     }
     if not workout:
+        if report.type in ("weekly", "monthly") and report.period_start and report.period_end:
+            summary = query_period_training_summary(
+                session, report.period_start, report.period_end,
+            )
+            days = (report.period_end - report.period_start).days + 1
+            previous_end = report.period_start - timedelta(days=1)
+            previous_start = previous_end - timedelta(days=days - 1)
+            previous = query_period_training_summary(session, previous_start, previous_end)
+            current_volume = float(summary["total_volume_kg"] or 0)
+            previous_volume = float(previous["total_volume_kg"] or 0)
+            volume_change_pct = (
+                round((current_volume - previous_volume) / previous_volume * 100, 1)
+                if previous_volume > 0 else None
+            )
+            parts = summary.get("part_distribution") or []
+            result["period"] = {
+                "type": report.type,
+                "start": report.period_start.isoformat(),
+                "end": report.period_end.isoformat(),
+                "workout_count": summary["workout_count"],
+                "training_days": summary["training_days"],
+                "total_volume_kg": summary["total_volume_kg"],
+                "total_duration_s": summary["total_duration_s"],
+                "total_calories": summary["total_calories"],
+                "volume_change_pct": volume_change_pct,
+                "top_part": parts[0]["part"] if parts else None,
+                "prs": query_pr_events(session, report.period_start, report.period_end)[:3],
+            }
         return result
 
     movements = _parse_movements(workout)

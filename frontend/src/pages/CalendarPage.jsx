@@ -75,7 +75,7 @@ export default function CalendarPage({ initialMonth }) {
       {pulling && <p role="status" className="mb-2 text-center text-xs text-indigo-600">正在刷新日历…</p>}
       <div
         data-testid="calendar-header"
-        className="mb-3 flex items-center justify-between gap-2"
+        className="mb-3 flex flex-wrap items-start justify-between gap-2"
       >
         <div className="flex min-w-0 items-center gap-1">
           <Button
@@ -95,7 +95,7 @@ export default function CalendarPage({ initialMonth }) {
           >›</Button>
           {!isCurrentMonth && <Button variant="ghost" onClick={() => setMonth(currentMonth())} className="px-2">今</Button>}
         </div>
-        <div data-testid="sync-row" className="flex shrink-0 items-center gap-2">
+        <div data-testid="sync-row" className="min-w-0 max-md:w-full md:max-w-[55%]">
           <SyncButton onSynced={load} />
         </div>
       </div>

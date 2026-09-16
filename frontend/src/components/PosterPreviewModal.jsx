@@ -2,7 +2,7 @@
  * V3-5 海报预览弹层：海报图 + 操作按钮（分享/下载 + 关闭）。
  * 桌面与移动端通用的居中弹层。
  */
-export default function PosterPreviewModal({ dataUrl, sharing, shareError, native, onShare, onClose }) {
+export default function PosterPreviewModal({ dataUrl, sharing, saving, shareError, saveError, saveMessage, native, onShare, onSave, onClose }) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
@@ -24,6 +24,8 @@ export default function PosterPreviewModal({ dataUrl, sharing, shareError, nativ
             {shareError}
           </p>
         )}
+        {saveError && <p role="alert" className="mt-2 text-center text-xs text-red-600">{saveError}</p>}
+        {saveMessage && <p role="status" className="mt-2 text-center text-xs text-emerald-600">{saveMessage}</p>}
         <div className="mt-3 flex gap-2">
           <button
             type="button"
@@ -35,13 +37,22 @@ export default function PosterPreviewModal({ dataUrl, sharing, shareError, nativ
           </button>
           <button
             type="button"
+            data-testid="poster-save-btn"
+            disabled={saving}
+            onClick={onSave}
+            className="flex-1 rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {saving ? '保存中…' : native ? '保存到本地' : '下载 PNG'}
+          </button>
+          {native && <button
+            type="button"
             data-testid="poster-share-btn"
             disabled={sharing}
             onClick={onShare}
             className="flex-1 rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
           >
-            {sharing ? '处理中…' : native ? '分享…' : '下载 PNG'}
-          </button>
+            {sharing ? '处理中…' : '分享…'}
+          </button>}
         </div>
       </div>
     </div>

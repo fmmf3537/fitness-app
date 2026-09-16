@@ -353,6 +353,46 @@ class TestGenerateMonthlyReview:
         assert report.period_end == date(2026, 8, 31)
 
 
+class TestRegeneratePeriodReview:
+    def test_updates_existing_report_in_place(self, session):
+        original = ai_service.generate_weekly_review(
+            session,
+            date(2026, 8, 3),
+            chat_fn=Mock(return_value=dict(CHAT_RESULT)),
+        )
+        report_id = original.id
+        updated_result = dict(CHAT_RESULT)
+        updated_result["content"] = "## 最新复盘\n包含周四新增训练"
+
+        updated = ai_service.regenerate_period_review(
+            session,
+            report_id,
+            chat_fn=Mock(return_value=updated_result),
+        )
+
+        assert updated.id == report_id
+        assert updated.content_md == updated_result["content"]
+        assert session.query(AIReport).filter_by(type="weekly").count() == 1
+
+    def test_generation_failure_preserves_old_report(self, session):
+        original = ai_service.generate_monthly_review(
+            session,
+            date(2026, 8, 1),
+            chat_fn=Mock(return_value=dict(CHAT_RESULT)),
+        )
+        old_content = original.content_md
+
+        with pytest.raises(LLMError):
+            ai_service.regenerate_period_review(
+                session,
+                original.id,
+                chat_fn=Mock(side_effect=LLMError("provider unavailable")),
+            )
+
+        session.refresh(original)
+        assert original.content_md == old_content
+
+
 # ---------- 编排（幂等 + JobRun） ----------
 
 class TestRunWeeklyReview:

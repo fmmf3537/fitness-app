@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const buildPosterData = vi.fn()
 const renderPosterDataUrl = vi.fn()
 const sharePosterImage = vi.fn()
+const savePosterImage = vi.fn()
 const isNativeShare = vi.fn()
 
 vi.mock('../../utils/poster', () => ({
@@ -13,6 +14,7 @@ vi.mock('../../utils/poster', () => ({
 }))
 vi.mock('../../utils/sharePoster', () => ({
   sharePosterImage: (...args) => sharePosterImage(...args),
+  savePosterImage: (...args) => savePosterImage(...args),
   isNativeShare: (...args) => isNativeShare(...args),
 }))
 
@@ -50,6 +52,7 @@ describe('SharePosterButton', () => {
     renderPosterDataUrl.mockReturnValue(DATA_URL)
     isNativeShare.mockReturnValue(false)
     sharePosterImage.mockResolvedValue({ mode: 'download' })
+    savePosterImage.mockResolvedValue({ mode: 'download' })
     apiMock.mockResolvedValue(POSTER_PAYLOAD)
   })
 
@@ -67,19 +70,19 @@ describe('SharePosterButton', () => {
     // V3-6：数据统一由 /api/posters/data 装配端点提供
     expect(apiMock).toHaveBeenCalledWith('/api/posters/data?report_id=5')
     expect(buildPosterData).toHaveBeenCalledWith(POSTER_PAYLOAD)
-    // 浏览器端：主按钮为下载 PNG
-    expect(screen.getByTestId('poster-share-btn')).toHaveTextContent('下载 PNG')
+    expect(screen.getByTestId('poster-save-btn')).toHaveTextContent('下载 PNG')
+    expect(screen.queryByTestId('poster-share-btn')).not.toBeInTheDocument()
   })
 
-  it('预览后点击主按钮触发分享出口并带上文件名', async () => {
+  it('预览后点击保存按钮触发本地保存并带上文件名', async () => {
     const user = userEvent.setup()
     render(<SharePosterButton report={REPORT} workout={WORKOUT} />)
     await user.click(screen.getByTestId('share-poster-btn'))
     await screen.findByRole('dialog')
 
-    await user.click(screen.getByTestId('poster-share-btn'))
+    await user.click(screen.getByTestId('poster-save-btn'))
     await waitFor(() =>
-      expect(sharePosterImage).toHaveBeenCalledWith(
+      expect(savePosterImage).toHaveBeenCalledWith(
         expect.objectContaining({
           dataUrl: DATA_URL,
           filename: expect.stringContaining('2026-08-12'),
@@ -94,6 +97,7 @@ describe('SharePosterButton', () => {
     render(<SharePosterButton report={REPORT} workout={WORKOUT} />)
     await user.click(screen.getByTestId('share-poster-btn'))
     await screen.findByRole('dialog')
+    expect(screen.getByTestId('poster-save-btn')).toHaveTextContent('保存到本地')
     expect(screen.getByTestId('poster-share-btn')).toHaveTextContent('分享…')
   })
 
@@ -134,6 +138,7 @@ describe('SharePosterButton', () => {
   })
 
   it('分享出口失败时在弹层内提示', async () => {
+    isNativeShare.mockReturnValue(true)
     sharePosterImage.mockRejectedValue(new Error('分享被取消'))
     const user = userEvent.setup()
     render(<SharePosterButton report={REPORT} workout={WORKOUT} />)

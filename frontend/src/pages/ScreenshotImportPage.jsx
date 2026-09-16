@@ -204,14 +204,15 @@ function PreviewCard({ card, index, onChange, onConfirm }) {
           >
             + 添加动作
           </button>
-          <button
-            data-testid={`confirm-btn-${index}`}
-            className="ml-auto rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+          <Button
+            testId={`confirm-btn-${index}`}
+            size="compact"
+            className="ml-auto"
             onClick={() => onConfirm(index)}
             disabled={card.confirming}
           >
             {card.confirming ? '入库中…' : '确认入库'}
-          </button>
+          </Button>
         </div>
       )}
       {card.confirmError && (

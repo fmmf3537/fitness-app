@@ -112,6 +112,31 @@ describe('SimpleMarkdown', () => {
     expect(lis[1].textContent).toBe('第二步')
   })
 
+  it('Markdown 表格渲染为可横向滚动的语义表格', () => {
+    const md = [
+      '| 动作 | 调整项目 | 建议 |',
+      '|:---|:---:|---:|',
+      '| 上斜哑铃卧推 | **重量** | 从 15kg 开始 |',
+      '| 绳索臂屈伸 | 次数 | 12\\|15 次 |',
+    ].join('\n')
+    const { container } = render(<SimpleMarkdown text={md} />)
+    const table = screen.getByRole('table')
+    expect(table).toBeInTheDocument()
+    expect(table.parentElement).toHaveClass('overflow-x-auto')
+    expect(screen.getAllByRole('columnheader')).toHaveLength(3)
+    expect(screen.getByText('重量').tagName).toBe('STRONG')
+    expect(screen.getByText('12|15 次')).toBeInTheDocument()
+    expect(container.textContent).not.toContain('|:---')
+  })
+
+  it('不完整表格保持普通文本，代码围栏内竖线不解析为表格', () => {
+    const md = ['| 只有 | 表头 |', '不是分隔行', '```', '| a | b |', '|---|---|', '```'].join('\n')
+    const { container } = render(<SimpleMarkdown text={md} />)
+    expect(container.querySelector('table')).toBeNull()
+    expect(container.querySelector('pre')).toHaveTextContent('|---|---|')
+    expect(container).toHaveTextContent('| 只有 | 表头 |')
+  })
+
   it('段内行内代码 `code` 渲染为 <code>', () => {
     const { container } = render(<SimpleMarkdown text={'使用 `dry_run: true` 预览'} />)
     const code = container.querySelector('code')

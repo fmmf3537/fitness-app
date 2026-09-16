@@ -39,10 +39,10 @@ function SummaryCard({ workout }) {
   return (
     <div className="grid grid-cols-4 overflow-hidden rounded-2xl bg-gradient-to-br from-indigo-600 to-violet-600 p-2 text-white shadow-lg shadow-indigo-200/60 dark:shadow-none sm:gap-3 sm:bg-none sm:p-0 sm:text-inherit sm:shadow-none">
       {items.map((item) => (
-        <Card key={item.label} className="min-w-0 rounded-none border-0 border-r border-white/20 bg-transparent p-2 text-center shadow-none last:border-r-0 sm:rounded-2xl sm:border sm:border-gray-200 sm:bg-gradient-to-br sm:from-white sm:to-gray-50 sm:p-4 sm:text-left dark:sm:border-gray-700 dark:sm:from-gray-900 dark:sm:to-gray-950">
+        <div key={item.label} className="min-w-0 border-r border-white/20 p-2 text-center last:border-r-0 sm:rounded-2xl sm:border sm:border-gray-200 sm:bg-white sm:p-4 sm:text-left sm:shadow-sm dark:sm:border-gray-700 dark:sm:bg-gray-900">
           <p className="truncate text-[10px] font-medium text-indigo-100 sm:text-xs sm:text-gray-600 dark:sm:text-gray-300"><span className="hidden sm:inline sm:mr-1 sm:text-indigo-600">{item.icon}</span>{item.label}</p>
           <p className="mt-1 truncate text-sm font-black tracking-tight text-white sm:text-xl sm:text-gray-950 dark:sm:text-white">{item.value}</p>
-        </Card>
+        </div>
       ))}
     </div>
   )

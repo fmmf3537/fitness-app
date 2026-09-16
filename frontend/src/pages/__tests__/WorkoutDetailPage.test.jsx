@@ -63,6 +63,7 @@ describe('WorkoutDetailPage', () => {
     expect(screen.getByText('350 千卡')).toBeInTheDocument()
     expect(screen.getByText('120 bpm')).toBeInTheDocument()
     expect(screen.getByText('158 bpm')).toBeInTheDocument()
+    expect(screen.getByText('350 千卡')).toHaveClass('text-white')
     expect(globalThis.fetch).toHaveBeenCalledWith(
       '/api/workouts/1',
       expect.objectContaining({

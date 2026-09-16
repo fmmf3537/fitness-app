@@ -228,6 +228,7 @@ export default function SettingsPage() {
           </label>
           <Button
             variant="primary"
+            size="compact"
             onClick={handleSaveProfile}
             disabled={profileSaving || !profileGender || !profileBirthDate}
             testId="profile-save"
@@ -297,6 +298,7 @@ export default function SettingsPage() {
                 </label>
                 <Button
                   variant="primary"
+                  size="compact"
                   onClick={() => handleSave(p.name)}
                   disabled={saving[p.name] || !(keyInputs[p.name] || '').trim()}
                   testId={`save-key-${p.name}`}
