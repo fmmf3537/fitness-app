@@ -4,6 +4,8 @@ import Icon from './ui/Icon'
 /**
  * UIX-11 渐变品牌页头（方向B）：页标题 + 副标题 + 右侧操作槽。
  * UIX-12 移动端瘦身（变体A 紧凑双行）：安全区上仅 14px、底部 14px，副标题 11.5px。
+ * UIX-12b：-mt-4 抵消 main 的 max-md:py-4，消除顶部白条（页头真正贴到屏幕顶）；
+ * env(safe-area-inset-top) 封顶 36px——打孔屏挖孔会让 env 高达 ~57px，远大于状态栏图标实际高度。
  * 移动端 sticky 吸顶并承载安全区；桌面端为内容区顶部的圆角横幅。
  * 返回上一级：传 back（渲染 ← 按钮）。
  */
@@ -25,9 +27,9 @@ export default function PageHeader({ title, subtitle, right, back = false, testI
   return (
     <header
       data-testid={testId}
-      className="bg-gradient-banner shadow-glow-lg max-md:sticky max-md:top-0 max-md:z-30 max-md:-mx-3 max-md:rounded-b-[28px] md:rounded-[24px] md:shadow-glow"
+      className="bg-gradient-banner shadow-glow-lg max-md:sticky max-md:top-0 max-md:z-30 max-md:-mx-3 max-md:-mt-4 max-md:rounded-b-[28px] md:rounded-[24px] md:shadow-glow"
     >
-      <div className="relative z-10 flex items-start justify-between gap-3 px-5 pb-3.5 pt-[max(0.875rem,env(safe-area-inset-top))] md:items-center md:pb-6 md:pt-6">
+      <div className="relative z-10 flex items-start justify-between gap-3 px-5 pb-3.5 pt-[max(0.875rem,min(env(safe-area-inset-top),2.25rem))] md:items-center md:pb-6 md:pt-6">
         <div className="flex min-w-0 items-center gap-2">
           {back && <BackButton />}
           <div className="min-w-0">
