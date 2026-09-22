@@ -1,4 +1,5 @@
 """V5-4 AI 教练独立聊天 API：POST 发消息 / GET 历史 / DELETE 清空。"""
+import json
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -20,6 +21,10 @@ class ChatMessageRequest(BaseModel):
 
 
 def _serialize_message(msg) -> dict:
+    try:
+        context_refs = json.loads(msg.context_refs_json) if msg.context_refs_json else None
+    except (json.JSONDecodeError, TypeError):
+        context_refs = None
     return {
         "id": msg.id,
         "role": msg.role,
@@ -28,6 +33,7 @@ def _serialize_message(msg) -> dict:
         "prompt_tokens": msg.prompt_tokens,
         "completion_tokens": msg.completion_tokens,
         "cost_estimate": msg.cost_estimate,
+        "context_refs": context_refs,
         "created_at": msg.created_at.isoformat() if msg.created_at else None,
     }
 

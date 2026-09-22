@@ -22,7 +22,9 @@ COACH_CHAT_SYSTEM_PROMPT = (
     "你是一位专业、亲切的 AI 健身教练。用户正在自由与你聊天："
     "可以问训练相关问题，也可以告诉你他的长期偏好/伤病/目标/忌讳等。"
     "请基于用户的长期记忆（含用户须知、过往对话要点、长期训练统计）"
-    "用中文简洁、具体地回答；不要编造数据，不确定时明确说明。"
+    "以及本次提供的实时训练数据、未来计划、动作纪录和恢复数据，"
+    "用中文简洁、具体地回答。明确区分已完成训练与未来计划；"
+    "不要编造数据，不确定或缓存过旧时明确说明。"
 )
 
 
@@ -159,8 +161,40 @@ def post_message(
     except Exception as exc:  # noqa: BLE001
         logger.warning("V5-4 longterm_stats 失败，l3=None：%s", exc)
         l3 = None
-    memory_section = compose_memory_section_for(session, {}, "chat", l3=l3)
-    messages = build_messages(history, content, memory_section=memory_section)
+    memory_section = compose_memory_section_for(
+        session, {}, "chat", l3=l3, query_text=content
+    )
+    from app.services.coach_context import (
+        build_realtime_context,
+        serialize_context_refs,
+    )
+
+    try:
+        realtime_section, context_refs = build_realtime_context(session, content)
+    except Exception as exc:  # noqa: BLE001 - 实时上下文失败不阻断基础问答
+        logger.warning("教练实时上下文装配失败，降级为长期记忆：%s", exc)
+        realtime_section, context_refs = "", {
+            "recent_workouts": 0,
+            "upcoming_plan_days": 0,
+            "movement_records": [],
+            "training_data_through": date.today().isoformat(),
+            "context_error": "实时数据暂不可用",
+        }
+    from app.services.coach_memory import list_preferences, search_memory
+    from app.services.memory_distill import build_query_tags
+
+    try:
+        query_tags = build_query_tags({}, "chat") + [content]
+        context_refs["preferences"] = len(list_preferences(session, active_only=True))
+        context_refs["memories"] = len(search_memory(session, query_tags, limit=5))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("教练记忆引用计数失败：%s", exc)
+        context_refs["preferences"] = 0
+        context_refs["memories"] = 0
+    combined_context = "\n\n".join(
+        part for part in (memory_section, realtime_section) if part
+    )
+    messages = build_messages(history, content, memory_section=combined_context)
 
     if chat_fn is None:
         chat_fn = lambda msgs: llm.chat(  # noqa: E731
@@ -186,6 +220,7 @@ def post_message(
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
         cost_estimate=round(cost, 6),
+        context_refs_json=serialize_context_refs(context_refs),
     )
     session.add(assistant_msg)
     session.commit()

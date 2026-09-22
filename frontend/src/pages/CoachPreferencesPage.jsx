@@ -19,6 +19,14 @@ export default function CoachPreferencesPage({ embedded = false }) {
   const [saving, setSaving] = useState(false)
   const [resolveDraftId, setResolveDraftId] = useState(null)
   const [deleteTargetId, setDeleteTargetId] = useState(null)
+  const [memoryStatus, setMemoryStatus] = useState(null)
+  const [distilling, setDistilling] = useState(false)
+
+  const loadMemoryStatus = useCallback(() => {
+    return api('/api/coach/memory/status')
+      .then(setMemoryStatus)
+      .catch(() => setMemoryStatus(null))
+  }, [])
 
   const load = useCallback(() => {
     setLoading(true)
@@ -36,7 +44,26 @@ export default function CoachPreferencesPage({ embedded = false }) {
 
   useEffect(() => {
     load()
-  }, [load])
+    loadMemoryStatus()
+  }, [load, loadMemoryStatus])
+
+  const handleDistill = async () => {
+    setDistilling(true)
+    setError('')
+    setMessage('')
+    try {
+      const result = await api('/api/coach/memory/distill', { method: 'POST' })
+      if (result.status !== 'success') {
+        throw new Error(result.errors?.join('；') || '整理失败，请检查模型配置后重试')
+      }
+      setMessage(`对话记忆已整理，新增 ${result.memories_added || 0} 条`)
+      await loadMemoryStatus()
+    } catch (err) {
+      setError(err.status === 401 || err.status === 404 ? '未登录' : err.message || '整理失败')
+    } finally {
+      setDistilling(false)
+    }
+  }
 
   const handleCreate = async (payload) => {
     setSaving(true)
@@ -160,6 +187,22 @@ export default function CoachPreferencesPage({ embedded = false }) {
           <Skeleton className="h-24" />
           <Skeleton className="h-24" />
         </div>
+      )}
+
+      {memoryStatus && (
+        <Card className="flex flex-wrap items-center justify-between gap-3" testId="memory-distill-status">
+          <div>
+            <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">对话记忆</p>
+            <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+              {memoryStatus.status === 'never'
+                ? '尚未整理过对话记忆'
+                : `最近整理：${memoryStatus.status === 'success' ? '成功' : '失败'} · ${memoryStatus.finished_at?.replace('T', ' ').slice(0, 16) || '-'} · 新增 ${memoryStatus.memories_added || 0} 条`}
+            </p>
+          </div>
+          <Button size="compact" variant="secondary" testId="distill-memory-btn" onClick={handleDistill} disabled={distilling}>
+            {distilling ? '整理中…' : '立即整理'}
+          </Button>
+        </Card>
       )}
 
       <section data-testid="preferences-list">

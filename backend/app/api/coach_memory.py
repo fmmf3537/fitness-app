@@ -1,4 +1,6 @@
 """V5-1 AI 教练长期记忆 API：偏好 CRUD + 草稿采纳/拒绝。"""
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -16,6 +18,11 @@ preferences_router = APIRouter(
 )
 drafts_router = APIRouter(
     prefix="/api/coach/drafts",
+    tags=["coach"],
+    dependencies=[Depends(require_auth)],
+)
+memory_router = APIRouter(
+    prefix="/api/coach/memory",
     tags=["coach"],
     dependencies=[Depends(require_auth)],
 )
@@ -110,8 +117,22 @@ def reject_draft(
     return {"ok": True}
 
 
+@memory_router.get("/status")
+def memory_status(session: Session = Depends(get_session)) -> dict:
+    return svc.memory_distill_status(session)
+
+
+@memory_router.post("/distill")
+def distill_memory_now(session: Session = Depends(get_session)) -> dict:
+    """立即整理今天尚未处理的对话；增量幂等。"""
+    from app.services.memory_distill import distill_daily_memory
+
+    return distill_daily_memory(session, date.today())
+
+
 # 合并供 main.py 单次 include（保持 import + include_router 两行）
 router = APIRouter()
 router.include_router(preferences_router)
 router.include_router(drafts_router)
+router.include_router(memory_router)
 router.include_router(coach_chat_api_router)

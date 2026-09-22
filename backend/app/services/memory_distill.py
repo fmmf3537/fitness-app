@@ -85,9 +85,21 @@ def _query_today_messages(
             .order_by(CoachChatMessage.id)
         ).all()
     )
+    latest_processed = session.scalar(
+        select(CoachMemory.ref_chat_id)
+        .where(
+            CoachMemory.source == "coach_chat",
+            CoachMemory.ref_chat_id.isnot(None),
+        )
+        .order_by(CoachMemory.ref_chat_id.desc())
+        .limit(1)
+    )
+    if latest_processed is not None:
+        coach_rows = [row for row in coach_rows if row.id > latest_processed]
     coach_out: list[tuple[int, list[tuple[str, str]]]] = []
     if coach_rows:
-        ref_id = coach_rows[0].id
+        # ref_chat_id 代表已处理到的最后消息，支持同一天多次增量整理。
+        ref_id = coach_rows[-1].id
         msgs = [(r.role, r.content or "") for r in coach_rows]
         coach_out.append((ref_id, msgs))
 
@@ -383,6 +395,7 @@ def compose_memory_section_for(
     report_type: str,
     *,
     l3: dict | None = None,  # V5-3
+    query_text: str | None = None,
 ) -> str:
     """build_query_tags + search_memory + list_preferences + build_memory_section。
 
@@ -391,6 +404,9 @@ def compose_memory_section_for(
     """
     try:
         query_tags = build_query_tags(workout_dict or {}, report_type)
+        if query_text and query_text.strip():
+            # _tag_hit 支持双向包含；整句可直接命中其中的动作/伤病/目标标签。
+            query_tags.append(query_text.strip())
         memories = search_memory(session, query_tags, limit=5)
         prefs = list_preferences(session, active_only=True)
         l1 = [p.content for p in prefs if p.content]

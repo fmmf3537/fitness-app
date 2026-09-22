@@ -369,5 +369,6 @@ class CoachChatMessage(Base):
     prompt_tokens: Mapped[int | None] = mapped_column(Integer)
     completion_tokens: Mapped[int | None] = mapped_column(Integer)
     cost_estimate: Mapped[float | None] = mapped_column(Float)
+    context_refs_json: Mapped[str | None] = mapped_column(Text)
     client_request_id: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

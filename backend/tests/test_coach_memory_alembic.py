@@ -32,6 +32,8 @@ def test_coach_memory_tables_and_settings_column_roundtrip(tmp_path):
     assert COACH_TABLES <= tables
     settings_cols = {c["name"] for c in insp.get_columns("settings")}
     assert "memory_default_provider" in settings_cols
+    chat_cols = {c["name"] for c in insp.get_columns("coach_chat_message")}
+    assert "context_refs_json" in chat_cols
 
     command.downgrade(cfg, "b7c8d9e0f1a2")
     insp = inspect(create_engine(db_url))
@@ -46,3 +48,5 @@ def test_coach_memory_tables_and_settings_column_roundtrip(tmp_path):
     assert COACH_TABLES <= tables
     settings_cols = {c["name"] for c in insp.get_columns("settings")}
     assert "memory_default_provider" in settings_cols
+    chat_cols = {c["name"] for c in insp.get_columns("coach_chat_message")}
+    assert "context_refs_json" in chat_cols

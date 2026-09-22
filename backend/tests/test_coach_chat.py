@@ -166,6 +166,31 @@ def test_post_message_includes_l3_when_longterm_stats_returns_data(session, monk
     assert "训练频率：3 次/周（36 个训练日，共 12 周）" in system
 
 
+def test_post_message_injects_realtime_context_and_saves_refs(session, monkeypatch):
+    from datetime import date
+    import json
+
+    from app.models import Workout
+
+    session.add(Workout(
+        date=date.today(),
+        title="今日胸部",
+        movements_json=json.dumps([
+            {"name": "杠铃卧推", "sets": [{"weight": 80, "reps": 5}]},
+        ], ensure_ascii=False),
+    ))
+    session.commit()
+    fake, calls = fake_chat_with_spy()
+
+    _, assistant = post_message(session, "我最近练了什么", "crid-live", chat_fn=fake)
+
+    assert "实时训练数据" in calls[0][0]["content"]
+    assert "今日胸部" in calls[0][0]["content"]
+    refs = json.loads(assistant.context_refs_json)
+    assert refs["recent_workouts"] == 1
+    assert refs["training_data_through"] == date.today().isoformat()
+
+
 def test_post_message_l3_failure_does_not_raise(session, monkeypatch):
     def boom(sess, anchor, *, weeks=12):
         raise RuntimeError("stats down")
@@ -262,3 +287,19 @@ def test_api_post_400_on_value_error(client, auth_user):
         headers=auth_user,
     )
     assert resp.status_code == 400
+
+
+def test_api_history_serializes_context_refs(client, auth_user, session):
+    add_message(session, "user", "最近练了什么", "crid-refs")
+    assistant = CoachChatMessage(
+        role="assistant",
+        content="最近练了三次",
+        context_refs_json='{"recent_workouts": 3, "movement_records": []}',
+    )
+    session.add(assistant)
+    session.commit()
+
+    resp = client.get("/api/coach/chat", headers=auth_user)
+
+    assert resp.status_code == 200
+    assert resp.json()["messages"][-1]["context_refs"]["recent_workouts"] == 3

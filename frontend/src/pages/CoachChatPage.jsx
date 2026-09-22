@@ -66,6 +66,30 @@ function FailIcon() {
   )
 }
 
+function ContextRefs({ refs }) {
+  if (!refs) return null
+  const parts = []
+  if (refs.recent_workouts) parts.push(`最近 ${refs.recent_workouts} 次训练`)
+  if (refs.upcoming_plan_days) parts.push(`未来 ${refs.upcoming_plan_days} 个计划日`)
+  if (refs.movement_records?.length) parts.push(`${refs.movement_records.join('、')}纪录`)
+  if (refs.recovery_days) parts.push(`近 ${refs.recovery_days} 天恢复数据`)
+  if (refs.preferences) parts.push(`${refs.preferences} 条须知`)
+  if (refs.memories) parts.push(`${refs.memories} 条对话记忆`)
+  if (!parts.length) return null
+  return (
+    <div data-testid="chat-context-refs" className="mt-1 rounded-lg bg-indigo-50 px-2 py-1.5 text-[11px] leading-5 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300">
+      <span>参考：{parts.join(' · ')}</span>
+      {(refs.training_data_through || refs.plan_fetched_at) && (
+        <span className="block text-gray-500 dark:text-gray-400">
+          {refs.training_data_through ? `训练数据截至 ${refs.training_data_through}` : ''}
+          {refs.training_data_through && refs.plan_fetched_at ? ' · ' : ''}
+          {refs.plan_fetched_at ? `计划更新于 ${refs.plan_fetched_at.replace('T', ' ').slice(0, 16)}` : ''}
+        </span>
+      )}
+    </div>
+  )
+}
+
 /**
  * V5-6 独立教练聊天页：不绑 report_id，支持历史 / 发送 / 清空。
  * UI 模式借鉴 ReportChatSection（气泡、回车发送、失败重试复用 client_request_id）。
@@ -300,6 +324,7 @@ export default function CoachChatPage({ embedded = false }) {
                 >
                   <SimpleMarkdown text={m.content} />
                 </div>
+                <ContextRefs refs={m.context_refs} />
                 {metaLine(m, false) && (
                   <p className="mt-0.5 text-xs text-gray-600 dark:text-gray-400">{metaLine(m, false)}</p>
                 )}
@@ -355,7 +380,7 @@ export default function CoachChatPage({ embedded = false }) {
       <ConfirmDialog
         open={clearOpen}
         title="清空所有对话？"
-        description="此操作不可恢复，与教练的聊天记录将被删除。"
+        description="此操作不可恢复，与教练的聊天记录将被删除；已经整理出的长期记忆不会自动删除。"
         confirmText="确认"
         danger
         onConfirm={handleClearConfirm}

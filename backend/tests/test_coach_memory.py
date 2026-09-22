@@ -301,3 +301,17 @@ class TestCoachMemoryApi:
     def test_requires_auth(self, client):
         assert client.get("/api/coach/preferences").status_code == 401
         assert client.get("/api/coach/drafts").status_code == 401
+        assert client.get("/api/coach/memory/status").status_code == 401
+
+    def test_memory_status_and_empty_manual_distill(self, client, auth_user):
+        resp = client.get("/api/coach/memory/status", headers=auth_user)
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "never"
+
+        resp = client.post("/api/coach/memory/distill", headers=auth_user)
+        assert resp.status_code == 200
+        assert resp.json()["memories_added"] == 0
+
+        status = client.get("/api/coach/memory/status", headers=auth_user).json()
+        assert status["status"] == "success"
+        assert status["memories_added"] == 0

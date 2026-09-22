@@ -38,6 +38,15 @@ const MSG_ASSISTANT = {
   completion_tokens: 80,
   cost_estimate: 0.002,
   created_at: '2026-09-06T10:00:05',
+  context_refs: {
+    recent_workouts: 3,
+    upcoming_plan_days: 2,
+    movement_records: ['杠铃卧推'],
+    preferences: 1,
+    memories: 2,
+    training_data_through: '2026-09-06',
+    plan_fetched_at: '2026-09-06T09:30:00',
+  },
 }
 
 const POST_RESULT = {
@@ -114,6 +123,9 @@ describe('CoachChatPage', () => {
     expect(asstWrap.textContent).toContain('由 AI 教练生成')
     expect(asstWrap.textContent).not.toMatch(/tokens/)
     expect(asstWrap.textContent).not.toMatch(/¥/)
+    expect(screen.getByTestId('chat-context-refs')).toHaveTextContent('最近 3 次训练')
+    expect(screen.getByTestId('chat-context-refs')).toHaveTextContent('杠铃卧推纪录')
+    expect(screen.getByTestId('chat-context-refs')).toHaveTextContent('训练数据截至 2026-09-06')
   })
 
   it('test_user_message_appears_on_right', async () => {

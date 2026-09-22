@@ -6,7 +6,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import CoachMemory, CoachPreference, CoachPreferenceDraft
+from app.models import CoachMemory, CoachPreference, CoachPreferenceDraft, JobRun
 
 
 def to_dict(row: CoachPreference) -> dict:
@@ -217,3 +217,37 @@ def build_memory_section(
         for key, value in l3.items():
             parts.append(f"- {key}：{value}")
     return "\n".join(parts)
+
+
+def memory_distill_status(session: Session) -> dict:
+    """最近一次记忆整理状态；无记录时返回 never。"""
+    row = session.scalars(
+        select(JobRun)
+        .where(JobRun.job_name == "memory_distill")
+        .order_by(JobRun.started_at.desc(), JobRun.id.desc())
+        .limit(1)
+    ).first()
+    if row is None:
+        return {
+            "status": "never",
+            "started_at": None,
+            "finished_at": None,
+            "error": None,
+            "memories_added": 0,
+        }
+    memories_added = 0
+    if row.detail_json:
+        try:
+            import json
+
+            detail = json.loads(row.detail_json)
+            memories_added = int(detail.get("memories_added") or 0)
+        except (ValueError, TypeError):
+            memories_added = 0
+    return {
+        "status": row.status,
+        "started_at": row.started_at.isoformat() if row.started_at else None,
+        "finished_at": row.finished_at.isoformat() if row.finished_at else None,
+        "error": row.error,
+        "memories_added": memories_added,
+    }

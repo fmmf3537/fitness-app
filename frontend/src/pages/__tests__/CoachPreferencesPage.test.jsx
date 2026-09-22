@@ -47,6 +47,9 @@ function mockLoad({ preferences = [], drafts = [] } = {}) {
     if (path === '/api/coach/drafts' && !options.method) {
       return Promise.resolve({ drafts })
     }
+    if (path === '/api/coach/memory/status' && !options.method) {
+      return Promise.resolve({ status: 'success', finished_at: '2026-09-22T22:50:00', memories_added: 2 })
+    }
     if (path === '/api/coach/preferences' && options.method === 'POST') {
       return Promise.resolve({ ...PREF, id: 2, content: JSON.parse(options.body).content })
     }
@@ -89,6 +92,25 @@ describe('CoachPreferencesPage', () => {
     expect(item).toHaveTextContent('伤病,忌讳')
     expect(item).toHaveTextContent('user')
     expect(item).toHaveTextContent('manual')
+  })
+
+  it('显示记忆整理状态并支持立即整理', async () => {
+    mockLoad({ preferences: [], drafts: [] })
+    const baseImpl = apiMock.getMockImplementation()
+    apiMock.mockImplementation((path, options = {}) => {
+      if (path === '/api/coach/memory/distill' && options.method === 'POST') {
+        return Promise.resolve({ status: 'success', memories_added: 1 })
+      }
+      return baseImpl(path, options)
+    })
+    const user = userEvent.setup()
+    renderPage()
+
+    expect(await screen.findByTestId('memory-distill-status')).toHaveTextContent('新增 2 条')
+    await user.click(screen.getByTestId('distill-memory-btn'))
+
+    expect(await screen.findByText('对话记忆已整理，新增 1 条')).toBeInTheDocument()
+    expect(apiMock).toHaveBeenCalledWith('/api/coach/memory/distill', { method: 'POST' })
   })
 
   it('test_creates_new_preference_via_modal', async () => {
