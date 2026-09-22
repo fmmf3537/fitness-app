@@ -1,7 +1,7 @@
 # Kimi Code CLI 生产部署提示词 — UIX-11+UIX-12（移动端 UI/UX 重设计 + 页头瘦身）
 
 > 用法：SSH 登录生产服务器 → 启动 kimi code cli → 把下面 ```text 代码块整段粘贴进去。
-> 执行前只需替换 2 个占位符：`<项目路径>` 和 `<服务器IP>`。
+> 服务器信息已按 V7 实际部署环境预填（`~/fitness-app` / `http://118.24.143.172`），无需替换。
 > 目标版本已锁定：`origin/main` @ `1e2336f`（2026-09-22 已推送 GitHub）。
 >
 > **`<项目路径>` 填法**：服务器上仓库所在的本地目录（如 `/opt/fitness-app` 或 `~/fitness-app`），
@@ -28,9 +28,9 @@
 硬性原则：不丢任何数据、不动卷、全程可回滚。任何一步失败立即停止并报告，不要自作主张修复后继续。
 
 ## 环境
-- 项目路径：<项目路径>（docker compose 项目，5 个服务：postgres/backend/frontend/backup/caddy）
+- 项目路径： ~/fitness-app（docker compose 项目，5 个服务：postgres/backend/frontend/backup/caddy）
 - 目标版本：origin/main，应为 1e2336f
-- 站点：<服务器IP>（无域名 IP 访问模式，DEPLOY.md §6；仅作验收入口标识，命令全部走 localhost）
+- 站点：http://118.24.143.172（无域名 IP 访问模式，DEPLOY.md §6；仅作验收入口标识，命令全部走 localhost）
 - 部署手册：仓库内 docs/DEPLOY.md（§12 是增量部署流程，先读 §12.1/§12.3/§12.6 再动手）
 
 ## 绝对禁止（红线）
@@ -43,7 +43,7 @@
 
 ## 第 0 步：记录回滚锚点（必做）
 ```bash
-cd <项目路径>
+cd ~/fitness-app
 git status --short --branch          # 工作区必须干净；有未推送本地 commit 先报告给我（DEPLOY.md §12.7 教训）
 git fetch origin
 git log --oneline origin/main -1     # 确认 == 1e2336f；不是就停下报告
