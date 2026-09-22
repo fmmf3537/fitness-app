@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
 import SimpleMarkdown from '../components/SimpleMarkdown'
 import Button from '../components/ui/Button'
+import Icon from '../components/ui/Icon'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import EmptyState from '../components/ui/EmptyState'
 import ErrorState from '../components/ui/ErrorState'
@@ -221,10 +222,10 @@ export default function CoachChatPage({ embedded = false }) {
   }
 
   const userBubbleClass = (m) => {
-    const base = 'whitespace-pre-wrap rounded-2xl rounded-br-sm px-3 py-2 text-sm text-white'
-    if (m.failed) return `${base} border-2 border-red-300 bg-indigo-600/70`
-    if (m.pending) return `${base} bg-indigo-600 opacity-70`
-    return `${base} bg-indigo-600`
+    const base = 'whitespace-pre-wrap rounded-2xl rounded-br-sm px-3 py-2 text-sm text-white shadow-glow'
+    if (m.failed) return `${base} border-2 border-red-300 bg-brand-600/70`
+    if (m.pending) return `${base} bg-gradient-brand opacity-70`
+    return `${base} bg-gradient-brand`
   }
 
   return (
@@ -263,18 +264,18 @@ export default function CoachChatPage({ embedded = false }) {
         )}
         {loaded && messages.length === 0 && !sending && (
           <div className="mx-auto w-full max-w-xl py-2 sm:py-8">
-            <div className="mb-4 rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50 to-white p-4 text-center shadow-sm dark:border-indigo-900 dark:from-indigo-950/60 dark:to-gray-900 sm:mb-6 sm:p-5">
-              <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-600 text-2xl text-white">✦</div>
+            <div className="mb-4 rounded-[20px] border border-line bg-gradient-soft p-5 text-center shadow-card dark:border-gray-800 dark:from-indigo-950/60 dark:to-gray-900 sm:mb-6 sm:p-6">
+              <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-brand text-white shadow-glow"><Icon name="sparkle" size={22} /></div>
             <EmptyState
               testId="chat-empty"
               title="跟教练说点什么吧"
               description="比如「我深蹲时膝盖疼，下周训练怎么调？」"
             />
             </div>
-            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-300">快捷提问</p>
+            <p className="mb-2 text-xs font-semibold text-ink-400 dark:text-gray-300">快捷提问</p>
             <div className="grid grid-cols-2 gap-2">
               {QUICK_QUESTIONS.map((question) => (
-                <button key={question} type="button" onClick={() => setInput(question)} className="min-h-11 rounded-xl border border-gray-200 bg-white px-3 text-left text-sm text-gray-700 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:text-indigo-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
+                <button key={question} type="button" onClick={() => setInput(question)} className="flex min-h-11 items-center gap-1 rounded-[14px] border border-line bg-white px-3 text-left text-xs font-medium text-ink-600 shadow-card transition hover:-translate-y-0.5 hover:border-brand-300 hover:text-brand-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 sm:text-sm">
                   {question} <span aria-hidden="true" className="float-right text-indigo-500">→</span>
                 </button>
               ))}
@@ -320,7 +321,7 @@ export default function CoachChatPage({ embedded = false }) {
               <div className="max-w-[85%]">
                 <div
                   data-testid={`chat-msg-assistant-${m.id}`}
-                  className="rounded-2xl rounded-bl-sm bg-gray-100 dark:bg-gray-800 px-3 py-2 text-sm text-gray-800 dark:text-gray-200"
+                  className="rounded-2xl rounded-bl-sm border border-line bg-white px-3 py-2 text-sm text-ink-900 shadow-card dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200"
                 >
                   <SimpleMarkdown text={m.content} />
                 </div>
@@ -336,7 +337,7 @@ export default function CoachChatPage({ embedded = false }) {
           <div className="flex justify-start">
             <div
               data-testid="chat-thinking"
-              className="rounded-2xl rounded-bl-sm bg-gray-100 dark:bg-gray-800 px-3 py-2 text-sm text-gray-500"
+              className="rounded-2xl rounded-bl-sm border border-line bg-white px-3 py-2 text-sm text-ink-400 shadow-card dark:border-gray-800 dark:bg-gray-900"
             >
               <span className="mr-2">教练思考中</span>
               <span className="inline-flex gap-1" aria-hidden="true"><i className="thinking-dot">●</i><i className="thinking-dot">●</i><i className="thinking-dot">●</i></span>
@@ -351,7 +352,7 @@ export default function CoachChatPage({ embedded = false }) {
         </div>
       )}
 
-      <div className="sticky bottom-0 flex items-end gap-2 rounded-2xl border border-gray-200 bg-white p-2 shadow-lg dark:border-gray-700 dark:bg-gray-900">
+      <div className="sticky bottom-0 flex items-end gap-2 rounded-2xl border border-line bg-white p-2 shadow-lift dark:border-gray-800 dark:bg-gray-900">
         <textarea
           ref={inputRef}
           data-testid="chat-input"

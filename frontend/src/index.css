@@ -3,9 +3,46 @@
 /* UIX-09：class 型 dark variant（html.dark），便于测试与后续手动开关 */
 @custom-variant dark (&:where(.dark, .dark *));
 
-html { background: #f5f7fb; }
+html { background: #f2f4fa; }
 body { margin: 0; min-width: 320px; color: #111827; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
 button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+
+/* ===== UIX-11 设计令牌（方向B · 晨光轻量）===== */
+@theme {
+  /* 品牌紫（indigo→violet 渐变体系） */
+  --color-brand-50: #f5f3ff;
+  --color-brand-100: #ede9fe;
+  --color-brand-200: #ddd6fe;
+  --color-brand-300: #c4b5fd;
+  --color-brand-400: #a78bfa;
+  --color-brand-500: #8b5cf6;
+  --color-brand-600: #7c3aed;
+  --color-brand-700: #6d28d9;
+  --color-brand-800: #5b21b6;
+  --color-brand-900: #4c1d95;
+  /* 墨色层级（正文/辅助/弱提示） */
+  --color-ink-900: #1e2235;
+  --color-ink-600: #5b6079;
+  --color-ink-500: #7b8099;
+  --color-ink-400: #9aa0b5;
+  /* 画布与描边 */
+  --color-canvas: #f2f4fa;
+  --color-line: #eceef5;
+  /* 阴影三级 */
+  --shadow-card: 0 3px 12px rgb(46 49 90 / 0.06);
+  --shadow-lift: 0 8px 20px rgb(46 49 90 / 0.1);
+  --shadow-glow: 0 6px 16px rgb(124 58 237 / 0.35);
+  --shadow-glow-lg: 0 10px 26px rgb(99 60 220 / 0.28);
+  /* 品牌渐变（唯一主渐变，页头/主按钮/激活态） */
+  --gradient-brand: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  --gradient-banner: linear-gradient(150deg, #4f46e5 0%, #7c3aed 60%, #9333ea 100%);
+  --gradient-soft: linear-gradient(150deg, #eef2ff 0%, #f5f3ff 100%);
+}
+
+/* 品牌渐变工具类（配合 hover:brightness 控制深浅） */
+.bg-gradient-brand { background-image: var(--gradient-brand); }
+.bg-gradient-banner { background-image: var(--gradient-banner); }
+.bg-gradient-soft { background-image: var(--gradient-soft); }
 
 @keyframes thinking-bounce {
   0%, 60%, 100% { transform: translateY(0); opacity: .35; }

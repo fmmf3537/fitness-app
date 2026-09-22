@@ -101,7 +101,7 @@ describe('WorkoutListPage', () => {
     expect(screen.getByText('跑步')).toBeInTheDocument()
     expect(screen.getByText('自动匹配')).toBeInTheDocument()
     expect(screen.getByText('待确认')).toBeInTheDocument()
-    expect(screen.getByText('2026-08-03 训练列表')).toBeInTheDocument()
+    expect(screen.getByText('2026-08-03 训练')).toBeInTheDocument()
 
     await user.click(screen.getByText('胸部训练'))
     expect(await screen.findByText('详情页')).toBeInTheDocument()

@@ -133,13 +133,13 @@ describe('mergeMobileOption', () => {
 })
 
 describe('CHART_PALETTE', () => {
-  it('五色定序：indigo/sky/amber/rose/emerald', () => {
+  it('五色定序：violet/indigo/amber/emerald/sky', () => {
     expect(CHART_PALETTE).toEqual([
-      '#4f46e5',
-      '#0ea5e9',
+      '#8b5cf6',
+      '#6366f1',
       '#f59e0b',
-      '#e11d48',
       '#10b981',
+      '#0ea5e9',
     ])
   })
 })

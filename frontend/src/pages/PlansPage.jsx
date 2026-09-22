@@ -1,12 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, ApiError } from '../api/client'
+import PageHeader from '../components/PageHeader'
 import ReviewContent from '../components/ReviewContent'
 import Button from '../components/ui/Button'
+import Icon from '../components/ui/Icon'
 import EmptyState from '../components/ui/EmptyState'
 import ErrorState from '../components/ui/ErrorState'
 import Skeleton from '../components/ui/Skeleton'
 import { useToast } from '../components/ui/useToast'
 import { fieldLabel, parsePlanReview } from '../utils/planReview'
+
+function todayStr() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+const WEEKDAY_CHARS = '日一二三四五六'
 
 const POLL_INTERVAL_MS = 3000
 const READONLY_NOTICE = '计划接口只读，请在训记 App 中手动调整'
@@ -193,19 +202,17 @@ export default function PlansPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">训练计划</h2>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="primary"
-            testId="refresh-button"
-            onClick={handleRefresh}
-            disabled={refreshing}
-          >
-            {refreshing ? '刷新中…' : '刷新计划'}
-          </Button>
-          {refreshMsg && <p role="status" className="text-sm text-gray-600 dark:text-gray-400">{refreshMsg}</p>}
-        </div>
+      <PageHeader title="训练计划" subtitle="未来两周安排" />
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <Button
+          variant="primary"
+          testId="refresh-button"
+          onClick={handleRefresh}
+          disabled={refreshing}
+        >
+          {refreshing ? '刷新中…' : '刷新计划'}
+        </Button>
+        {refreshMsg && <p role="status" className="text-sm text-ink-500 dark:text-gray-400">{refreshMsg}</p>}
       </div>
 
       {loadError && (
@@ -231,26 +238,52 @@ export default function PlansPage() {
       )}
 
       <ul className="space-y-3">
-        {(days || []).map((day) =>
-          day.is_rest ? (
+        {(days || []).map((day) => {
+          const [py, pm, pd] = day.date.split('-').map(Number)
+          const weekday = WEEKDAY_CHARS[new Date(py, pm - 1, pd).getDay()]
+          const isToday = day.date === todayStr()
+          return day.is_rest ? (
             <li
               key={day.date}
               data-testid={`rest-day-${day.date}`}
-              className="rounded-lg bg-gray-50 dark:bg-gray-950 p-3 text-sm text-gray-600 dark:text-gray-400"
+              className="flex items-center gap-3 rounded-2xl bg-line/70 px-4 py-3 text-sm text-ink-500 dark:bg-gray-900 dark:text-gray-400"
             >
-              {day.date} · 休息日
+              <span className="w-14 shrink-0 font-bold">{pd}<span className="ml-1 text-[10px] font-normal">周{weekday}</span></span>
+              <span className="flex items-center gap-1.5"><Icon name="moon" size={14} />休息日</span>
             </li>
           ) : (
-            <li key={day.date} className="rounded-lg bg-white dark:bg-gray-900 p-4 shadow">
+            <li key={day.date} className={`rounded-[20px] border border-line bg-white p-4 shadow-card dark:border-gray-800 dark:bg-gray-900 ${isToday ? 'bg-gradient-soft ring-2 ring-brand-500' : ''}`}>
               <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-sm font-bold text-gray-900 dark:text-gray-100">
-                    {day.date} · {day.plan_name || day.plan_ref || '未命名计划'}
-                  </p>
-                  {day.title && <p className="mt-0.5 text-xs text-gray-600 dark:text-gray-400">{day.title}</p>}
+                <div className="flex min-w-0 items-start gap-3">
+                  <div className="w-12 shrink-0 border-r border-line pr-3 text-center">
+                    <p className="text-xl font-black text-ink-900 dark:text-white">{pd}</p>
+                    <p className="mt-0.5 text-[10px] text-ink-400">周{weekday}{isToday ? ' · 今天' : ''}</p>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-ink-900 dark:text-gray-100">
+                      {day.plan_name || day.plan_ref || '未命名计划'}
+                    </p>
+                    {day.title && <p className="mt-0.5 text-xs text-ink-500 dark:text-gray-400">{day.title}</p>}
+                    <ul className="mt-2 space-y-1">
+                      {(day.movements || []).map((mv, i) => (
+                        <li
+                          key={i}
+                          data-testid={`movement-${day.date}-${i}`}
+                          className="flex items-center gap-2 text-sm text-ink-600 dark:text-gray-300"
+                        >
+                          <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-[3px] bg-brand-500" />
+                          {mv.name}
+                          <span className="text-xs text-ink-400 dark:text-gray-400">
+                            {formatTargetSets(mv.target_sets)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 </div>
                 <Button
                   variant="primary"
+                  size="compact"
                   testId={`review-button-${day.date}`}
                   onClick={() => handleReview(day.date)}
                   disabled={!!generating[day.date]}
@@ -259,20 +292,6 @@ export default function PlansPage() {
                   {generating[day.date] ? '生成中…' : 'AI 点评'}
                 </Button>
               </div>
-              <ul className="mt-2 space-y-1">
-                {(day.movements || []).map((mv, i) => (
-                  <li
-                    key={i}
-                    data-testid={`movement-${day.date}-${i}`}
-                    className="text-sm text-gray-700 dark:text-gray-300"
-                  >
-                    {mv.name}
-                    <span className="ml-2 text-xs text-gray-600 dark:text-gray-400">
-                      {formatTargetSets(mv.target_sets)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
               {genErrors[day.date] && (
                 <p role="alert" className="mt-2 text-xs text-red-600">
                   {genErrors[day.date]}
@@ -280,8 +299,8 @@ export default function PlansPage() {
               )}
               {reviews[day.date] && <PlanReviewBlock report={reviews[day.date]} />}
             </li>
-          ),
-        )}
+          )
+        })}
       </ul>
     </div>
   )

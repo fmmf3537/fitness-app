@@ -1,4 +1,5 @@
 import { useSearchParams } from 'react-router-dom'
+import PageHeader from '../components/PageHeader'
 import CoachChatPage from './CoachChatPage'
 import CoachPreferencesPage from './CoachPreferencesPage'
 
@@ -16,20 +17,18 @@ export default function CoachHubPage() {
 
   return (
     <div data-testid="coach-hub" className="flex min-h-[calc(100dvh-10.5rem)] flex-col md:min-h-0">
-      <div className="flex items-center justify-between px-1 pb-3 md:border-b md:bg-white md:px-4 md:py-3 dark:md:bg-gray-900">
-        <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">教练中心</h1>
-      </div>
+      <PageHeader title="教练中心" subtitle="和你的 AI 教练聊聊" />
 
       <div className="pb-3 md:px-4 md:pt-3">
-        <div className="flex rounded-lg bg-gray-100 dark:bg-gray-800 p-1" role="tablist">
+        <div className="flex rounded-full border border-line bg-white p-1 shadow-card dark:border-gray-800 dark:bg-gray-900 md:dark:bg-gray-800 md:dark:border-transparent" role="tablist">
           <button
             type="button"
             role="tab"
             aria-selected={tab === 'chat'}
             data-testid="coach-tab-chat"
             onClick={() => setTab('chat')}
-            className={`min-h-[40px] flex-1 rounded-md text-sm font-medium ${
-              tab === 'chat' ? 'bg-white dark:bg-gray-900 shadow-sm' : 'text-gray-600 dark:text-gray-400'
+            className={`min-h-[40px] flex-1 rounded-full text-sm font-semibold transition ${
+              tab === 'chat' ? 'bg-gradient-brand text-white shadow-glow' : 'text-ink-500 dark:text-gray-400'
             }`}
           >
             聊天
@@ -40,8 +39,8 @@ export default function CoachHubPage() {
             aria-selected={tab === 'prefs'}
             data-testid="coach-tab-prefs"
             onClick={() => setTab('prefs')}
-            className={`min-h-[40px] flex-1 rounded-md text-sm font-medium ${
-              tab === 'prefs' ? 'bg-white dark:bg-gray-900 shadow-sm' : 'text-gray-600 dark:text-gray-400'
+            className={`min-h-[40px] flex-1 rounded-full text-sm font-semibold transition ${
+              tab === 'prefs' ? 'bg-gradient-brand text-white shadow-glow' : 'text-ink-500 dark:text-gray-400'
             }`}
           >
             教练须知

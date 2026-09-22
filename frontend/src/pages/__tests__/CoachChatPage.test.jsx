@@ -135,8 +135,8 @@ describe('CoachChatPage', () => {
     const asstWrap = screen.getByTestId('chat-msg-wrap-assistant-2')
     expect(userWrap.className).toMatch(/justify-end/)
     expect(asstWrap.className).toMatch(/justify-start/)
-    expect(screen.getByTestId('chat-msg-user-1').className).toMatch(/bg-indigo-600/)
-    expect(screen.getByTestId('chat-msg-assistant-2').className).toMatch(/bg-gray-100/)
+    expect(screen.getByTestId('chat-msg-user-1').className).toMatch(/bg-gradient-brand/)
+    expect(screen.getByTestId('chat-msg-assistant-2').className).toMatch(/bg-white/)
   })
 
   it('test_sends_message_and_appends_to_thread', async () => {

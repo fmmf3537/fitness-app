@@ -61,19 +61,18 @@ const ChatIcon = () => (
   </Icon>
 )
 
-// UIX-06：底部 5 Tab — 日历 / 计划 / 趋势 / 教练 / 我的
+// UIX-06：底部 5 Tab — 日历 / 计划 / 趋势 / 教练 / 设置
 const TABS = [
   { to: '/', label: '日历', end: true, Icon: CalendarIcon },
   { to: '/plans', label: '计划', Icon: PlansIcon },
   { to: '/trends', label: '趋势', Icon: TrendIcon },
   { to: '/coach', label: '教练', Icon: ChatIcon },
-  { to: '/settings', label: '我的', Icon: UserIcon },
+  { to: '/settings', label: '设置', Icon: UserIcon },
 ]
 
 /**
  * 移动端底部 Tab 栏（仅 <md 渲染）。
- * fixed 底部 + 底部安全区 padding；激活 indigo-600 / 未激活 gray-500。
- * 桌面端布局不渲染本组件（主导航仍在 header）。
+ * UIX-11：激活项 = 品牌紫文字 + 淡紫图标底 + 圆点指示。
  */
 export default function BottomTabs() {
   const isMobile = useIsMobile()
@@ -82,7 +81,7 @@ export default function BottomTabs() {
   return (
     <nav
       data-testid="bottom-tabs"
-      className="fixed inset-x-0 bottom-0 z-40 flex border-t border-gray-200/80 bg-white/95 shadow-[0_-8px_24px_rgba(15,23,42,0.05)] backdrop-blur-xl dark:border-gray-700 dark:bg-gray-900/95 pb-[env(safe-area-inset-bottom)]"
+      className="fixed inset-x-0 bottom-0 z-40 flex border-t border-line bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_rgba(46,49,90,0.06)] backdrop-blur-xl dark:border-gray-700 dark:bg-gray-900/95"
     >
       {TABS.map(({ to, label, end, Icon: TabIcon }) => (
         <NavLink
@@ -91,12 +90,26 @@ export default function BottomTabs() {
           end={end}
           className={({ isActive }) =>
             `flex min-h-[56px] flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[11px] font-semibold ${
-              isActive ? 'text-indigo-600' : 'text-gray-500'
+              isActive ? 'text-brand-700 dark:text-brand-300' : 'text-ink-400 dark:text-gray-500'
             }`
           }
         >
-          <TabIcon />
-          <span>{label}</span>
+          {({ isActive }) => (
+            <>
+              <span
+                className={`flex h-[30px] w-[30px] items-center justify-center rounded-[10px] transition ${
+                  isActive ? 'bg-brand-100 dark:bg-brand-900/50' : ''
+                }`}
+              >
+                <TabIcon />
+              </span>
+              <span>{label}</span>
+              <span
+                aria-hidden="true"
+                className={`h-1 w-1 rounded-full ${isActive ? 'bg-brand-600 dark:bg-brand-400' : 'bg-transparent'}`}
+              />
+            </>
+          )}
         </NavLink>
       ))}
     </nav>

@@ -3,8 +3,8 @@
 
 const MOBILE_GRID = { top: 56, left: 8, right: 8, bottom: 44, containLabel: true }
 
-/** 图表统一色板（定序循环）：主系列 / 次系列 / 对比 / 心率或警示 / 正向 */
-export const CHART_PALETTE = ['#4f46e5', '#0ea5e9', '#f59e0b', '#e11d48', '#10b981']
+/** 图表统一色板（UIX-11 品牌紫体系，定序循环）：主系列 / 次系列 / 对比 / 正向 / 辅助 */
+export const CHART_PALETTE = ['#8b5cf6', '#6366f1', '#f59e0b', '#10b981', '#0ea5e9']
 
 function asObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {}

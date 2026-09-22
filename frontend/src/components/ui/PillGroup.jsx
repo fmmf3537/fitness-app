@@ -7,10 +7,10 @@ export default function PillGroup({ options = [], value, onChange, testId, ariaL
       {options.map((option) => {
         const active = option.value === value
         const classes = [
-          'rounded-md px-3 text-sm font-medium min-h-[44px]',
+          'rounded-full px-4 text-sm font-medium min-h-9 transition',
           active
-            ? 'bg-indigo-600 text-white'
-            : 'text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 active:bg-gray-300',
+            ? 'bg-gradient-brand text-white shadow-glow'
+            : 'text-ink-500 hover:bg-line dark:text-gray-300 dark:hover:bg-gray-700 active:bg-gray-200',
         ].join(' ')
         return (
           <button

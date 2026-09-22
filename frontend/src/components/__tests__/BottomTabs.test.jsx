@@ -29,7 +29,7 @@ describe('BottomTabs 移动端底部 Tab 栏', () => {
       ['计划', '/plans'],
       ['趋势', '/trends'],
       ['教练', '/coach'],
-      ['我的', '/settings'],
+      ['设置', '/settings'],
     ]
     for (const [name, href] of tabs) {
       const link = within(nav).getByRole('link', { name })
@@ -38,18 +38,18 @@ describe('BottomTabs 移动端底部 Tab 栏', () => {
     }
   })
 
-  it('激活态 text-indigo-600，未激活 text-gray-500', () => {
+  it('激活态 text-brand-700，未激活 text-ink-400', () => {
     renderTabs('/trends')
     const nav = screen.getByTestId('bottom-tabs')
-    expect(within(nav).getByRole('link', { name: '趋势' })).toHaveClass('text-indigo-600')
-    expect(within(nav).getByRole('link', { name: '日历' })).toHaveClass('text-gray-500')
-    expect(within(nav).getByRole('link', { name: '我的' })).toHaveClass('text-gray-500')
+    expect(within(nav).getByRole('link', { name: '趋势' })).toHaveClass('text-brand-700')
+    expect(within(nav).getByRole('link', { name: '日历' })).toHaveClass('text-ink-400')
+    expect(within(nav).getByRole('link', { name: '设置' })).toHaveClass('text-ink-400')
   })
 
   it('根路由 / 精确匹配激活（/workouts 不激活日历）', () => {
     renderTabs('/workouts')
     const nav = screen.getByTestId('bottom-tabs')
-    expect(within(nav).getByRole('link', { name: '日历' })).toHaveClass('text-gray-500')
+    expect(within(nav).getByRole('link', { name: '日历' })).toHaveClass('text-ink-400')
   })
 
   it('fixed 底部定位 + 底部安全区 padding class', () => {

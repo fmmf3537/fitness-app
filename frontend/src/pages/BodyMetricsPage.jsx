@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../api/client'
 import BodyImageImport from '../components/BodyImageImport'
+import PageHeader from '../components/PageHeader'
 import SkinfoldPanel from '../components/SkinfoldPanel'
 import TrendChart from '../components/TrendChart'
 import Badge from '../components/ui/Badge'
@@ -8,6 +9,8 @@ import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
 import EmptyState from '../components/ui/EmptyState'
 import ErrorState from '../components/ui/ErrorState'
+import Icon from '../components/ui/Icon'
+import IconChip from '../components/ui/IconChip'
 import useIsMobile from '../hooks/useIsMobile'
 import {
   METRIC_DEFS,
@@ -29,6 +32,22 @@ const FORM_TYPES = [
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10)
+}
+
+/** 体重环比趋势（最近两条记录的差值，▲▼ 语义：下降为绿色） */
+function WeightTrend({ rows }) {
+  if (!rows || rows.length < 2) return null
+  const latest = rows[rows.length - 1]
+  const prev = rows[rows.length - 2]
+  const delta = latest.value - prev.value
+  if (!Number.isFinite(delta) || delta === 0) return null
+  const down = delta < 0
+  return (
+    <p className={`mt-1.5 flex items-center gap-1 text-xs font-semibold ${down ? 'text-emerald-600' : 'text-amber-600'}`}>
+      <Icon name="trend" size={12} strokeWidth={2.4} />
+      {down ? '▼' : '▲'} {Math.abs(delta).toFixed(1)} kg · 较上次
+    </p>
+  )
 }
 
 export default function BodyMetricsPage() {
@@ -158,7 +177,7 @@ export default function BodyMetricsPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">身体数据</h1>
+      <PageHeader title="身体数据" subtitle="体重、体脂与训练容量对照" />
 
       {error && (
         <ErrorState message={error} onRetry={load} testId="bodymetrics-error" />
@@ -172,22 +191,32 @@ export default function BodyMetricsPage() {
 
       {records && (latestWeight || latestBodyfat) && (
         <div className="grid grid-cols-2 gap-3" data-testid="bodymetrics-hero">
-          {latestWeight && <Card className="bg-white text-gray-950 shadow-sm dark:bg-gray-900 dark:text-white">
-            <p className="text-xs text-gray-600 dark:text-gray-300">当前体重</p>
-            <p className="mt-2 text-3xl font-black">{latestWeight.value}<span className="ml-1 text-sm font-medium text-gray-500">{latestWeight.unit}</span></p>
-            <p className="mt-1 text-xs text-emerald-600">记录于 {latestWeight.date}</p>
+          {latestWeight && <Card className="bg-white text-gray-950 dark:bg-gray-900 dark:text-white">
+            <div className="flex items-start justify-between">
+              <p className="text-xs text-ink-500 dark:text-gray-300">当前体重</p>
+              <IconChip icon="heart" variant="violet" />
+            </div>
+            <p className="mt-2 text-3xl font-black text-ink-900 dark:text-white">{latestWeight.value}<span className="ml-1 text-sm font-medium text-ink-400">{latestWeight.unit}</span></p>
+            <WeightTrend rows={grouped.weight} />
+            <p className="mt-1 text-xs text-ink-400">记录于 {latestWeight.date}</p>
           </Card>}
-          {latestBodyfat && <Card className="bg-white text-gray-950 shadow-sm dark:bg-gray-900 dark:text-white">
-            <p className="text-xs text-gray-600 dark:text-gray-300">当前体脂</p>
-            <p className="mt-2 text-3xl font-black">{latestBodyfat.value}<span className="ml-1 text-sm font-medium">{latestBodyfat.unit}</span></p>
-            <p className="mt-1 text-xs text-gray-500">记录于 {latestBodyfat.date}</p>
+          {latestBodyfat && <Card className="bg-white text-gray-950 dark:bg-gray-900 dark:text-white">
+            <div className="flex items-start justify-between">
+              <p className="text-xs text-ink-500 dark:text-gray-300">当前体脂</p>
+              <IconChip icon="sparkle" variant="blue" />
+            </div>
+            <p className="mt-2 text-3xl font-black text-ink-900 dark:text-white">{latestBodyfat.value}<span className="ml-1 text-sm font-medium text-ink-400">{latestBodyfat.unit}</span></p>
+            <p className="mt-1 text-xs text-ink-400">记录于 {latestBodyfat.date}</p>
           </Card>}
         </div>
       )}
 
       <div className="grid gap-3 sm:grid-cols-2">
-      <Card className="transition hover:-translate-y-0.5 hover:shadow-md">
-        <p className="mb-1 text-sm font-semibold text-gray-900 dark:text-gray-100">用图片估算体脂</p>
+      <Card className="transition hover:-translate-y-0.5 hover:shadow-lift">
+        <div className="mb-2 flex items-start justify-between">
+          <p className="text-sm font-semibold text-ink-900 dark:text-gray-100">用图片估算体脂</p>
+          <IconChip icon="camera" variant="violet" />
+        </div>
         <p className="mb-3 text-xs text-gray-600 dark:text-gray-300">识别体脂秤截图并导入真实数据</p>
         <Button
           variant="primary"
@@ -212,8 +241,11 @@ export default function BodyMetricsPage() {
         )}
       </Card>
 
-      <Card className="transition hover:-translate-y-0.5 hover:shadow-md">
-        <p className="mb-1 text-sm font-semibold text-gray-900 dark:text-gray-100">用皮脂钳估算</p>
+      <Card className="transition hover:-translate-y-0.5 hover:shadow-lift">
+        <div className="mb-2 flex items-start justify-between">
+          <p className="text-sm font-semibold text-ink-900 dark:text-gray-100">用皮脂钳估算</p>
+          <IconChip icon="ruler" variant="blue" />
+        </div>
         <p className="mb-3 text-xs text-gray-600 dark:text-gray-300">根据测量点数据计算体脂率</p>
         <Button
           variant="secondary"

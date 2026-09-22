@@ -109,11 +109,11 @@ describe('移动端适配（mobile 参数）', () => {
   ]
   const MOBILE_GRID = { top: 56, left: 8, right: 8, bottom: 44, containLabel: true }
 
-  it('desktop 缺省：输出与基线一致（grid/legend/无 axisLabel 改造）', () => {
+  it('desktop 缺省：输出与基线一致（grid/legend/axisLabel 品牌皮肤）', () => {
     const option = buildBodyPartOption(PARTS)
     expect(option.grid).toEqual({ left: 50, right: 20, top: 40, bottom: 30 })
-    expect(option.legend).toEqual({ top: 0 })
-    expect(option.xAxis.axisLabel).toBeUndefined()
+    expect(option.legend).toEqual({ top: 0, textStyle: { color: '#7b8099', fontSize: 11 } })
+    expect(option.xAxis.axisLabel).toEqual({ color: '#9aa0b5' })
     expect(option.yAxis.name).toBe('次数')
     // 显式传空参数对象与缺省完全一致
     expect(buildBodyPartOption(PARTS, {})).toEqual(option)
@@ -160,7 +160,7 @@ describe('移动端适配（mobile 参数）', () => {
 describe('色板与无障碍', () => {
   it('柱状/散点/折线引用 CHART_PALETTE，散点 symbolSize 为 16，aria 开启', () => {
     const weekly = buildWeeklyVolumeOption([])
-    expect(weekly.series[0].itemStyle.color).toBe(CHART_PALETTE[0])
+    expect(weekly.series[0].itemStyle.color).toEqual({ type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: '#818cf8' }, { offset: 1, color: '#a855f7' }] })
     expect(weekly.aria).toEqual({ enabled: true })
 
     const parts = buildBodyPartOption([{ week_start: '2026-07-13', parts: { 胸: 1 } }])
@@ -176,7 +176,7 @@ describe('色板与无障碍', () => {
 
     const sleep = buildSleepVolumeOption([])
     expect(sleep.series[0].symbolSize).toBe(16)
-    expect(sleep.series[0].itemStyle.color).toBe(CHART_PALETTE[1])
+    expect(sleep.series[0].itemStyle.color).toBe('rgba(139,92,246,.75)')
     expect(sleep.aria.enabled).toBe(true)
   })
 })

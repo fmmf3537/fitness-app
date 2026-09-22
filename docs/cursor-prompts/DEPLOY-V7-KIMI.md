@@ -27,9 +27,9 @@
 硬性原则：不丢任何数据、不动卷、全程可回滚。任何一步失败立即停止并报告，不要自作主张修复后继续。
 
 ## 环境
-- 项目路径：<服务器上的仓库目录，如 /opt/fitness-app 或 ~/fitness-app——不是 GitHub 网址>（docker compose 项目，5 个服务：postgres/backend/frontend/backup/caddy）
+- 项目路径： ~/fitness-app（docker compose 项目，5 个服务：postgres/backend/frontend/backup/caddy）
 - 目标版本：origin/main，应为 f390175
-- 站点：http://<服务器IP>（无域名 IP 访问模式，DEPLOY.md §6；仅作验收入口标识，命令全部走 localhost）
+- 站点：http://118.24.143.172（无域名 IP 访问模式，DEPLOY.md §6；仅作验收入口标识，命令全部走 localhost）
 - 部署手册：仓库内 docs/DEPLOY.md（§12 是增量部署流程，先读 §12.1/§12.3/§12.6 再动手）
 
 ## 绝对禁止（红线）

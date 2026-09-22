@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { clearToken } from '../api/client'
 import useIsMobile from '../hooks/useIsMobile'
 import useAndroidBackButton from '../hooks/useAndroidBackButton'
@@ -48,9 +48,14 @@ export default function Layout() {
 
 function LayoutContent() {
   const navigate = useNavigate()
+  const location = useLocation()
   const isMobile = useIsMobile()
   const { pendingCount } = useCandidateQueue()
   const [menuOpen, setMenuOpen] = useState(false)
+
+  // UIX-11：已迁移 PageHeader 渐变页头的路由，移动端隐藏全局白色页头，避免双层页头
+  const HEADERLESS_MOBILE = new Set(['/', '/trends', '/body-metrics', '/reviews', '/plans', '/coach', '/settings', '/workouts'])
+  const hasPageHeader = HEADERLESS_MOBILE.has(location.pathname)
 
   const closeMenu = useCallback(() => setMenuOpen(false), [])
   useAndroidBackButton({ isOverlayOpen: menuOpen, closeOverlay: closeMenu })
@@ -83,10 +88,10 @@ function LayoutContent() {
       <a href="#main-content" className="sr-only z-50 rounded-md bg-white px-4 py-2 text-sm font-semibold text-indigo-700 shadow focus:not-sr-only focus:fixed focus:left-4 focus:top-4">
         跳到主要内容
       </a>
-      <header className="sticky top-0 z-40 border-b border-white/70 bg-white/90 shadow-sm backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/90 pt-[env(safe-area-inset-top)]">
+      <header className={`sticky top-0 z-40 border-b border-white/70 bg-white/90 shadow-sm backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/90 pt-[env(safe-area-inset-top)] ${hasPageHeader ? 'max-md:hidden' : ''}`}>
         <div className="mx-auto flex max-w-6xl items-center justify-between px-3 py-2.5 md:px-4 md:py-3">
           <div className="flex items-center gap-2">
-            <span className="flex items-center gap-2 text-lg font-black tracking-tight text-gray-950 dark:text-white"><span className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-600 text-sm text-white shadow-sm max-md:hidden">F</span>健身看板</span>
+            <span className="flex items-center gap-2 text-lg font-black tracking-tight text-gray-950 dark:text-white"><span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-brand text-sm text-white shadow-glow max-md:hidden">F</span>健身看板</span>
             {!isMobile && (
               <nav className="ml-4 flex gap-1">
                 {NAV_LINKS.map((link) => (

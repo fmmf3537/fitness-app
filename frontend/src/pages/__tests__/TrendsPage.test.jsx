@@ -138,8 +138,8 @@ describe('TrendsPage', () => {
     await vi.waitFor(() => {
       const [volume, bodypart] = lastOptions(4)
       expect(volume?.grid).toEqual({ left: 50, right: 20, top: 40, bottom: 30 })
-      expect(volume?.xAxis.axisLabel).toBeUndefined()
-      expect(bodypart?.legend).toEqual({ top: 0 })
+      expect(volume?.xAxis.axisLabel).toEqual({ color: '#9aa0b5' })
+      expect(bodypart?.legend).toEqual({ top: 0, textStyle: { color: '#7b8099', fontSize: 11 } })
     })
   })
 })

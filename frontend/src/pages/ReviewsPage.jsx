@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, download } from '../api/client'
 import BottomSheet from '../components/BottomSheet'
+import PageHeader from '../components/PageHeader'
 import ReportChatSection from '../components/ReportChatSection'
 import ReviewSections from '../components/ReviewSections'
 import ScoreBadge from '../components/ScoreBadge'
@@ -267,9 +268,9 @@ export default function ReviewsPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">复盘中心</h1>
-        <div className="flex flex-wrap items-center gap-2">
+      <PageHeader title="复盘中心" subtitle="每周训练复盘与 AI 点评" />
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+        <div className="inline-flex rounded-full border border-line bg-white p-1 shadow-card dark:border-gray-800 dark:bg-gray-900">
           <PillGroup
             options={TABS.map((t) => ({ value: t.key, label: t.label }))}
             value={tab}
@@ -321,10 +322,10 @@ export default function ReviewsPage() {
               key={r.id}
               onClick={() => setSelected(r)}
               data-testid={`report-card-${r.id}`}
-              className={`w-full rounded-lg border p-4 text-left shadow-sm transition ${
+              className={`w-full rounded-[18px] border p-4 text-left shadow-card transition hover:shadow-lift ${
                 selected?.id === r.id
-                  ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/50'
-                  : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800'
+                  ? 'border-transparent bg-gradient-soft ring-2 ring-brand-500 dark:bg-brand-950/50'
+                  : 'border-line bg-white dark:border-gray-700 dark:bg-gray-900'
               }`}
             >
               <p className="font-medium text-gray-900 dark:text-gray-100">

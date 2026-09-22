@@ -3,12 +3,16 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import SettingsPage from '../SettingsPage'
+import { CandidateQueueContext } from '../../components/useCandidateQueue'
 
 function renderPage() {
+  const queue = { candidates: [], pendingCount: 0, error: '', loading: false }
   return render(
-    <MemoryRouter>
-      <SettingsPage />
-    </MemoryRouter>,
+    <CandidateQueueContext.Provider value={queue}>
+      <MemoryRouter>
+        <SettingsPage />
+      </MemoryRouter>
+    </CandidateQueueContext.Provider>,
   )
 }
 
@@ -342,18 +346,16 @@ describe('SettingsPage', () => {
 
   // ---------- UIX-06：我的 · 功能菜单 ----------
 
-  it('h1 文案为「我的」，页首渲染 feature-menu 及 6 个菜单项 href', async () => {
+  it('h1 文案为「设置」，页首渲染 feature-menu 及 4 个菜单项 href', async () => {
     renderPage()
-    expect(await screen.findByRole('heading', { name: '我的' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '设置' })).toBeInTheDocument()
     const menu = screen.getByTestId('feature-menu')
-    expect(within(menu).getByText('数据与教练')).toBeInTheDocument()
+    expect(screen.getByText('训练数据')).toBeInTheDocument()
     const items = [
       ['AI 报告', '/ai-reports'],
       ['复盘中心', '/reviews'],
       ['待确认队列', '/candidates'],
-      ['身体数据', '/body-metrics'],
       ['数据导入', '/import'],
-      ['教练须知', '/coach?tab=prefs'],
     ]
     for (const [name, href] of items) {
       expect(within(menu).getByRole('link', { name })).toHaveAttribute('href', href)

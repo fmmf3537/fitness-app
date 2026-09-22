@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '../api/client'
+import PageHeader from '../components/PageHeader'
 import Badge from '../components/ui/Badge'
 import EmptyState from '../components/ui/EmptyState'
 import ErrorState from '../components/ui/ErrorState'
@@ -56,7 +57,7 @@ export default function WorkoutListPage() {
         action={
           <Link
             to="/"
-            className="inline-flex min-h-[44px] items-center text-indigo-600 hover:underline"
+            className="inline-flex min-h-[44px] items-center text-brand-600 hover:underline"
           >
             ← 返回日历
           </Link>
@@ -67,11 +68,15 @@ export default function WorkoutListPage() {
 
   return (
     <div>
-      <div className="mb-4 flex items-center gap-3">
-        <Link to="/" className="text-sm text-indigo-600 hover:underline">
+      <PageHeader
+        title={`${date} 训练`}
+        subtitle="当日全部训练记录"
+        back
+      />
+      <div className="mb-4 mt-4">
+        <Link to="/" className="text-sm font-semibold text-brand-600 hover:underline">
           ← 返回日历
         </Link>
-        <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">{date} 训练列表</h2>
       </div>
       {error && (
         <ErrorState
@@ -82,9 +87,9 @@ export default function WorkoutListPage() {
       )}
       {loading ? (
         <div className="space-y-2">
-          <Skeleton className="h-12" />
-          <Skeleton className="h-12" />
-          <Skeleton className="h-12" />
+          <Skeleton className="h-14" />
+          <Skeleton className="h-14" />
+          <Skeleton className="h-14" />
         </div>
       ) : workouts.length === 0 && !error ? (
         <EmptyState
@@ -92,14 +97,14 @@ export default function WorkoutListPage() {
           description="换个日期看看，或回到日历同步数据"
         />
       ) : workouts.length > 0 ? (
-        <ul className="space-y-2">
+        <ul className="space-y-2.5">
           {workouts.map((w) => (
             <li key={w.id}>
               <Link
                 to={`/workouts/${w.id}`}
-                className="flex items-center justify-between rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-4 py-3 shadow-sm hover:border-indigo-400"
+                className="flex items-center justify-between rounded-[18px] border border-line bg-white px-4 py-3.5 shadow-card transition hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-lift dark:border-gray-800 dark:bg-gray-900"
               >
-                <span className="font-medium text-gray-900 dark:text-gray-100">{w.title}</span>
+                <span className="font-semibold text-ink-900 dark:text-gray-100">{w.title}</span>
                 <Badge variant={matchBadgeVariant(w.match_status)}>
                   {statusLabel(w.match_status)}
                 </Badge>

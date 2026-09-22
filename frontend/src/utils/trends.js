@@ -3,6 +3,23 @@
 
 import { CHART_PALETTE, mergeMobileOption } from './echartsMobile'
 
+// UIX-11 图表皮肤：坐标/图例墨色 + 浅描边网格
+const AXIS_LABEL = { color: '#9aa0b5' }
+const AXIS_LINE = { lineStyle: { color: '#eceef5' } }
+const SPLIT_LINE = { lineStyle: { color: '#eceef5', type: 'dashed' } }
+const LEGEND_TEXT = { color: '#7b8099', fontSize: 11 }
+
+/** 品牌紫柱状渐变（上浅下深） */
+export function brandBarGradient() {
+  return {
+    type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+    colorStops: [
+      { offset: 0, color: '#818cf8' },
+      { offset: 1, color: '#a855f7' },
+    ],
+  }
+}
+
 function asArray(value) {
   return Array.isArray(value) ? value : []
 }
@@ -44,14 +61,15 @@ export function buildWeeklyVolumeOption(weeklyVolume, { mobile = false } = {}) {
       },
     },
     grid: BASE_GRID,
-    xAxis: { type: 'category', name: '周', data: rows.map((r) => r.week_start) },
-    yAxis: { type: 'value', name: '吨' },
+    xAxis: { type: 'category', name: '周', data: rows.map((r) => r.week_start), axisLabel: AXIS_LABEL, axisLine: AXIS_LINE },
+    yAxis: { type: 'value', name: '吨', axisLabel: AXIS_LABEL, splitLine: SPLIT_LINE },
     series: [
       {
         name: '总容量',
         type: 'bar',
+        barWidth: '55%',
         data: rows.map((r) => r.volume_tons),
-        itemStyle: { color: CHART_PALETTE[0] },
+        itemStyle: { color: brandBarGradient(), borderRadius: [6, 6, 2, 2] },
       },
     ],
   }
@@ -67,15 +85,17 @@ export function buildBodyPartOption(bodyPartFrequency, { mobile = false } = {}) 
     aria: { enabled: true },
     color: CHART_PALETTE,
     tooltip: { trigger: 'axis' },
-    legend: { top: 0 },
+    legend: { top: 0, textStyle: LEGEND_TEXT },
     grid: BASE_GRID,
-    xAxis: { type: 'category', name: '周', data: weeks },
-    yAxis: { type: 'value', name: '次数' },
+    xAxis: { type: 'category', name: '周', data: weeks, axisLabel: AXIS_LABEL, axisLine: AXIS_LINE },
+    yAxis: { type: 'value', name: '次数', axisLabel: AXIS_LABEL, splitLine: SPLIT_LINE },
     series: parts.map((part) => ({
       name: part,
       type: 'bar',
       stack: 'parts',
+      barWidth: '55%',
       data: rows.map((r) => r.parts?.[part] ?? 0),
+      itemStyle: { borderRadius: 3 },
     })),
   }
   return mobile ? applyMobile(option) : option
@@ -95,16 +115,18 @@ export function buildBodyMetricOption(bodyMetrics, { mobile = false } = {}) {
   const option = {
     aria: { enabled: true },
     tooltip: { trigger: 'axis' },
-    legend: { top: 0 },
+    legend: { top: 0, textStyle: LEGEND_TEXT },
     grid: BASE_GRID,
-    xAxis: { type: 'category', name: '日期', data: dates },
-    yAxis: { type: 'value' },
+    xAxis: { type: 'category', name: '日期', data: dates, axisLabel: AXIS_LABEL, axisLine: AXIS_LINE },
+    yAxis: { type: 'value', axisLabel: AXIS_LABEL, splitLine: SPLIT_LINE },
     series: [
       {
         name: '体重',
         type: 'line',
         smooth: true,
         connectNulls: true,
+        symbolSize: 7,
+        lineStyle: { width: 3 },
         data: toSeries(weight),
         itemStyle: { color: CHART_PALETTE[0] },
       },
@@ -113,6 +135,8 @@ export function buildBodyMetricOption(bodyMetrics, { mobile = false } = {}) {
         type: 'line',
         smooth: true,
         connectNulls: true,
+        symbolSize: 7,
+        lineStyle: { width: 3 },
         data: toSeries(bodyfat),
         itemStyle: { color: CHART_PALETTE[1] },
       },
@@ -131,15 +155,15 @@ export function buildSleepVolumeOption(sleepVolume, { mobile = false } = {}) {
       formatter: (p) => `睡眠：${p?.value?.[0] ?? '-'} 小时<br/>容量：${p?.value?.[1] ?? '-'} 吨`,
     },
     grid: BASE_GRID,
-    xAxis: { type: 'value', name: '睡眠（小时）' },
-    yAxis: { type: 'value', name: '容量（吨）' },
+    xAxis: { type: 'value', name: '睡眠（小时）', axisLabel: AXIS_LABEL, splitLine: SPLIT_LINE },
+    yAxis: { type: 'value', name: '容量（吨）', axisLabel: AXIS_LABEL, splitLine: SPLIT_LINE },
     series: [
       {
         name: '睡眠-容量',
         type: 'scatter',
         symbolSize: 16,
         data: rows.map((r) => [r.sleep_hours, r.volume_tons]),
-        itemStyle: { color: CHART_PALETTE[1] },
+        itemStyle: { color: 'rgba(139,92,246,.75)' },
       },
     ],
   }

@@ -1,24 +1,49 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
+import PageHeader from '../components/PageHeader'
+import { useCandidateQueue } from '../components/useCandidateQueue'
 import Badge from '../components/ui/Badge'
 import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
 import EmptyState from '../components/ui/EmptyState'
 import ErrorState from '../components/ui/ErrorState'
+import Icon from '../components/ui/Icon'
+import IconChip from '../components/ui/IconChip'
 import Skeleton from '../components/ui/Skeleton'
 
-// UIX-06：「我的」功能菜单（承载从一级导航撤下的低频入口）
-const FEATURE_MENU = [
-  { to: '/body-metrics', label: '身体数据', icon: '◒' },
-  { to: '/import', label: '数据导入', icon: '⇧' },
-  { to: '/candidates', label: '待确认队列', icon: '⇄' },
-  { to: '/ai-reports', label: 'AI 报告', icon: '✦' },
-  { to: '/reviews', label: '复盘中心', icon: '◎' },
-  { to: '/coach?tab=prefs', label: '教练须知', icon: '◇' },
-]
+/** 分组列表行：图标 chip + 标题(+副标题) + 计数徽标 + 尾箭头 */
+function MenuRow({ to, icon, chip, label, sub, count, testId }) {
+  return (
+    <Link
+      to={to}
+      aria-label={label}
+      data-testid={testId}
+      className="flex min-h-[56px] items-center gap-3 border-b border-line px-2 py-2.5 text-sm transition last:border-b-0 hover:bg-canvas/60 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-800"
+    >
+      <IconChip icon={icon} variant={chip} />
+      <span className="min-w-0 flex-1">
+        <span className="block font-medium text-ink-900 dark:text-gray-100">{label}</span>
+        {sub && <span className="mt-0.5 block text-xs text-ink-400 dark:text-gray-400">{sub}</span>}
+      </span>
+      {count != null && (
+        <span className="rounded-full bg-canvas px-2 py-0.5 text-[11px] text-ink-400 dark:bg-gray-800">
+          {count}
+        </span>
+      )}
+      <span className="text-ink-400" aria-hidden="true">
+        <Icon name="arrow" size={16} strokeWidth={1.8} />
+      </span>
+    </Link>
+  )
+}
+
+function GroupTitle({ children }) {
+  return <h2 className="mx-1 mb-2 mt-5 text-[11.5px] font-semibold tracking-wide text-ink-400">{children}</h2>
+}
 
 export default function SettingsPage() {
+  const { pendingCount } = useCandidateQueue()
   const [settings, setSettings] = useState(null)
   const [usage, setUsage] = useState(null)
   const [keyInputs, setKeyInputs] = useState({})
@@ -136,49 +161,56 @@ export default function SettingsPage() {
       .finally(() => setSaving((s) => ({ ...s, [name]: false })))
   }
 
-  return (
-    <div className="space-y-4">
-      <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">我的</h1>
+  const llmConfigured = (settings?.providers || []).filter((p) => p.has_key).length
 
-      <Card className="overflow-hidden border-0 bg-gradient-to-br from-indigo-500 via-indigo-600 to-violet-700 text-white shadow-lg shadow-indigo-200/60 dark:shadow-none" testId="profile-hero">
-        <div className="flex items-center gap-4">
-          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-white/20 text-2xl font-black ring-1 ring-white/30">我</div>
-          <div className="min-w-0 flex-1">
-            <p className="text-xl font-black">健身看板用户</p>
-            <p className="mt-1 text-sm text-indigo-100">{profileGender ? `${profileGender === 'male' ? '男' : '女'} · ${profileBirthDate || '出生日期未设置'}` : '完善资料，让分析更准确'}</p>
-          </div>
-          {usage && <div className="text-right"><p className="text-xs text-indigo-100">本月 AI 用量</p><p className="mt-1 text-lg font-black">¥{usage.total_cost.toFixed(2)}</p></div>}
+  return (
+    <div className="space-y-1">
+      <PageHeader title="设置" subtitle="数据、资料与模型配置" />
+
+      {/* 数据状态条（替代原头像卡：无账号体系，只呈现真实数据） */}
+      <div className="mt-4 grid grid-cols-3 gap-2">
+        <div className="rounded-2xl border border-line bg-white p-3 shadow-card dark:border-gray-800 dark:bg-gray-900">
+          <p className="text-[10.5px] text-ink-400">待确认队列</p>
+          <p className={`mt-1 text-base font-black ${pendingCount > 0 ? 'text-amber-600' : 'text-ink-900 dark:text-white'}`}>
+            {pendingCount ?? '—'}
+          </p>
         </div>
+        <div className="rounded-2xl border border-line bg-white p-3 shadow-card dark:border-gray-800 dark:bg-gray-900">
+          <p className="text-[10.5px] text-ink-400">本月 AI 用量</p>
+          <p className="mt-1 text-base font-black text-ink-900 dark:text-white">
+            {usage ? `¥${usage.total_cost.toFixed(2)}` : '—'}
+          </p>
+        </div>
+        <div className="rounded-2xl border border-line bg-white p-3 shadow-card dark:border-gray-800 dark:bg-gray-900">
+          <p className="text-[10.5px] text-ink-400">LLM</p>
+          <p className={`mt-1 text-base font-black ${llmConfigured > 0 ? 'text-emerald-600' : 'text-ink-900 dark:text-white'}`}>
+            {settings ? (llmConfigured > 0 ? '已配置' : '未配置') : '—'}
+          </p>
+        </div>
+      </div>
+
+      <GroupTitle>训练数据</GroupTitle>
+      <Card className="px-3.5 py-1.5" testId="feature-menu">
+        <MenuRow to="/import" icon="sync" chip="blue" label="数据导入" />
+        <MenuRow to="/candidates" icon="alert" chip="amber" label="待确认队列" count={pendingCount ?? null} />
+        <MenuRow to="/reviews" icon="doc" chip="green" label="复盘中心" />
+        <MenuRow to="/ai-reports" icon="sparkle" chip="violet" label="AI 报告" />
       </Card>
 
-      <Card className="mb-4 p-2" testId="feature-menu">
-        <h2 className="px-2 pb-2 pt-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-300">数据与教练</h2>
-        <div className="divide-y divide-gray-100">
-          {FEATURE_MENU.map((item) => (
-            <Link
-              key={item.to}
-              to={item.to}
-              aria-label={item.label}
-              className="flex min-h-[52px] items-center justify-between rounded-lg px-2 text-sm text-gray-700 transition hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
-            >
-              <span className="flex items-center gap-3"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 font-bold text-indigo-600 dark:bg-indigo-950">{item.icon}</span>{item.label}</span>
-              <span className="text-gray-400" aria-hidden="true">
-                ›
-              </span>
-            </Link>
-          ))}
-        </div>
+      <GroupTitle>身体数据</GroupTitle>
+      <Card className="px-3.5 py-1.5">
+        <MenuRow to="/body-metrics" icon="heart" chip="violet" label="体重与体脂" />
       </Card>
 
       {error && (
         <ErrorState message={error} onRetry={loadSettings} testId="settings-error" />
       )}
-      {message && <p className="text-sm text-green-600">{message}</p>}
+      {message && <p className="mt-3 text-sm font-medium text-emerald-600">{message}</p>}
 
       {settings?.suggested_fallback && (
         <div
           data-testid="llm-fallback-banner"
-          className="flex flex-wrap items-center gap-3 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/50 px-4 py-3 text-sm text-amber-800"
+          className="mt-3 flex flex-wrap items-center gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-950/50"
         >
           <span>
             默认模型 {settings.default_llm} 已连续失败 2 次，可一键切换备用模型（
@@ -194,41 +226,38 @@ export default function SettingsPage() {
         </div>
       )}
 
+      <GroupTitle>体脂计算资料</GroupTitle>
       <Card testId="profile-section">
-        <h2 className="mb-1 text-sm font-medium text-gray-900 dark:text-gray-100">个人资料</h2>
-        <p className="mb-3 text-xs text-gray-600 dark:text-gray-400">
-          性别与出生日期用于皮脂钳体脂率等公式计算，录入一次即可
+        <p className="mb-3 text-xs text-ink-500 dark:text-gray-400">
+          性别与出生日期仅用于皮脂钳体脂率公式计算，保存在本地
         </p>
         {profileLoadError && (
           <p data-testid="profile-load-error" className="mb-2 text-xs text-red-600">{profileLoadError}</p>
         )}
         <div className="flex flex-wrap items-center gap-2 text-sm">
-          <label className="text-gray-700 dark:text-gray-300">
-            性别
-            <select
-              data-testid="profile-gender"
-              value={profileGender}
-              onChange={(e) => setProfileGender(e.target.value)}
-              className="ml-2 rounded-md border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900"
-            >
-              <option value="">未设置</option>
-              <option value="male">男</option>
-              <option value="female">女</option>
-            </select>
-          </label>
-          <label className="text-gray-700 dark:text-gray-300">
-            出生日期
-            <input
-              type="date"
-              data-testid="profile-birth-date"
-              value={profileBirthDate}
-              onChange={(e) => setProfileBirthDate(e.target.value)}
-              className="ml-2 rounded-md border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900"
-            />
-          </label>
+          <label className="sr-only" htmlFor="profile-gender">性别</label>
+          <select
+            id="profile-gender"
+            data-testid="profile-gender"
+            value={profileGender}
+            onChange={(e) => setProfileGender(e.target.value)}
+            className="h-11 rounded-xl border border-line bg-canvas/50 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200 dark:border-gray-700 dark:bg-gray-950"
+          >
+            <option value="">性别</option>
+            <option value="male">男</option>
+            <option value="female">女</option>
+          </select>
+          <label className="sr-only" htmlFor="profile-birth-date">出生日期</label>
+          <input
+            id="profile-birth-date"
+            type="date"
+            data-testid="profile-birth-date"
+            value={profileBirthDate}
+            onChange={(e) => setProfileBirthDate(e.target.value)}
+            className="h-11 flex-1 rounded-xl border border-line bg-canvas/50 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200 dark:border-gray-700 dark:bg-gray-950 sm:max-w-44"
+          />
           <Button
             variant="primary"
-            size="compact"
             onClick={handleSaveProfile}
             disabled={profileSaving || !profileGender || !profileBirthDate}
             testId="profile-save"
@@ -238,19 +267,24 @@ export default function SettingsPage() {
         </div>
       </Card>
 
-      <Card>
-        <h2 className="mb-3 text-sm font-medium text-gray-900 dark:text-gray-100">LLM Key 配置</h2>
+      <GroupTitle>AI 教练</GroupTitle>
+      <Card className="px-3.5 py-1.5">
+        <MenuRow to="/coach?tab=prefs" icon="coach" chip="blue" label="教练须知" />
+      </Card>
+
+      <Card className="mt-3">
+        <h2 className="mb-3 text-sm font-bold text-ink-900 dark:text-gray-100">LLM Key 配置</h2>
         {!settings && !error && <Skeleton className="h-20" />}
         <div className="space-y-3">
           {(settings?.providers || []).map((p) => (
             <div
               key={p.name}
               data-testid={`llm-provider-${p.name}`}
-              className="rounded-md border border-gray-200 dark:border-gray-700 p-3"
+              className="rounded-2xl border border-line p-3 dark:border-gray-800"
             >
               <div className="flex flex-wrap items-center gap-2 text-sm">
-                <span className="font-medium text-gray-900 dark:text-gray-100">{p.name}</span>
-                <span className="text-xs text-gray-600 dark:text-gray-400">{p.default_model}</span>
+                <span className="font-semibold text-ink-900 dark:text-gray-100">{p.name}</span>
+                <span className="text-xs text-ink-500 dark:text-gray-400">{p.default_model}</span>
                 {p.has_key ? (
                   <Badge variant="green">已配置</Badge>
                 ) : (
@@ -271,7 +305,7 @@ export default function SettingsPage() {
                 )}
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-2">
-                <label htmlFor={`api-key-input-${p.name}`} className="text-sm text-gray-700 dark:text-gray-300">
+                <label htmlFor={`api-key-input-${p.name}`} className="text-sm text-ink-600 dark:text-gray-300">
                   API Key
                 </label>
                 <input
@@ -283,9 +317,9 @@ export default function SettingsPage() {
                     setKeyInputs((s) => ({ ...s, [p.name]: e.target.value }))
                   }
                   data-testid={`key-input-${p.name}`}
-                  className="w-64 rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-900"
+                  className="w-64 rounded-xl border border-line bg-canvas/50 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200 dark:border-gray-700 dark:bg-gray-950"
                 />
-                <label className="flex items-center gap-1 text-sm text-gray-700 dark:text-gray-300">
+                <label className="flex items-center gap-1 text-sm text-ink-600 dark:text-gray-300">
                   <input
                     type="checkbox"
                     checked={Boolean(defaultFlags[p.name])}
@@ -311,26 +345,26 @@ export default function SettingsPage() {
         </div>
       </Card>
 
-      <Card testId="llm-usage">
-        <h2 className="mb-3 text-sm font-medium text-gray-900 dark:text-gray-100">
+      <Card testId="llm-usage" className="mt-3">
+        <h2 className="mb-3 text-sm font-bold text-ink-900 dark:text-gray-100">
           本月用量{usage?.month ? `（${usage.month}）` : ''}
         </h2>
         {!usage && !error && <Skeleton className="h-16" />}
         {usage && (
           <div className="space-y-3 text-sm">
             <div className="flex gap-6">
-              <p data-testid="usage-total-calls" className="text-gray-700 dark:text-gray-300">
-                总调用：<span className="font-medium text-gray-900 dark:text-gray-100">{usage.total_calls}</span> 次
+              <p data-testid="usage-total-calls" className="text-ink-600 dark:text-gray-300">
+                总调用：<span className="font-semibold text-ink-900 dark:text-gray-100">{usage.total_calls}</span> 次
               </p>
-              <p data-testid="usage-total-cost" className="text-gray-700 dark:text-gray-300">
+              <p data-testid="usage-total-cost" className="text-ink-600 dark:text-gray-300">
                 总费用：
-                <span className="font-medium text-gray-900 dark:text-gray-100">¥{usage.total_cost.toFixed(4)}</span>
+                <span className="font-semibold text-ink-900 dark:text-gray-100">¥{usage.total_cost.toFixed(4)}</span>
               </p>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs whitespace-nowrap text-gray-600 dark:text-gray-400">
+              <table className="w-full text-left text-xs whitespace-nowrap text-ink-500 dark:text-gray-400">
               <thead>
-                <tr className="border-b border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
+                <tr className="border-b border-line text-ink-500 dark:text-gray-400">
                   <th className="py-1 pr-2 font-medium">Provider</th>
                   <th className="py-1 pr-2 font-medium">模型</th>
                   <th className="py-1 pr-2 font-medium">调用</th>
@@ -340,7 +374,7 @@ export default function SettingsPage() {
               </thead>
               <tbody>
                 {(usage.by_provider || []).map((row) => (
-                  <tr key={row.provider} className="border-b border-gray-100 dark:border-gray-800">
+                  <tr key={row.provider} className="border-b border-line dark:border-gray-800">
                     <td className="py-1 pr-2">{row.provider}</td>
                     <td className="py-1 pr-2">{row.model}</td>
                     <td className="py-1 pr-2">{row.calls}</td>
@@ -357,8 +391,8 @@ export default function SettingsPage() {
         )}
       </Card>
 
-      <section data-testid="deleted-workouts">
-        <h2 className="mb-2 text-lg font-semibold text-gray-900 dark:text-gray-100">已删除的训练</h2>
+      <section data-testid="deleted-workouts" className="mt-6">
+        <h2 className="mb-2 text-base font-bold text-ink-900 dark:text-gray-100">已删除的训练</h2>
         {deleted.length === 0 ? (
           <EmptyState title="暂无已删除的训练" description="删除的训练会出现在这里，可随时恢复" />
         ) : (
@@ -367,13 +401,14 @@ export default function SettingsPage() {
               <li
                 key={w.id}
                 data-testid={`deleted-workout-${w.id}`}
-                className="flex items-center justify-between rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-3 text-sm"
+                className="flex items-center justify-between rounded-2xl border border-line bg-white p-3 text-sm shadow-card dark:border-gray-800 dark:bg-gray-900"
               >
-                <span className="text-gray-700 dark:text-gray-300">
+                <span className="text-ink-600 dark:text-gray-300">
                   {w.date} · {w.title || '未命名训练'}
                 </span>
                 <Button
                   variant="secondary"
+                  size="compact"
                   testId={`restore-workout-${w.id}`}
                   onClick={() => handleRestore(w.id)}
                 >
@@ -384,6 +419,10 @@ export default function SettingsPage() {
           </ul>
         )}
       </section>
+
+      <p className="mt-8 text-center text-[11px] leading-5 text-ink-400">
+        健身看板 · 数据保存在本地
+      </p>
     </div>
   )
 }

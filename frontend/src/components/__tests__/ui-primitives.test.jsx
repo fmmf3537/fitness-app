@@ -17,7 +17,7 @@ describe('Button', () => {
   it('primary 含 bg-indigo-600 与 min-h-[44px]', () => {
     render(<Button>保存</Button>)
     const btn = screen.getByRole('button', { name: '保存' })
-    expect(btn).toHaveClass('bg-indigo-600')
+    expect(btn).toHaveClass('bg-gradient-brand')
     expect(btn).toHaveClass('min-h-[44px]')
   })
 
@@ -47,7 +47,7 @@ describe('Button', () => {
 
   it('未知 variant 回退 primary', () => {
     render(<Button variant="nope">回退</Button>)
-    expect(screen.getByRole('button')).toHaveClass('bg-indigo-600')
+    expect(screen.getByRole('button')).toHaveClass('bg-gradient-brand')
   })
 
   it('ariaLabel 透传为 aria-label', () => {
@@ -63,10 +63,10 @@ describe('Card', () => {
   it('基础四件套类名', () => {
     render(<Card testId="card">内容</Card>)
     const el = screen.getByTestId('card')
-    expect(el).toHaveClass('rounded-2xl')
-    expect(el).toHaveClass('border-gray-200')
+    expect(el).toHaveClass('rounded-[20px]')
+    expect(el).toHaveClass('border-line')
     expect(el).toHaveClass('bg-white')
-    expect(el).toHaveClass('shadow-sm')
+    expect(el).toHaveClass('shadow-card')
   })
 })
 
@@ -95,7 +95,7 @@ describe('PillGroup', () => {
     expect(screen.getByRole('group', { name: '筛选选项' })).toBeInTheDocument()
     expect(buttons).toHaveLength(2)
     expect(buttons[0]).toHaveAttribute('aria-pressed', 'true')
-    expect(buttons[0]).toHaveClass('bg-indigo-600')
+    expect(buttons[0]).toHaveClass('bg-gradient-brand')
     expect(buttons[1]).toHaveAttribute('aria-pressed', 'false')
   })
 
