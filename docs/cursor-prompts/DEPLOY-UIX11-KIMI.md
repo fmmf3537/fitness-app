@@ -2,7 +2,7 @@
 
 > 用法：SSH 登录生产服务器 → 启动 kimi code cli → 把下面 ```text 代码块整段粘贴进去。
 > 服务器信息已按 V7 实际部署环境预填（`~/fitness-app` / `http://118.24.143.172`），无需替换。
-> 目标版本已锁定：`origin/main` @ `1e2336f`（2026-09-22 已推送 GitHub）。
+> 目标版本已锁定：`origin/main` @ `63c4089`（2026-09-22 已推送 GitHub）。
 >
 > **`<项目路径>` 填法**：服务器上仓库所在的本地目录（如 `/opt/fitness-app` 或 `~/fitness-app`），
 > 不是 GitHub 网址——CLI 会在该目录里执行 `git` / `docker compose` 命令。
@@ -13,10 +13,11 @@
 
 ## 本次版本快照（供你核对，不需要替换）
 
-- 目标 commit：`1e2336f`
-- 变更范围：`e7fbd83..1e2336f` 共 3 个提交，**纯前端 + 文档**
+- 目标 commit：`63c4089`
+- 变更范围：`e7fbd83..63c4089` 共 4 个提交，**纯前端 + 文档**
   - UIX-11：设计令牌 / 基础组件（Card/Button/PillGroup/Icon/IconChip）/ PageHeader 渐变页头 / 8 页面改造 / 图表皮肤 / 设置页 V1
   - UIX-12：PageHeader 紧凑双行瘦身（页头 142px→92px，全站 8 页生效）
+  - UIX-12b：页头贴顶（-mt-4 消除顶部白条）+ env(safe-area-inset-top) 封顶 36px（修复打孔屏页头过大）
   - `backend/` 零改动、**无 alembic 迁移**、无 scripts/ 变更
 - 预期重建：**只重建 frontend**。backend / postgres / backup / caddy 都不该动。
 - 预期数据库回滚：**不需要**（无迁移），但备份仍必做。
@@ -24,12 +25,12 @@
 ---
 
 ```text
-你是生产服务器上的部署工程师。任务：把 fitness-app 安全升级到 origin/main (1e2336f)。
+你是生产服务器上的部署工程师。任务：把 fitness-app 安全升级到 origin/main (63c4089)。
 硬性原则：不丢任何数据、不动卷、全程可回滚。任何一步失败立即停止并报告，不要自作主张修复后继续。
 
 ## 环境
 - 项目路径： ~/fitness-app（docker compose 项目，5 个服务：postgres/backend/frontend/backup/caddy）
-- 目标版本：origin/main，应为 1e2336f
+- 目标版本：origin/main，应为 63c4089
 - 站点：http://118.24.143.172（无域名 IP 访问模式，DEPLOY.md §6；仅作验收入口标识，命令全部走 localhost）
 - 部署手册：仓库内 docs/DEPLOY.md（§12 是增量部署流程，先读 §12.1/§12.3/§12.6 再动手）
 
@@ -46,7 +47,7 @@
 cd ~/fitness-app
 git status --short --branch          # 工作区必须干净；有未推送本地 commit 先报告给我（DEPLOY.md §12.7 教训）
 git fetch origin
-git log --oneline origin/main -1     # 确认 == 1e2336f；不是就停下报告
+git log --oneline origin/main -1     # 确认 == 63c4089；不是就停下报告
 CURRENT=$(git rev-parse HEAD)        # 代码回滚点
 docker compose exec backend alembic current   # 数据库回滚锚点（本次不应变化）
 echo "rollback: commit=$CURRENT" | tee /tmp/rollback_anchor.txt
@@ -116,6 +117,6 @@ git log --oneline -1   # 确认回到部署前 commit
 ## 给使用者（你）的提醒
 
 - **本次是纯前端升级**：backend 容器不该重启、数据库不该有任何变化。如果 CLI 报告 backend 被重建或 alembic 版本变了，说明有意外，立即让它停。
-- **手机端验收重点**：渐变品牌页头（8 个页面，页头已瘦身紧凑）/ 底部 5Tab 第 5 项改为「设置」/ 设置页 V1（无身份大卡，顶部 3 个数据状态 chip）/ 图表紫系皮肤。手机若看不到新 UI，先清 App/浏览器缓存，再走 §12.3 的 no-cache 重建。
+- **手机端验收重点**：渐变品牌页头（8 个页面，页头贴顶无白条、标题紧邻通知栏）/ 底部 5Tab 第 5 项改为「设置」/ 设置页 V1（无身份大卡，顶部 3 个数据状态 chip）/ 图表紫系皮肤。手机若看不到新 UI，先清 App/浏览器缓存，再走 §12.3 的 no-cache 重建。
 - **备份文件**会留在服务器 `./backups_predeploy_<时间戳>/`，验收通过后再决定保留或清理。
 - 本提示词已入库 `docs/cursor-prompts/DEPLOY-UIX11-KIMI.md` 并推送到 GitHub，服务器 `git fetch` 后也能直接查看。
