@@ -21,6 +21,7 @@ const NAV_LINKS = [
   { to: '/reviews', label: '复盘中心' },
   { to: '/ai-reports', label: 'AI 报告' },
   { to: '/trends', label: '趋势' },
+  { to: '/goals', label: '目标' },
   { to: '/coach', label: '教练' },
   { to: '/settings', label: '我的' },
 ]
@@ -31,6 +32,7 @@ const SECONDARY_LINKS = [
   { to: '/reviews', label: '复盘中心' },
   { to: '/ai-reports', label: 'AI 报告' },
   { to: '/body-metrics', label: '身体数据' },
+  { to: '/goals', label: '训练目标' },
   { to: '/import', label: '数据导入' },
 ]
 

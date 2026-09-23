@@ -668,6 +668,24 @@ def _resolve_provider(session: Session) -> str:
         return llm.DEFAULT_PROVIDER
 
 
+def _training_feedback_lines(session: Session, workout_id: int) -> list[str]:
+    """将训练者自述与设备测量显式区分。"""
+    from app.models import WorkoutFeedback
+    subjective = session.get(WorkoutFeedback, workout_id)
+    if not subjective:
+        return []
+    parts = []
+    if subjective.fatigue is not None:
+        parts.append(f"疲劳 {subjective.fatigue}/5")
+    if subjective.soreness is not None:
+        parts.append(f"酸痛 {subjective.soreness}/5")
+    if subjective.discomfort:
+        parts.append(f"动作不适：{subjective.discomfort}")
+    if subjective.note:
+        parts.append(f"备注：{subjective.note}")
+    return ["训练者主观反馈（非设备测量）：" + "；".join(parts)] if parts else []
+
+
 def generate_session_review(
     session: Session,
     workout_id: int,
@@ -687,6 +705,8 @@ def generate_session_review(
     workout = session.get(Workout, workout_id)
     if workout is None or workout.deleted_at is not None:
         raise ValueError(f"workout {workout_id} 不存在")
+
+    feedback = [*(feedback or []), *_training_feedback_lines(session, workout_id)] or None
 
     movements = _parse_movements(workout)
     # V4-2 F2：按 (name, exetype) 分组查，避免辅助重量污染负重 PR
@@ -1344,6 +1364,7 @@ def generate_next_advice(
     workout = session.get(Workout, workout_id)
     if workout is None or workout.deleted_at is not None:
         raise ValueError(f"workout {workout_id} 不存在")
+    feedback = [*(feedback or []), *_training_feedback_lines(session, workout_id)] or None
 
     plan_day = query_next_plan_day(session, workout.date)
     if plan_day is None:

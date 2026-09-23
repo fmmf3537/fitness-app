@@ -200,6 +200,7 @@ export default function SettingsPage() {
       <GroupTitle>身体数据</GroupTitle>
       <Card className="px-3.5 py-1.5">
         <MenuRow to="/body-metrics" icon="heart" chip="violet" label="体重与体脂" />
+        <MenuRow to="/goals" icon="dumbbell" chip="blue" label="训练目标" />
       </Card>
 
       {error && (

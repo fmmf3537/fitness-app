@@ -286,6 +286,51 @@ class JobRun(Base):
     detail_json: Mapped[str | None] = mapped_column(Text)
 
 
+class PlanSnapshot(Base):
+    """训练日期对应的训记计划快照；过期日期不再覆盖。"""
+
+    __tablename__ = "plan_snapshot"
+    date: Mapped[date] = mapped_column(Date, primary_key=True)
+    plan_json: Mapped[str] = mapped_column(Text)
+    captured_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class AdviceAction(Base):
+    """用户对某份下次建议中某一项的处理状态。"""
+
+    __tablename__ = "advice_action"
+    __table_args__ = (UniqueConstraint("report_id", "item_index", name="uq_advice_action_item"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    report_id: Mapped[int] = mapped_column(ForeignKey("ai_report.id", ondelete="CASCADE"))
+    item_index: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(20))  # done / skipped
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class WorkoutFeedback(Base):
+    """训练后的轻量主观反馈，不复制训记组次。"""
+
+    __tablename__ = "workout_feedback"
+    workout_id: Mapped[int] = mapped_column(ForeignKey("workout.id", ondelete="CASCADE"), primary_key=True)
+    fatigue: Mapped[int | None] = mapped_column(Integer)  # 1-5
+    soreness: Mapped[int | None] = mapped_column(Integer)  # 1-5
+    discomfort: Mapped[str | None] = mapped_column(String(200))
+    note: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class TrainingGoal(Base):
+    """少量可量化个人目标。"""
+
+    __tablename__ = "training_goal"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String(30))  # sessions_week / movement_weight / body_weight
+    target: Mapped[float] = mapped_column(Float)
+    movement: Mapped[str | None] = mapped_column(String(100))
+    active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class WorkoutSetHr(Base):
     """逐组心率（V4-7）：按 workout+动作+组序 幂等重算。"""
 

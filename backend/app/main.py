@@ -21,6 +21,7 @@ from app.api.stats import router as stats_router
 from app.api.sync import router as sync_router
 from app.api.workouts import router as workouts_router
 from app.api.writeback import router as writeback_router
+from app.api.training_insights import router as training_insights_router
 
 _scheduler = None  # 模块级持引用，防止 GC
 
@@ -62,6 +63,7 @@ app.include_router(skinfold_router)
 app.include_router(screenshot_router)
 app.include_router(plans_router)
 app.include_router(posters_router)
+app.include_router(training_insights_router)
 
 
 @app.get("/health")

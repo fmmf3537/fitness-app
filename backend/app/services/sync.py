@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.adapters.llm import LLMError
 from app.db import SessionLocal
-from app.models import JobRun
+from app.models import JobRun, PlanSnapshot, Workout
 from app.services.ai import run_daily_next_advices, run_daily_reviews
 from app.services.matcher import match_day
 
@@ -57,6 +57,14 @@ def _write_job_run(session: Session, job_name: str, started_at: datetime, result
     session.commit()
 
 
+def _workout_state(session: Session, day: date) -> dict[int, tuple]:
+    """用于同步回执的可见训练快照，不依赖 updated_at 精度。"""
+    rows = session.query(Workout).filter(Workout.date == day, Workout.deleted_at.is_(None)).all()
+    return {w.id: (w.xunji_train_id, w.garmin_activity_id, w.match_status,
+                   w.title, w.movements_json, w.duration_s, w.avg_hr, w.max_hr)
+            for w in rows}
+
+
 def daily_sync(day, *, session: Session | None = None, xunji=None, garmin=None,
                sleep: Callable[[float], None] = time.sleep) -> dict:
     """每日同步编排：训记 → 佳明活动 → 佳明健康 → 融合匹配。"""
@@ -66,6 +74,7 @@ def daily_sync(day, *, session: Session | None = None, xunji=None, garmin=None,
     session = session or SessionLocal()
     started_at = datetime.now()
     try:
+        before_workouts = _workout_state(session, day_date)
         if xunji is None:
             from app.adapters.xunji import XunjiClient
             xunji = XunjiClient(session)
@@ -111,6 +120,14 @@ def daily_sync(day, *, session: Session | None = None, xunji=None, garmin=None,
                 detail["candidates"] = len(out["candidates"])
 
         detail["attempts"] = attempts
+        after_workouts = _workout_state(session, day_date)
+        detail["workout_changes"] = {
+            "new": sum(wid not in before_workouts for wid in after_workouts),
+            "updated": sum(wid in before_workouts and state != before_workouts[wid]
+                           for wid, state in after_workouts.items()),
+            "unchanged": sum(wid in before_workouts and state == before_workouts[wid]
+                             for wid, state in after_workouts.items()),
+        }
         if failed_step is not None:
             detail["failed_step"] = failed_step
 
@@ -242,6 +259,17 @@ def sync_plan_cache(*, session: Session | None = None, xunji=None, days_ahead: i
             plans = xunji.fetch_plan_list()
             for plan in plans:
                 xunji.fetch_plan(plan.plan_ref, today, today + timedelta(days=days_ahead))
+            # 保存每日所见计划；当天及未来可更新，过去日期不会漂移。
+            from app.services.plans import query_plan_days
+            for item in query_plan_days(session, today, days=days_ahead + 1):
+                plan_date = date.fromisoformat(item["date"])
+                snapshot = session.get(PlanSnapshot, plan_date)
+                if snapshot is None:
+                    session.add(PlanSnapshot(date=plan_date, plan_json=json.dumps(item, ensure_ascii=False)))
+                else:
+                    snapshot.plan_json = json.dumps(item, ensure_ascii=False)
+                    snapshot.captured_at = datetime.now()
+            session.commit()
             result = {
                 "date": today.isoformat(),
                 "status": "success",

@@ -4,6 +4,7 @@ import { api } from '../api/client'
 import HeartRateChart from '../components/HeartRateChart'
 import NextAdviceSection from '../components/NextAdviceSection'
 import SessionReviewSection from '../components/SessionReviewSection'
+import TrainingContextSection from '../components/TrainingContextSection'
 import Badge from '../components/ui/Badge'
 import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
@@ -238,6 +239,7 @@ export default function WorkoutDetailPage() {
             )}
             <SessionReviewSection workout={workout} />
             <NextAdviceSection workout={workout} />
+            <TrainingContextSection workout={workout} />
           </div>
         )}
         {tab === 'xunji' && <RawJson data={workout.xunji_raw} testId="xunji-raw" />}

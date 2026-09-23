@@ -181,6 +181,8 @@ export default function NextAdviceSection({ workout }) {
   const [regenError, setRegenError] = useState('')
   const [regenSuccess, setRegenSuccess] = useState('')
   const [regenConfirmOpen, setRegenConfirmOpen] = useState(false)
+  const [actions, setActions] = useState([])
+  const [actionError, setActionError] = useState('')
 
   useEffect(() => {
     if (!workout?.id || !workout?.date) return
@@ -211,6 +213,27 @@ export default function NextAdviceSection({ workout }) {
     [report],
   )
   const grouped = useMemo(() => groupSuggestions(advice), [advice])
+
+  useEffect(() => {
+    if (!report?.id) return
+    let active = true
+    api(`/api/training/actions/${report.id}`)
+      .then((data) => { if (active) setActions(data.actions || []) })
+      .catch(() => { if (active) setActions([]) })
+    return () => { active = false }
+  }, [report?.id])
+
+  const updateAction = async (index, status) => {
+    setActionError('')
+    try {
+      await api(`/api/training/actions/${report.id}/${index}`, {
+        method: 'PUT', body: JSON.stringify({ status }),
+      })
+      setActions((items) => items.map((item) => item.index === index ? { ...item, status } : item))
+    } catch (err) {
+      setActionError(`保存处理状态失败：${err.message}`)
+    }
+  }
 
   if (!loaded) return null
   if (!report) {
@@ -244,6 +267,22 @@ export default function NextAdviceSection({ workout }) {
   return (
     <Card className="space-y-4">
       <h3 className="text-base font-bold text-gray-900 dark:text-gray-100">下次训练建议</h3>
+
+      {actions.length > 0 && <section aria-label="建议行动卡" className="space-y-2">
+        <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">下次训练行动卡</h4>
+        {actions.map((item) => <div key={item.index} className="rounded-xl border border-gray-200 p-3 text-sm dark:border-gray-700">
+          <p className="font-semibold">{item.movement || '未命名动作'} · {item.category === 'auto_writable' ? '已发生记录修正' : '未来计划请在训记调整'}</p>
+          <p className="mt-1 text-gray-600 dark:text-gray-300">{formatParams(item.original)} → {formatParams(item.suggested)}</p>
+          {item.reason && <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">{item.reason}</p>}
+          {item.follow_up?.status === 'observed' && <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">后续记录 {item.follow_up.date}：{item.follow_up.sets.map((s) => `${s.weight ?? '-'}kg × ${s.reps ?? '-'}次`).join('、')}。请结合当日状态判断建议是否适合。</p>}
+          {item.follow_up?.status === 'not_observed' && <p className="mt-1 text-xs text-gray-500">之后 12 周暂无同名动作记录</p>}
+          <div className="mt-2 flex items-center gap-2">
+            <Button size="compact" variant={item.status === 'done' ? 'primary' : 'secondary'} onClick={() => updateAction(item.index, item.status === 'done' ? null : 'done')}>已处理</Button>
+            <Button size="compact" variant={item.status === 'skipped' ? 'primary' : 'ghost'} onClick={() => updateAction(item.index, item.status === 'skipped' ? null : 'skipped')}>跳过</Button>
+          </div>
+        </div>)}
+        {actionError && <p role="alert" className="text-xs text-red-600">{actionError}</p>}
+      </section>}
 
       {markdown && <SimpleMarkdown text={markdown} />}
 

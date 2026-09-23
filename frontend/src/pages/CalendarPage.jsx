@@ -36,6 +36,11 @@ export default function CalendarPage({ initialMonth }) {
   const [days, setDays] = useState([])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
+  const [receipt, setReceipt] = useState(null)
+
+  const loadReceipt = useCallback(() => api('/api/training/sync-receipt')
+    .then((data) => setReceipt(data.run || null))
+    .catch(() => setReceipt(null)), [])
 
   const load = useCallback(() => {
     setLoading(true)
@@ -48,7 +53,8 @@ export default function CalendarPage({ initialMonth }) {
 
   useEffect(() => {
     load()
-  }, [load])
+    loadReceipt()
+  }, [load, loadReceipt])
 
   const dayMap = useMemo(() => {
     const map = {}
@@ -109,9 +115,31 @@ export default function CalendarPage({ initialMonth }) {
           {!isCurrentMonth && <Button variant="ghost" onClick={() => setMonth(currentMonth())} className="px-2">今</Button>}
         </div>
         <div data-testid="sync-row" className="min-w-0 max-md:w-full md:max-w-[55%]">
-          <SyncButton onSynced={load} />
+          <SyncButton onSynced={() => { load(); loadReceipt() }} />
         </div>
       </div>
+
+      {receipt && (
+        <section className="mb-4 rounded-2xl border border-line bg-white p-4 text-sm dark:border-gray-800 dark:bg-gray-900" aria-label="最近同步回执">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <strong className="text-ink-900 dark:text-white">最近同步 · {receipt.date}</strong>
+            <span className={receipt.status === 'failed' ? 'text-red-600' : 'text-emerald-700'}>
+              {receipt.status === 'failed' ? '部分或全部失败' : '已完成'}
+            </span>
+          </div>
+          {receipt.changes ? <p className="mt-1 text-ink-600 dark:text-gray-300">
+            新增 {receipt.changes.new} · 更新 {receipt.changes.updated} · 未变化 {receipt.changes.unchanged}
+          </p> : <p className="mt-1 text-ink-500">本次同步未记录训练变更明细</p>}
+          <p className="mt-1 text-xs text-ink-500 dark:text-gray-400">
+            训记 {receipt.sources?.xunji_trains ?? '未完成'} 条 · 佳明 {receipt.sources?.garmin_activities ?? '未完成'} 条 · 本次候选 {receipt.pending ?? '未知'} 条 · 点评 {receipt.report_counts?.session_review ?? 0} 份
+          </p>
+          {receipt.failed_step && <p className="mt-1 text-xs text-red-700">失败步骤：{receipt.failed_step}；已完成的数据仍保留</p>}
+          {receipt.ai_failed && <p className="mt-1 text-xs text-amber-700">训练已同步，但 AI 点评生成失败，可稍后重试。</p>}
+          {(receipt.workouts || []).length > 0 && <div className="mt-2 flex flex-wrap gap-2">
+            {receipt.workouts.map((w) => <Link key={w.id} to={`/workouts/${w.id}`} className="text-brand-700 underline dark:text-brand-300">{w.title || '训练记录'}</Link>)}
+          </div>}
+        </section>
+      )}
 
       {!loading && !error && (
         <div className="mb-4 grid grid-cols-3 gap-2.5 sm:gap-3" data-testid="calendar-stats">

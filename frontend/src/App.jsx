@@ -19,6 +19,7 @@ const PlansPage = lazy(() => import('./pages/PlansPage'))
 const CoachHubPage = lazy(() => import('./pages/CoachHubPage'))
 const ImportHubPage = lazy(() => import('./pages/ImportHubPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
+const GoalsPage = lazy(() => import('./pages/GoalsPage'))
 
 function PageLoading() {
   return (
@@ -56,6 +57,7 @@ export default function App() {
               />
               <Route path="/import" element={<ImportHubPage />} />
               <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/goals" element={<GoalsPage />} />
             </Route>
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

@@ -167,11 +167,14 @@ describe('CalendarPage', () => {
 
   it('错误态点击重试重新发起请求', async () => {
     const user = userEvent.setup()
-    let calls = 0
-    globalThis.fetch = vi.fn(() => {
-      calls += 1
-      if (calls === 1) return Promise.resolve(mockResponse({}, 500))
-      return Promise.resolve(mockResponse(CALENDAR_AUG))
+    let calendarCalls = 0
+    globalThis.fetch = vi.fn((url) => {
+      if (String(url).includes('/api/workouts/calendar')) {
+        calendarCalls += 1
+        if (calendarCalls === 1) return Promise.resolve(mockResponse({}, 500))
+        return Promise.resolve(mockResponse(CALENDAR_AUG))
+      }
+      return Promise.resolve(mockResponse({ run: null }))
     })
 
     render(
@@ -181,12 +184,12 @@ describe('CalendarPage', () => {
     )
 
     await screen.findByTestId('calendar-error')
-    expect(globalThis.fetch).toHaveBeenCalledTimes(1)
+    expect(calendarCalls).toBe(1)
 
     await user.click(screen.getByRole('button', { name: '重试' }))
 
     await waitFor(() => {
-      expect(globalThis.fetch).toHaveBeenCalledTimes(2)
+      expect(calendarCalls).toBe(2)
     })
     await screen.findByTestId('day-2026-08-03')
     expect(screen.queryByTestId('calendar-error')).not.toBeInTheDocument()
