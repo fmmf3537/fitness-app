@@ -1,18 +1,16 @@
-"""多模型统一适配层（PRD §6.3，2026-08-07 V2-1 版）。
+"""多模型统一适配层。
 
 纪律：
-- 统一接口 chat(messages, model_override=None, **opts) ->
-  {content, prompt_tokens, completion_tokens}，OpenAI 兼容协议；
-- Provider 注册表按 PRD 三行：DeepSeek（首发默认）、MiniMax（MiniMax-M2，
-  输出含 <think> 块，content 落库前必须剥离）、Kimi（V2-1 接入，默认 kimi-k2.6）；
-- kimi-k2.6 默认开思考模式：reasoning_tokens 计入 completion_tokens，调用时
-  max_tokens 默认留足 2048；响应可能带 reasoning_content 字段，落库只取 content
-  （与 MiniMax <think> 剥离并列处理）；
+- 统一接口 chat(messages, model_override=None, **opts)，OpenAI 兼容协议；
+- Provider 注册表：DeepSeek、MiniMax、Kimi；Kimi 默认使用 kimi-k3.1-pro，
+  可选 K3.1 Pro 高速版与 K3，选择结果保存在 settings；
+- Kimi 思考模型的 reasoning_tokens 计入 completion_tokens，响应可能带
+  reasoning_content 字段，落库只取 content（与 MiniMax <think> 剥离并列处理）；
 - 截图识别走 vision_extract(image_bytes, prompt)：固定 Kimi 多模态，
   OpenAI 兼容 image_url + base64 消息格式；
 - Key 只从 settings 表（Fernet 加密）或环境变量读取，禁止硬编码；
 - 每次调用写 llm_call 记账：token 数必须取自 API 响应 usage 字段，禁止本地估算；
-- 成本按可配置单价表（环境变量 LLM_PRICES_JSON 覆盖默认表）计算；
+- 成本按具体模型及缓存用量明细计算，可用 LLM_PRICES_JSON 覆盖单价；
 - 调用失败重试 2 次（共 3 次尝试），仍失败抛 LLMError。
 """
 from __future__ import annotations
@@ -31,7 +29,7 @@ from sqlalchemy.orm import Session
 from app.config import decrypt_value, encrypt_value, get_settings
 from app.models import LLMCall, Setting
 
-# ---------- Provider 注册表（PRD §6.3） ----------
+# ---------- Provider 注册表 ----------
 
 PROVIDERS: dict[str, dict[str, Any]] = {
     "deepseek": {
@@ -46,32 +44,52 @@ PROVIDERS: dict[str, dict[str, Any]] = {
     },
     "kimi": {
         "base_url": "https://api.moonshot.cn/v1",
-        # 2026-08-07 GET /v1/models 实测在列；k2/k2.5/moonshot-v1 全系列已下线或 8/31 下线，禁用
-        "default_model": "kimi-k2.6",
+        "default_model": "kimi-k3.1-pro",
         "fallback_model": "kimi-k3",
-        "implemented": True,  # V2-1 接入
+        "implemented": True,
+        "models": [
+            {"id": "kimi-k3.1-pro", "label": "Kimi K3.1 Pro（推荐）"},
+            {"id": "kimi-k3.1-pro-highspeed", "label": "Kimi K3.1 Pro 高速版"},
+            {"id": "kimi-k3", "label": "Kimi K3（3.0）"},
+        ],
     },
 }
 
-# kimi-k2.6 默认开思考模式：reasoning_tokens 计入 completion_tokens，
-# 实测 max_tokens=100 时 99 个全被推理吃光、正文为空 → 默认留足 2048
+# 思考模型需要给推理与正文留足输出余量。
 KIMI_DEFAULT_MAX_TOKENS = 2048
-# 视觉抽取输出为结构化 JSON，余量加大
 VISION_DEFAULT_MAX_TOKENS = 4096
 DEFAULT_PROVIDER = "deepseek"
 
-# 默认单价表（元 / 1M tokens，2026-08-07 按各平台定价页校准）；
-# 可用环境变量 LLM_PRICES_JSON 覆盖，如 {"deepseek": {"prompt": 1.0, "completion": 2.0}}
+# Provider 默认单价（元 / 1M tokens）。Kimi 默认项对应 K3.1 Pro。
 _DEFAULT_PRICES: dict[str, dict[str, float]] = {
-    # deepseek-chat → v4 系列：输入（缓存未命中）1 元 / 输出 2 元（api-docs.deepseek.com）
     "deepseek": {"prompt": 1.0, "completion": 2.0},
-    # MiniMax-M2：输入 2.1 元 / 输出 8.4 元（platform.minimaxi.com/docs/guides/pricing-paygo）
     "minimax": {"prompt": 2.1, "completion": 8.4},
-    # kimi-k2.6：输入 6.5 元 / 输出 27 元（platform.kimi.com/docs/pricing）
-    "kimi": {"prompt": 6.5, "completion": 27.0},
+    "kimi": {"prompt": 13.0, "completion": 68.0},
 }
 
-MAX_RETRIES = 2  # 失败后重试 2 次，共 3 次尝试
+# 模型级单价（元 / 1M tokens），K3 系列价格校准于 2026-11-04 官方定价页。
+# cached_prompt=缓存命中输入；cache_write_5m/1h=对应 TTL 的缓存写入。
+_DEFAULT_MODEL_PRICES: dict[str, dict[str, float]] = {
+    "kimi-k3.1-pro": {
+        "prompt": 13.0, "completion": 68.0, "cached_prompt": 1.3,
+        "cache_write_5m": 13.0, "cache_write_1h": 26.0,
+    },
+    "kimi-k3.1-pro-highspeed": {
+        "prompt": 26.0, "completion": 136.0, "cached_prompt": 1.3,
+        "cache_write_5m": 26.0, "cache_write_1h": 52.0,
+    },
+    "kimi-k3": {
+        "prompt": 20.0, "completion": 100.0, "cached_prompt": 2.0,
+        "cache_write_5m": 20.0, "cache_write_1h": 40.0,
+    },
+    # 旧调用与历史数据回算仍使用 K2.6 单价；不再作为新配置的可选项。
+    "kimi-k2.6": {"prompt": 6.5, "completion": 27.0},
+}
+_PRICE_KEYS = {
+    "prompt", "completion", "cached_prompt", "cache_write_5m", "cache_write_1h",
+}
+
+MAX_RETRIES = 2
 RETRY_BACKOFF_S = 1.0
 
 
@@ -90,14 +108,14 @@ def strip_think(content: str | None) -> str:
     if not content:
         return ""
     text = _THINK_CLOSED.sub("", content)
-    text = _THINK_UNCLOSED.sub("", text)  # 无闭合标签：截断到结尾
+    text = _THINK_UNCLOSED.sub("", text)
     return text.strip()
 
 
 # ---------- 成本 ----------
 
 def get_prices() -> dict[str, dict[str, float]]:
-    """读取单价表：环境变量 LLM_PRICES_JSON 覆盖默认表。"""
+    """读取 provider 默认单价表：环境变量 LLM_PRICES_JSON 覆盖默认表。"""
     raw = os.getenv("LLM_PRICES_JSON")
     if raw:
         try:
@@ -107,19 +125,60 @@ def get_prices() -> dict[str, dict[str, float]]:
                 for name, price in data.items():
                     if isinstance(price, dict):
                         merged.setdefault(name, {}).update(
-                            {k: float(v) for k, v in price.items() if k in ("prompt", "completion")}
+                            {k: float(v) for k, v in price.items() if k in _PRICE_KEYS}
                         )
                 return merged
         except (ValueError, TypeError):
-            pass  # 配置畸形时回退默认表
+            pass
     return {k: dict(v) for k, v in _DEFAULT_PRICES.items()}
 
 
-def compute_cost(provider: str, prompt_tokens: int, completion_tokens: int) -> float:
-    """按单价表估算成本（元）。"""
+def get_model_prices(provider: str, model: str) -> dict[str, float]:
+    """返回模型最新单价，支持 provider 级和 "provider:model" 级环境覆盖。"""
     price = get_prices().get(provider, {})
+    if model not in _DEFAULT_MODEL_PRICES:
+        return price
+    price = dict(_DEFAULT_MODEL_PRICES[model])
+    raw = os.getenv("LLM_PRICES_JSON")
+    if raw:
+        try:
+            data = json.loads(raw)
+            for key in (provider, f"{provider}:{model}"):
+                override = data.get(key) if isinstance(data, dict) else None
+                if isinstance(override, dict):
+                    price.update({
+                        k: float(v) for k, v in override.items() if k in _PRICE_KEYS
+                    })
+        except (ValueError, TypeError):
+            pass
+    return price
+
+
+def compute_cost(
+    provider: str,
+    prompt_tokens: int,
+    completion_tokens: int,
+    model: str | None = None,
+    *,
+    cached_tokens: int = 0,
+    cache_write_tokens: int = 0,
+    cache_ttl: str = "5m",
+) -> float:
+    """按具体模型估算成本（元）；K3 缓存读写从总输入中拆分计费。"""
+    price = get_model_prices(provider, model) if model else get_prices().get(provider, {})
+    if "cached_prompt" not in price:
+        billable_prompt = prompt_tokens
+        cached_tokens = 0
+        cache_write_tokens = 0
+    else:
+        cached_tokens = max(0, cached_tokens)
+        cache_write_tokens = max(0, cache_write_tokens)
+        billable_prompt = max(0, prompt_tokens - cached_tokens - cache_write_tokens)
+    write_key = "cache_write_1h" if cache_ttl == "1h" else "cache_write_5m"
     return (
-        prompt_tokens / 1_000_000 * price.get("prompt", 0.0)
+        billable_prompt / 1_000_000 * price.get("prompt", 0.0)
+        + cached_tokens / 1_000_000 * price.get("cached_prompt", 0.0)
+        + cache_write_tokens / 1_000_000 * price.get(write_key, 0.0)
         + completion_tokens / 1_000_000 * price.get("completion", 0.0)
     )
 
@@ -171,6 +230,46 @@ def set_default_provider(session: Session, provider: str) -> None:
     session.commit()
 
 
+def get_available_models(provider: str) -> list[dict[str, str]]:
+    """返回可选择模型；未配置多模型的 provider 仅暴露默认模型。"""
+    cfg = PROVIDERS[provider]
+    return cfg.get("models") or [{"id": cfg["default_model"], "label": cfg["default_model"]}]
+
+
+def get_selected_model(session: Session | None, provider: str) -> str:
+    """读取持久化模型选择；缺失或已失效时回退 provider 默认模型。"""
+    default = PROVIDERS[provider]["default_model"]
+    if session is None:
+        return default
+    row = session.scalars(select(Setting)).first()
+    if row is None or not row.llm_models_json:
+        return default
+    try:
+        selected = json.loads(row.llm_models_json).get(provider)
+    except (ValueError, TypeError, AttributeError):
+        return default
+    valid = {item["id"] for item in get_available_models(provider)}
+    return selected if selected in valid else default
+
+
+def set_selected_model(session: Session, provider: str, model: str) -> None:
+    """校验并保存具体模型选择。"""
+    if provider not in PROVIDERS:
+        raise LLMError(f"未知 provider：{provider}")
+    if model not in {item["id"] for item in get_available_models(provider)}:
+        raise LLMError(f"provider {provider} 不支持模型：{model}")
+    row = _get_or_create_settings(session)
+    try:
+        selections = json.loads(row.llm_models_json) if row.llm_models_json else {}
+        if not isinstance(selections, dict):
+            selections = {}
+    except (ValueError, TypeError):
+        selections = {}
+    selections[provider] = model
+    row.llm_models_json = json.dumps(selections, ensure_ascii=False)
+    session.commit()
+
+
 def resolve_api_key(session: Session | None, provider: str) -> str:
     """Key 解析优先级：settings 表（加密存储）→ 环境变量。找不到返回空串。"""
     if session is not None:
@@ -188,21 +287,29 @@ def resolve_api_key(session: Session | None, provider: str) -> str:
 
 # ---------- Key 有效性验证（PUT 设置时调用） ----------
 
-def verify_api_key(provider: str, api_key: str, *, http: httpx.Client | None = None) -> bool:
+def verify_api_key(
+    provider: str,
+    api_key: str,
+    *,
+    model: str | None = None,
+    http: httpx.Client | None = None,
+) -> bool:
     """调一次该厂商轻量 chat 接口验证 Key 有效（不产生记账）。"""
     if provider not in PROVIDERS:
         raise LLMError(f"未知 provider：{provider}")
     if not PROVIDERS[provider]["implemented"]:
         raise NotImplementedError(f"provider {provider} 尚未接入")
+    model = model or PROVIDERS[provider]["default_model"]
+    output_limit_key = "max_completion_tokens" if model.startswith("kimi-k3") else "max_tokens"
     client = http or httpx.Client(timeout=30.0)
     try:
         resp = client.post(
             f"{PROVIDERS[provider]['base_url']}/chat/completions",
             headers={"Authorization": f"Bearer {api_key}"},
             json={
-                "model": PROVIDERS[provider]["default_model"],
+                "model": model,
                 "messages": [{"role": "user", "content": "ping"}],
-                "max_tokens": 1,
+                output_limit_key: 1,
             },
         )
     except httpx.HTTPError:
@@ -247,17 +354,22 @@ class LLMClient:
         purpose: str | None = None,
         **opts: Any,
     ) -> dict:
-        """统一接口：返回 {content, prompt_tokens, completion_tokens}。"""
-        model = model_override or PROVIDERS[self.provider]["default_model"]
-        if self.provider == "kimi" and "max_tokens" not in opts:
-            # kimi-k2.6 思考模式会吞 completion_tokens，必须留足推理余量
-            opts["max_tokens"] = KIMI_DEFAULT_MAX_TOKENS
+        """统一接口：返回正文、模型、token 用量与本次费用估算。"""
+        model = model_override or get_selected_model(self._session, self.provider)
+        if self.provider == "kimi":
+            # K3 使用 max_completion_tokens；兼容旧调用方传入的 max_tokens。
+            if model.startswith("kimi-k3") and "max_tokens" in opts:
+                opts["max_completion_tokens"] = opts.pop("max_tokens")
+            if "max_tokens" not in opts and "max_completion_tokens" not in opts:
+                key = "max_completion_tokens" if model.startswith("kimi-k3") else "max_tokens"
+                opts[key] = KIMI_DEFAULT_MAX_TOKENS
         body = {"model": model, "messages": messages, **opts}
         url = f"{PROVIDERS[self.provider]['base_url']}/chat/completions"
         headers = {"Authorization": f"Bearer {self._api_key}"}
 
         data = self._post_with_retry(url, body, headers, purpose, model)
-        return self._parse_and_record(data, purpose, model)
+        cache_ttl = (opts.get("prompt_cache_options") or {}).get("ttl", "5m")
+        return self._parse_and_record(data, purpose, model, cache_ttl=cache_ttl)
 
     def vision_extract(
         self,
@@ -314,21 +426,35 @@ class LLMClient:
         self._record(purpose, model, None, None, None, status="error")
         raise LLMError(f"重试 {MAX_RETRIES} 次后仍失败：{last_error}")
 
-    def _parse_and_record(self, data: Any, purpose: str | None, model: str) -> dict:
+    def _parse_and_record(
+        self, data: Any, purpose: str | None, model: str, *, cache_ttl: str = "5m",
+    ) -> dict:
         try:
             content = data["choices"][0]["message"]["content"]
             usage = data["usage"]
             prompt_tokens = int(usage["prompt_tokens"])
             completion_tokens = int(usage["completion_tokens"])
+            prompt_details = usage.get("prompt_tokens_details") or {}
+            cached_tokens = int(prompt_details.get("cached_tokens") or 0)
+            cache_write_tokens = int(prompt_details.get("cache_write_tokens") or 0)
         except (KeyError, IndexError, TypeError, ValueError):
             self._record(purpose, model, None, None, None, status="error")
             raise LLMError("响应缺少 choices/usage 字段（禁止本地估算 token）") from None
-        cost = compute_cost(self.provider, prompt_tokens, completion_tokens)
+        cost = compute_cost(
+            self.provider, prompt_tokens, completion_tokens, model=model,
+            cached_tokens=cached_tokens, cache_write_tokens=cache_write_tokens,
+            cache_ttl=cache_ttl,
+        )
         self._record(purpose, model, prompt_tokens, completion_tokens, cost, status="ok")
         return {
             "content": strip_think(content),
+            "model": model,
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
+            "cached_tokens": cached_tokens,
+            "cache_write_tokens": cache_write_tokens,
+            "cache_ttl": cache_ttl,
+            "cost_estimate": cost,
         }
 
     def _record(

@@ -16,8 +16,16 @@ from datetime import date, datetime, time, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
-from app.models import AIReport, GarminActivity, MatchCandidate, Workout, XunjiTrain
-from app.services.fuse import _extract_movements, fuse_workout
+from app.models import (
+    AIReport,
+    GarminActivity,
+    MatchCandidate,
+    ReportChatMessage,
+    Workout,
+    WorkoutSetHr,
+    XunjiTrain,
+)
+from app.services.fuse import _extract_movements, fuse_workout, update_fused_workout
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +67,85 @@ def _garmin_interval(activity: GarminActivity) -> tuple[datetime, datetime] | No
     if activity.start_ts is None or activity.end_ts is None:
         return None
     return (activity.start_ts, activity.end_ts)
+
+
+def classify_pair(train: XunjiTrain, activity: GarminActivity) -> str | None:
+    """复用正式匹配规则：auto=自动合并，time_close=双边待确认。"""
+    xi = _xunji_interval(train)
+    gi = _garmin_interval(activity)
+    if xi is None or gi is None:
+        return None
+    if overlap_ratio(xi[0], xi[1], gi[0], gi[1]) >= OVERLAP_THRESHOLD:
+        return "auto"
+    if abs(xi[0] - gi[0]) <= CLOSE_DELTA or abs(xi[1] - gi[1]) <= CLOSE_DELTA:
+        return "time_close"
+    return None
+
+
+def _invalidate_workout_analysis(session: Session, workout_id: int) -> None:
+    """匹配关系变化后清除旧分析，避免继续展示单边训练产生的报告。"""
+    reports = session.query(AIReport).filter(
+        AIReport.workout_id == workout_id,
+        AIReport.type.in_(("session_review", "next_advice")),
+    ).all()
+    report_ids = [r.id for r in reports]
+    if report_ids:
+        session.query(ReportChatMessage).filter(
+            ReportChatMessage.report_id.in_(report_ids),
+        ).delete(synchronize_session=False)
+        session.query(AIReport).filter(AIReport.id.in_(report_ids)).delete(
+            synchronize_session=False,
+        )
+    session.query(WorkoutSetHr).filter(WorkoutSetHr.workout_id == workout_id).delete(
+        synchronize_session=False,
+    )
+
+
+def _reconcile_existing_single(
+    session: Session,
+    day: date,
+    workout: Workout,
+    train: XunjiTrain,
+    activity: GarminActivity,
+    kind: str,
+    workouts: list[Workout],
+    candidates: list[MatchCandidate],
+) -> None:
+    """把迟到的一侧补到已有单边训练或候选中，始终复用原 workout。"""
+    pending = session.query(MatchCandidate).filter(
+        MatchCandidate.workout_id == workout.id,
+        MatchCandidate.status == "pending",
+    ).order_by(MatchCandidate.id).all()
+    if kind == "auto":
+        _invalidate_workout_analysis(session, workout.id)
+        update_fused_workout(
+            workout, day, xunji=train, garmin=activity, match_status="auto_matched",
+        )
+        for candidate in pending:
+            candidate.xunji_train_id = train.id
+            candidate.garmin_activity_id = activity.id
+            candidate.status = "merged"
+            candidate.resolved_at = datetime.now()
+        workouts.append(workout)
+        return
+
+    candidate = pending[0] if pending else MatchCandidate(status="pending")
+    candidate.workout_id = workout.id
+    candidate.xunji_train_id = train.id
+    candidate.garmin_activity_id = activity.id
+    candidate.reason = "time_close"
+    candidate.status = "pending"
+    candidate.resolved_at = None
+    session.add(candidate)
+    candidates.append(candidate)
+
+
+def _visible_single_workouts(session: Session, day: date, status: str) -> list[Workout]:
+    return session.query(Workout).filter(
+        Workout.date == day,
+        Workout.deleted_at.is_(None),
+        Workout.match_status == status,
+    ).order_by(Workout.id).all()
 
 
 def _processed_ids(session: Session) -> tuple[set, set]:
@@ -147,6 +234,44 @@ def match_day(session: Session, day: date, *, chat_fn=None) -> dict:
     # 自动匹配对 → 融合
     for x, g in pairs:
         workouts.append(fuse_workout(session, day, xunji=x, garmin=g, match_status="auto_matched"))
+
+    # 迟到数据补匹配：另一侧先到时已生成单边 workout，本次新到的原始记录
+    # 必须与这些已有单边训练再匹配一次，而不是直接再建一条单边档案。
+    single_x = _visible_single_workouts(session, day, "xunji_only")
+    single_g = _visible_single_workouts(session, day, "garmin_only")
+    used_workout_ids: set[int] = set()
+    for g in list(unmatched_g):
+        for w in single_x:
+            if w.id in used_workout_ids:
+                continue
+            x = session.get(XunjiTrain, w.xunji_train_id)
+            if x is None or x.excluded:
+                continue
+            kind = classify_pair(x, g)
+            if kind is None:
+                continue
+            _reconcile_existing_single(
+                session, day, w, x, g, kind, workouts, candidates,
+            )
+            used_workout_ids.add(w.id)
+            unmatched_g.remove(g)
+            break
+    for x in list(unmatched_x):
+        for w in single_g:
+            if w.id in used_workout_ids:
+                continue
+            g = session.get(GarminActivity, w.garmin_activity_id)
+            if g is None or g.excluded:
+                continue
+            kind = classify_pair(x, g)
+            if kind is None:
+                continue
+            _reconcile_existing_single(
+                session, day, w, x, g, kind, workouts, candidates,
+            )
+            used_workout_ids.add(w.id)
+            unmatched_x.remove(x)
+            break
 
     # 剩余训记单边
     for x in unmatched_x:

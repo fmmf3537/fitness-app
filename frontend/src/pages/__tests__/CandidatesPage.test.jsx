@@ -41,6 +41,7 @@ const CANDIDATE_GARMIN_ONLY = {
   ...CANDIDATE_BOTH,
   id: 2,
   reason: 'garmin_only_strength',
+  workout_id: 2,
   xunji_train: null,
 }
 
@@ -59,9 +60,28 @@ const MERGE_PREVIEW = {
   },
 }
 
+const REMATCH_PREVIEW = {
+  action: 'merge',
+  reason: 'auto',
+  overlap_ratio: 1,
+  xunji_workout_id: 1,
+  garmin_workout_id: 2,
+  keep_workout_id: 1,
+  xunji_train: CANDIDATE_BOTH.xunji_train,
+  garmin_activity: CANDIDATE_BOTH.garmin_activity,
+  workout: MERGE_PREVIEW.workout,
+}
+
 function setupFetch(candidates) {
   let pending = candidates
   globalThis.fetch = vi.fn((url) => {
+    if (String(url).includes('/rematch/preview')) {
+      return Promise.resolve(mockResponse(REMATCH_PREVIEW))
+    }
+    if (String(url).endsWith('/api/workouts/rematch')) {
+      pending = pending.filter((candidate) => candidate.id !== 2)
+      return Promise.resolve(mockResponse({ action: 'merge', workout_id: 1 }))
+    }
     if (String(url).includes('/preview')) {
       return Promise.resolve(mockResponse(MERGE_PREVIEW))
     }
@@ -167,13 +187,38 @@ describe('CandidatesPage', () => {
     expect(screen.getByTestId('merge-preview')).toBeInTheDocument()
   })
 
-  it('xunji_train 为 null 的候选只显示「保持分开」', async () => {
+  it('佳明单边候选显示「重新匹配」和「无需补录」，不显示普通合并', async () => {
     setupFetch([CANDIDATE_GARMIN_ONLY])
     render(<CandidatesPage />)
     expect(await screen.findByTestId('candidate-2')).toBeInTheDocument()
     expect(screen.getByText('无训记记录')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '合并' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '保持分开' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '重新匹配' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '无需补录' })).toBeInTheDocument()
+  })
+
+  it('佳明单边重新匹配先预览，确认后调用两条训练 id 并关闭候选', async () => {
+    setupFetch([CANDIDATE_GARMIN_ONLY])
+    const user = userEvent.setup()
+    render(<CandidatesPage />)
+    await user.click(await screen.findByRole('button', { name: '重新匹配' }))
+
+    expect(await screen.findByTestId('rematch-preview')).toBeInTheDocument()
+    expect(screen.getByText('胸')).toBeInTheDocument()
+    expect(screen.getByText('时间重叠 100%')).toBeInTheDocument()
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      '/api/workouts/rematch/preview',
+      expect.objectContaining({ body: JSON.stringify({ workout_ids: [2] }) }),
+    )
+    await user.click(screen.getByRole('button', { name: '确认合并' }))
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/workouts/rematch',
+        expect.objectContaining({ body: JSON.stringify({ workout_ids: [1, 2] }) }),
+      )
+    })
+    await waitFor(() => expect(screen.queryByTestId('candidate-2')).not.toBeInTheDocument())
   })
 
   it('候选已被其他页面处理时重新查询并移除旧卡片', async () => {

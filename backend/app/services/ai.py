@@ -797,12 +797,15 @@ def generate_session_review(
     content = ""
     prompt_tokens = 0
     completion_tokens = 0
+    reported_cost: float | None = None
     parsed: dict | None = None
     for attempt in range(2):
         result = chat_fn(messages)
         content = result.get("content", "")
         prompt_tokens += result.get("prompt_tokens") or 0
         completion_tokens += result.get("completion_tokens") or 0
+        if result.get("cost_estimate") is not None:
+            reported_cost = (reported_cost or 0.0) + result["cost_estimate"]
         try:
             parsed = parse_session_review(content)
             break
@@ -819,8 +822,10 @@ def generate_session_review(
                 ]
 
     provider = _resolve_provider(session)
-    model = result.get("model") or llm.PROVIDERS[provider]["default_model"]
-    cost = llm.compute_cost(provider, prompt_tokens, completion_tokens)
+    model = result.get("model") or llm.get_selected_model(session, provider)
+    cost = reported_cost if reported_cost is not None else llm.compute_cost(
+        provider, prompt_tokens, completion_tokens, model=model,
+    )
 
     report = AIReport(
         type="session_review",
@@ -1411,8 +1416,13 @@ def generate_next_advice(
     prompt_tokens = result.get("prompt_tokens") or 0
     completion_tokens = result.get("completion_tokens") or 0
     provider = _resolve_provider(session)
-    model = result.get("model") or llm.PROVIDERS[provider]["default_model"]
-    cost = llm.compute_cost(provider, prompt_tokens, completion_tokens)
+    model = result.get("model") or llm.get_selected_model(session, provider)
+    cost = llm.compute_cost(
+        provider, prompt_tokens, completion_tokens, model=model,
+        cached_tokens=result.get("cached_tokens") or 0,
+        cache_write_tokens=result.get("cache_write_tokens") or 0,
+        cache_ttl=result.get("cache_ttl") or "5m",
+    )
 
     plan_date = date.fromisoformat(plan_day["date"])
     report = AIReport(
@@ -1768,8 +1778,13 @@ def generate_plan_review(
     prompt_tokens = result.get("prompt_tokens") or 0
     completion_tokens = result.get("completion_tokens") or 0
     provider = _resolve_provider(session)
-    model = result.get("model") or llm.PROVIDERS[provider]["default_model"]
-    cost = llm.compute_cost(provider, prompt_tokens, completion_tokens)
+    model = result.get("model") or llm.get_selected_model(session, provider)
+    cost = llm.compute_cost(
+        provider, prompt_tokens, completion_tokens, model=model,
+        cached_tokens=result.get("cached_tokens") or 0,
+        cache_write_tokens=result.get("cache_write_tokens") or 0,
+        cache_ttl=result.get("cache_ttl") or "5m",
+    )
 
     # 幂等覆盖：先删旧再生成
     session.query(AIReport).filter(
@@ -2267,8 +2282,13 @@ def _generate_period_review(
     completion_tokens = result.get("completion_tokens") or 0
 
     provider = _resolve_provider(session)
-    model = result.get("model") or llm.PROVIDERS[provider]["default_model"]
-    cost = llm.compute_cost(provider, prompt_tokens, completion_tokens)
+    model = result.get("model") or llm.get_selected_model(session, provider)
+    cost = llm.compute_cost(
+        provider, prompt_tokens, completion_tokens, model=model,
+        cached_tokens=result.get("cached_tokens") or 0,
+        cache_write_tokens=result.get("cache_write_tokens") or 0,
+        cache_ttl=result.get("cache_ttl") or "5m",
+    )
 
     report = replace_report or AIReport(type=report_type, workout_id=None)
     report.period_start = start

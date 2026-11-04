@@ -4,11 +4,17 @@ import json
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.auth import require_auth
 from app.db import get_session
 from app.models import GarminActivity, Workout, XunjiTrain
+from app.services.rematch import (
+    RematchValidationError,
+    confirm_rematch,
+    preview_rematch,
+)
 from app.services.set_hr import get_or_compute_set_hr
 from app.services.workouts import delete_workout, list_deleted_workouts, restore_workout
 
@@ -79,6 +85,34 @@ def extract_heart_rate_series(raw_json: str | None) -> list[dict]:
                 ):
                     return [{"t": i, "hr": int(x)} for i, x in enumerate(v)]
     return []
+
+
+class RematchRequest(BaseModel):
+    workout_ids: list[int] = Field(min_length=1, max_length=2)
+
+
+@router.post("/rematch/preview")
+def workout_rematch_preview(
+    req: RematchRequest,
+    session: Session = Depends(get_session),
+) -> dict:
+    """只读预览单边训练重新匹配，不写训练、候选或分析数据。"""
+    try:
+        return preview_rematch(session, req.workout_ids)
+    except RematchValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/rematch")
+def workout_rematch_confirm(
+    req: RematchRequest,
+    session: Session = Depends(get_session),
+) -> dict:
+    """确认预览中的两条训练后，原地合并或转为双边待确认。"""
+    try:
+        return confirm_rematch(session, req.workout_ids)
+    except RematchValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/calendar")

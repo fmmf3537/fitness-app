@@ -19,6 +19,11 @@ def env_vars(monkeypatch, tmp_path):
     monkeypatch.setenv("SCHEDULER_ENABLED", "0")  # 测试中不起调度线程
     from app.config import get_settings
 
+    # config 导入时会以 override=True 加载项目 .env；必须在导入后重新设置
+    # 测试环境，避免 DATABASE_URL 等变量被改回本地/生产配置。
+    monkeypatch.setenv("FERNET_KEY", TEST_FERNET_KEY)
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path}/test.db")
+    monkeypatch.setenv("SCHEDULER_ENABLED", "0")
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
@@ -81,7 +86,11 @@ def session(env_vars):
     from app.db import make_engine, make_session_factory
     from app.models import Base
 
+    # env_vars 已在 app.config 导入后重设临时库；这里加防御性断言，
+    # 一旦测试隔离失效立即失败，绝不接受本地 app.db。
+    assert os.environ["DATABASE_URL"].endswith("/test.db")
     engine = make_engine(os.environ["DATABASE_URL"])
+    assert "app.db" not in str(engine.url)
     Base.metadata.create_all(engine)
     factory = make_session_factory(engine)
     s = factory()

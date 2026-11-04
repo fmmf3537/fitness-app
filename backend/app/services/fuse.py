@@ -52,6 +52,23 @@ def build_fused_workout_values(
     }
 
 
+def update_fused_workout(
+    workout: Workout,
+    day: date,
+    *,
+    xunji: XunjiTrain | None = None,
+    garmin: GarminActivity | None = None,
+    match_status: str,
+) -> Workout:
+    """按正式融合规则原地更新已有训练，保留 workout id 供关联数据继续使用。"""
+    values = build_fused_workout_values(
+        day, xunji=xunji, garmin=garmin, match_status=match_status,
+    )
+    for field, value in values.items():
+        setattr(workout, field, value)
+    return workout
+
+
 def fuse_workout(
     session: Session,
     day: date,

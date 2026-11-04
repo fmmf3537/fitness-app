@@ -31,6 +31,8 @@ class Setting(Base):
     xunji_api_key_enc: Mapped[str | None] = mapped_column(Text)
     default_llm: Mapped[str | None] = mapped_column(String(50))
     llm_keys_json_enc: Mapped[str | None] = mapped_column(Text)
+    # 各 provider 当前选择的具体模型，JSON 对象：{"kimi": "kimi-k3.1-pro"}
+    llm_models_json: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     # V4-3：性别与出生日期（皮脂钳体脂率公式所需），录入一次永久生效
     gender: Mapped[str | None] = mapped_column(String(10))

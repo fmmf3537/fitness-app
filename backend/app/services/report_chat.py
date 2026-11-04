@@ -233,8 +233,13 @@ def post_message(
     except Exception as exc:  # noqa: BLE001 - provider 读取失败回退默认，不计费偏差容忍
         logger.warning("读取默认 provider 失败，回退 %s：%s", llm.DEFAULT_PROVIDER, exc)
         provider = llm.DEFAULT_PROVIDER
-    model = result.get("model") or llm.PROVIDERS[provider]["default_model"]
-    cost = llm.compute_cost(provider, prompt_tokens, completion_tokens)
+    model = result.get("model") or llm.get_selected_model(session, provider)
+    cost = llm.compute_cost(
+        provider, prompt_tokens, completion_tokens, model=model,
+        cached_tokens=result.get("cached_tokens") or 0,
+        cache_write_tokens=result.get("cache_write_tokens") or 0,
+        cache_ttl=result.get("cache_ttl") or "5m",
+    )
 
     assistant_msg = ReportChatMessage(
         report_id=report_id,

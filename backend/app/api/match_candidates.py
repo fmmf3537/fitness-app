@@ -9,8 +9,13 @@ from sqlalchemy.orm import Session
 
 from app.api.auth import require_auth
 from app.db import get_session
-from app.models import GarminActivity, MatchCandidate, XunjiTrain
-from app.services.fuse import build_fused_workout_values, fuse_workout
+from app.models import GarminActivity, MatchCandidate, Workout, XunjiTrain
+from app.services.fuse import (
+    build_fused_workout_values,
+    fuse_workout,
+    update_fused_workout,
+)
+from app.services.matcher import _invalidate_workout_analysis
 
 router = APIRouter(
     prefix="/api/match-candidates", tags=["match-candidates"],
@@ -146,30 +151,51 @@ def resolve_candidate(
     else:
         raise HTTPException(status_code=422, detail="候选缺少可定位日期的记录")
 
+    existing = session.get(Workout, c.workout_id) if c.workout_id else None
+    if existing is not None and existing.deleted_at is not None:
+        raise HTTPException(status_code=409, detail="候选关联训练已删除")
+    if existing is not None and existing.xunji_train_id and existing.garmin_activity_id:
+        raise HTTPException(status_code=409, detail="候选关联训练状态异常")
+
     workout_ids: list[int] = []
     if req.action == "merge":
         if train is None or activity is None:
             raise HTTPException(status_code=422, detail="缺少一侧记录，无法合并")
-        w = fuse_workout(session, day, xunji=train, garmin=activity,
-                         match_status="manual_matched")
+        if existing is not None:
+            _invalidate_workout_analysis(session, existing.id)
+            w = update_fused_workout(
+                existing, day, xunji=train, garmin=activity,
+                match_status="manual_matched",
+            )
+        else:
+            w = fuse_workout(
+                session, day, xunji=train, garmin=activity,
+                match_status="manual_matched",
+            )
         workout_ids.append(w.id)
         c.workout_id = w.id
         c.status = "merged"
     else:  # split
         if train is not None:
-            workout_ids.append(
-                fuse_workout(session, day, xunji=train, match_status="xunji_only").id
-            )
-        if activity is not None:
-            # garmin_only_strength 候选在拆分前已有 garmin_only workout，避免重复建
-            existing = c.workout_id
-            if existing and train is None:
-                workout_ids.append(existing)
+            if existing is not None and existing.xunji_train_id == train.id:
+                w = existing
             else:
-                workout_ids.append(
-                    fuse_workout(session, day, garmin=activity,
-                                 match_status="garmin_only").id
+                w = fuse_workout(
+                    session, day, xunji=train, match_status="xunji_only",
                 )
+            workout_ids.append(w.id)
+        if activity is not None:
+            if (
+                existing is not None
+                and existing.garmin_activity_id == activity.id
+                and existing.id not in workout_ids
+            ):
+                w = existing
+            else:
+                w = fuse_workout(
+                    session, day, garmin=activity, match_status="garmin_only",
+                )
+            workout_ids.append(w.id)
         c.status = "split"
 
     c.resolved_at = datetime.now()

@@ -6,6 +6,7 @@ import EmptyState from '../components/ui/EmptyState'
 import ErrorState from '../components/ui/ErrorState'
 import Skeleton from '../components/ui/Skeleton'
 import BottomSheet from '../components/BottomSheet'
+import RematchPreview from '../components/RematchPreview'
 import { formatDateTime, formatDuration } from '../utils/status'
 import { useCandidateQueue } from '../components/useCandidateQueue'
 
@@ -108,6 +109,8 @@ function CandidateCard({ candidate, onResolve, onStale }) {
   const [resolving, setResolving] = useState(false)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [preview, setPreview] = useState(null)
+  const [rematchPreview, setRematchPreview] = useState(null)
+  const [rematchLoading, setRematchLoading] = useState(false)
   const [error, setError] = useState('')
   const { xunji_train: xt, garmin_activity: ga } = candidate
 
@@ -141,6 +144,46 @@ function CandidateCard({ candidate, onResolve, onStale }) {
     }
   }
 
+  const openRematchPreview = async () => {
+    setRematchLoading(true)
+    setError('')
+    try {
+      const data = await api('/api/workouts/rematch/preview', {
+        method: 'POST',
+        body: JSON.stringify({ workout_ids: [candidate.workout_id] }),
+      })
+      setRematchPreview(data)
+    } catch (err) {
+      setError(err.detail || err.message)
+    } finally {
+      setRematchLoading(false)
+    }
+  }
+
+  const confirmRematch = async () => {
+    if (!rematchPreview) return
+    setResolving(true)
+    setError('')
+    try {
+      const result = await api('/api/workouts/rematch', {
+        method: 'POST',
+        body: JSON.stringify({
+          workout_ids: [rematchPreview.xunji_workout_id, rematchPreview.garmin_workout_id],
+        }),
+      })
+      setRematchPreview(null)
+      if (result.action === 'candidate') {
+        setResolving(false)
+        onStale()
+      } else {
+        onResolve(candidate.id)
+      }
+    } catch (err) {
+      setError(err.detail || err.message)
+      setResolving(false)
+    }
+  }
+
   return (
     <li>
       <Card testId={`candidate-${candidate.id}`}>
@@ -163,7 +206,7 @@ function CandidateCard({ candidate, onResolve, onStale }) {
           )}
         </div>
         <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">原因：{candidate.reason}</p>
-        {error && !preview && (
+        {error && !preview && !rematchPreview && (
           <p role="alert" className="mt-2 text-sm text-red-600">
             {error}
           </p>
@@ -178,12 +221,21 @@ function CandidateCard({ candidate, onResolve, onStale }) {
               {previewLoading ? '正在读取预览…' : '合并'}
             </Button>
           )}
+          {!xt && candidate.reason === 'garmin_only_strength' && candidate.workout_id && (
+            <Button
+              variant="primary"
+              onClick={openRematchPreview}
+              disabled={resolving || rematchLoading}
+            >
+              {rematchLoading ? '正在查找匹配…' : '重新匹配'}
+            </Button>
+          )}
           <Button
             variant="secondary"
             onClick={() => handleResolve('split')}
             disabled={resolving}
           >
-            保持分开
+            {xt ? '保持分开' : '无需补录'}
           </Button>
         </div>
         <MergePreview
@@ -192,6 +244,13 @@ function CandidateCard({ candidate, onResolve, onStale }) {
           error={error}
           onCancel={() => setPreview(null)}
           onConfirm={() => handleResolve('merge')}
+        />
+        <RematchPreview
+          preview={rematchPreview}
+          resolving={resolving}
+          error={error}
+          onCancel={() => setRematchPreview(null)}
+          onConfirm={confirmRematch}
         />
       </Card>
     </li>

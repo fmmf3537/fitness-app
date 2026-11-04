@@ -66,6 +66,33 @@ const FAILING_SETTINGS = {
   ],
 }
 
+const KIMI_PROVIDER = {
+  name: 'kimi',
+  base_url: 'https://api.moonshot.cn/v1',
+  default_model: 'kimi-k3.1-pro',
+  selected_model: 'kimi-k3.1-pro',
+  implemented: true,
+  has_key: true,
+  consecutive_failures: 0,
+  models: [
+    {
+      id: 'kimi-k3.1-pro', label: 'Kimi K3.1 Pro（推荐）',
+      prompt: 13, completion: 68, cached_prompt: 1.3,
+      cache_write_5m: 13, cache_write_1h: 26,
+    },
+    {
+      id: 'kimi-k3.1-pro-highspeed', label: 'Kimi K3.1 Pro 高速版',
+      prompt: 26, completion: 136, cached_prompt: 1.3,
+      cache_write_5m: 26, cache_write_1h: 52,
+    },
+    {
+      id: 'kimi-k3', label: 'Kimi K3（3.0）',
+      prompt: 20, completion: 100, cached_prompt: 2,
+      cache_write_5m: 20, cache_write_1h: 40,
+    },
+  ],
+}
+
 const USAGE = {
   month: '2026-08',
   total_calls: 12,
@@ -301,6 +328,35 @@ describe('SettingsPage', () => {
         expect.objectContaining({
           method: 'PUT',
           body: JSON.stringify({ provider: 'minimax', api_key: '', set_default: true }),
+        }),
+      )
+    })
+  })
+
+  it('Kimi 展示 K3.1/K3 最新模型、价格，并可保存模型选择', async () => {
+    installFetch({
+      settings: { ...LLM_SETTINGS, providers: [...LLM_SETTINGS.providers, KIMI_PROVIDER] },
+    })
+    const user = userEvent.setup()
+    renderPage()
+
+    const select = await screen.findByTestId('model-select-kimi')
+    expect(select).toHaveValue('kimi-k3.1-pro')
+    expect(within(select).getByText('Kimi K3.1 Pro（推荐）')).toBeInTheDocument()
+    expect(within(select).getByText('Kimi K3.1 Pro 高速版')).toBeInTheDocument()
+    expect(within(select).getByText('Kimi K3（3.0）')).toBeInTheDocument()
+    expect(screen.getByTestId('model-pricing-kimi').textContent).toContain('输入 ¥13')
+    expect(screen.getByTestId('model-pricing-kimi').textContent).toContain('输出 ¥68')
+
+    await user.selectOptions(select, 'kimi-k3')
+    await vi.waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/settings/llm',
+        expect.objectContaining({
+          method: 'PUT',
+          body: JSON.stringify({
+            provider: 'kimi', api_key: '', set_default: false, model: 'kimi-k3',
+          }),
         }),
       )
     })

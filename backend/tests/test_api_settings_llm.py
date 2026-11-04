@@ -66,8 +66,16 @@ class TestGetSettings:
         by_name = {p["name"]: p for p in data["providers"]}
         assert by_name["deepseek"]["default_model"] == "deepseek-chat"
         assert by_name["minimax"]["default_model"] == "MiniMax-M2"
-        assert by_name["kimi"]["implemented"] is True  # V2-1 已接入
-        assert by_name["kimi"]["default_model"] == "kimi-k2.6"
+        assert by_name["kimi"]["implemented"] is True
+        assert by_name["kimi"]["default_model"] == "kimi-k3.1-pro"
+        assert by_name["kimi"]["selected_model"] == "kimi-k3.1-pro"
+        assert {m["id"] for m in by_name["kimi"]["models"]} == {
+            "kimi-k3.1-pro", "kimi-k3.1-pro-highspeed", "kimi-k3",
+        }
+        k31 = next(m for m in by_name["kimi"]["models"] if m["id"] == "kimi-k3.1-pro")
+        assert k31["prompt"] == 13.0
+        assert k31["completion"] == 68.0
+        assert k31["cached_prompt"] == 1.3
 
 
 class TestPutSettings:
@@ -175,6 +183,48 @@ class TestSwitchDefaultOnly:
             headers=auth,
         )
         assert resp.status_code == 400
+
+
+class TestModelSelection:
+    def test_select_kimi_model_without_resending_key(self, client, auth):
+        resp = client.put(
+            "/api/settings/llm",
+            json={"provider": "kimi", "api_key": "", "model": "kimi-k3"},
+            headers=auth,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["selected_model"] == "kimi-k3"
+        settings = client.get("/api/settings/llm", headers=auth).json()
+        kimi = next(p for p in settings["providers"] if p["name"] == "kimi")
+        assert kimi["selected_model"] == "kimi-k3"
+
+    def test_unknown_model_rejected(self, client, auth):
+        resp = client.put(
+            "/api/settings/llm",
+            json={"provider": "kimi", "api_key": "", "model": "kimi-k2.6"},
+            headers=auth,
+        )
+        assert resp.status_code == 400
+        assert "不支持模型" in resp.json()["detail"]
+
+    @respx.mock
+    def test_key_verification_uses_selected_model(self, client, auth):
+        route = respx.post("https://api.moonshot.cn/v1/chat/completions").mock(
+            return_value=_ok_resp()
+        )
+        resp = client.put(
+            "/api/settings/llm",
+            json={
+                "provider": "kimi", "api_key": "sk-kimi-x",
+                "model": "kimi-k3.1-pro-highspeed",
+            },
+            headers=auth,
+        )
+        assert resp.status_code == 200
+        import json
+        body = json.loads(route.calls.last.request.content)
+        assert body["model"] == "kimi-k3.1-pro-highspeed"
+        assert body["max_completion_tokens"] == 1
 
 
 # ---------- V2-1：连续失败计数与备用模型建议 ----------

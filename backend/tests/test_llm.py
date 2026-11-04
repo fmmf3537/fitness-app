@@ -82,7 +82,16 @@ class TestChat:
     def test_unified_return_structure(self, session, deepseek_key):
         respx.post(DEEPSEEK_URL).mock(return_value=_resp("回复正文"))
         result = chat([{"role": "user", "content": "你好"}], session=session)
-        assert result == {"content": "回复正文", "prompt_tokens": 11, "completion_tokens": 7}
+        assert result == {
+            "content": "回复正文",
+            "model": "deepseek-chat",
+            "prompt_tokens": 11,
+            "completion_tokens": 7,
+            "cached_tokens": 0,
+            "cache_write_tokens": 0,
+            "cache_ttl": "5m",
+            "cost_estimate": pytest.approx(11 / 1_000_000 + 14 / 1_000_000),
+        }
 
     @respx.mock
     def test_default_provider_is_deepseek(self, session, deepseek_key):
@@ -172,6 +181,33 @@ class TestAccounting:
         prices = get_prices()["deepseek"]
         assert compute_cost("deepseek", 2_000_000, 0) == pytest.approx(2 * prices["prompt"])
         assert compute_cost("deepseek", 0, 0) == 0.0
+
+    def test_kimi_model_specific_prices(self, monkeypatch):
+        monkeypatch.delenv("LLM_PRICES_JSON", raising=False)
+        assert compute_cost(
+            "kimi", 1_000_000, 1_000_000, model="kimi-k3.1-pro",
+        ) == pytest.approx(81.0)
+        assert compute_cost(
+            "kimi", 1_000_000, 1_000_000, model="kimi-k3.1-pro-highspeed",
+        ) == pytest.approx(162.0)
+        assert compute_cost(
+            "kimi", 1_000_000, 1_000_000, model="kimi-k3",
+        ) == pytest.approx(120.0)
+
+    def test_kimi_cache_read_write_and_ttl_prices(self, monkeypatch):
+        monkeypatch.delenv("LLM_PRICES_JSON", raising=False)
+        # 总输入 1000 = 未缓存 500 + 命中 200 + 写入 300；输出 500。
+        expected_5m = 500 / 1_000_000 * 13 + 200 / 1_000_000 * 1.3
+        expected_5m += 300 / 1_000_000 * 13 + 500 / 1_000_000 * 68
+        assert compute_cost(
+            "kimi", 1000, 500, model="kimi-k3.1-pro",
+            cached_tokens=200, cache_write_tokens=300,
+        ) == pytest.approx(expected_5m)
+        expected_1h = expected_5m + 300 / 1_000_000 * 13
+        assert compute_cost(
+            "kimi", 1000, 500, model="kimi-k3.1-pro",
+            cached_tokens=200, cache_write_tokens=300, cache_ttl="1h",
+        ) == pytest.approx(expected_1h)
 
     @respx.mock
     def test_missing_usage_raises_llm_error(self, session, deepseek_key):

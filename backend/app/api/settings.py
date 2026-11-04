@@ -24,8 +24,9 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 class LLMSettingsPut(BaseModel):
     provider: str
-    api_key: str = ""  # V2-1：可为空，仅切换默认模型
+    api_key: str = ""  # 可为空，仅切换默认 provider 或具体模型
     set_default: bool = False
+    model: str | None = None
 
 
 @router.get("/llm", dependencies=[Depends(require_auth)])
@@ -36,6 +37,14 @@ def get_llm_settings(session: Session = Depends(get_session)) -> dict:
             "name": name,
             "base_url": cfg["base_url"],
             "default_model": cfg["default_model"],
+            "selected_model": llm.get_selected_model(session, name),
+            "models": [
+                {
+                    **item,
+                    **llm.get_model_prices(name, item["id"]),
+                }
+                for item in llm.get_available_models(name)
+            ],
             "implemented": cfg["implemented"],
             "has_key": bool(stored.get(name) or llm.resolve_api_key(None, name)),
             "consecutive_failures": llm.get_consecutive_failures(session, name),
@@ -112,20 +121,34 @@ def put_llm_settings(req: LLMSettingsPut, session: Session = Depends(get_session
         raise HTTPException(status_code=400, detail=f"未知 provider：{req.provider}")
     if not llm.PROVIDERS[req.provider]["implemented"]:
         raise HTTPException(status_code=400, detail=f"provider {req.provider} 尚未接入")
+    valid_models = {item["id"] for item in llm.get_available_models(req.provider)}
+    if req.model is not None and req.model not in valid_models:
+        raise HTTPException(status_code=400, detail=f"provider {req.provider} 不支持模型：{req.model}")
+    selected_model = req.model or llm.get_selected_model(session, req.provider)
+
     if not req.api_key.strip():
-        # V2-1：仅切换默认模型（要求该 provider 已配置 Key）
-        if not req.set_default:
+        if not req.set_default and req.model is None:
             raise HTTPException(status_code=400, detail="api_key 不能为空")
-        if not llm.resolve_api_key(session, req.provider):
+        if req.set_default and not llm.resolve_api_key(session, req.provider):
             raise HTTPException(status_code=400, detail=f"provider {req.provider} 未配置 Key，无法设为默认")
-        llm.set_default_provider(session, req.provider)
-        return {"ok": True, "provider": req.provider, "default_llm": llm.get_default_provider(session)}
-    if not llm.verify_api_key(req.provider, req.api_key):
-        raise HTTPException(status_code=400, detail="Key 验证失败（厂商接口返回非 200），未保存")
-    llm.save_api_key(session, req.provider, req.api_key)
-    if req.set_default:
-        llm.set_default_provider(session, req.provider)
-    return {"ok": True, "provider": req.provider, "default_llm": llm.get_default_provider(session)}
+        if req.model is not None:
+            llm.set_selected_model(session, req.provider, req.model)
+        if req.set_default:
+            llm.set_default_provider(session, req.provider)
+    else:
+        if not llm.verify_api_key(req.provider, req.api_key, model=selected_model):
+            raise HTTPException(status_code=400, detail="Key 验证失败（厂商接口返回非 200），未保存")
+        llm.save_api_key(session, req.provider, req.api_key)
+        if req.model is not None:
+            llm.set_selected_model(session, req.provider, req.model)
+        if req.set_default:
+            llm.set_default_provider(session, req.provider)
+    return {
+        "ok": True,
+        "provider": req.provider,
+        "default_llm": llm.get_default_provider(session),
+        "selected_model": llm.get_selected_model(session, req.provider),
+    }
 
 
 # ---------- V4-3 用户画像（性别 / 出生日期，皮脂钳公式所需） ----------

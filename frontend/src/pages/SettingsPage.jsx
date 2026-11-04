@@ -48,6 +48,8 @@ export default function SettingsPage() {
   const [usage, setUsage] = useState(null)
   const [keyInputs, setKeyInputs] = useState({})
   const [defaultFlags, setDefaultFlags] = useState({})
+  const [modelSelections, setModelSelections] = useState({})
+  const [modelSaving, setModelSaving] = useState({})
   const [saving, setSaving] = useState({})
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
@@ -61,7 +63,12 @@ export default function SettingsPage() {
 
   const loadSettings = useCallback(() => {
     return api('/api/settings/llm')
-      .then((data) => setSettings(data))
+      .then((data) => {
+        setSettings(data)
+        setModelSelections(Object.fromEntries(
+          (data.providers || []).map((p) => [p.name, p.selected_model || p.default_model]),
+        ))
+      })
       .catch((err) => setError(err.status === 401 ? '未登录' : err.message))
   }, [])
 
@@ -117,6 +124,26 @@ export default function SettingsPage() {
       .catch((err) => setError(err.status === 401 ? '未登录' : err.message))
   }
 
+  const handleModelChange = (name, model) => {
+    setModelSelections((s) => ({ ...s, [name]: model }))
+    setModelSaving((s) => ({ ...s, [name]: true }))
+    setError('')
+    setMessage('')
+    api('/api/settings/llm', {
+      method: 'PUT',
+      body: JSON.stringify({ provider: name, api_key: '', set_default: false, model }),
+    })
+      .then(() => {
+        setMessage(`已选择模型 ${model}`)
+        loadSettings()
+      })
+      .catch((err) => {
+        setError(err.status === 401 ? '未登录' : err.detail || err.message)
+        loadSettings()
+      })
+      .finally(() => setModelSaving((s) => ({ ...s, [name]: false })))
+  }
+
   // V4-4：保存个人资料（性别 + 出生日期）；PATCH 语义一起传
   const handleSaveProfile = () => {
     setProfileSaving(true)
@@ -141,6 +168,8 @@ export default function SettingsPage() {
   const handleSave = (name) => {
     const apiKey = (keyInputs[name] || '').trim()
     if (!apiKey) return
+    const providerConfig = (settings?.providers || []).find((p) => p.name === name)
+    const hasModelChoices = (providerConfig?.models || []).length > 1
     setSaving((s) => ({ ...s, [name]: true }))
     setError('')
     setMessage('')
@@ -150,6 +179,7 @@ export default function SettingsPage() {
         provider: name,
         api_key: apiKey,
         set_default: Boolean(defaultFlags[name]),
+        ...(hasModelChoices ? { model: modelSelections[name] } : {}),
       }),
     })
       .then(() => {
@@ -285,7 +315,9 @@ export default function SettingsPage() {
             >
               <div className="flex flex-wrap items-center gap-2 text-sm">
                 <span className="font-semibold text-ink-900 dark:text-gray-100">{p.name}</span>
-                <span className="text-xs text-ink-500 dark:text-gray-400">{p.default_model}</span>
+                <span className="text-xs text-ink-500 dark:text-gray-400">
+                  {p.selected_model || p.default_model}
+                </span>
                 {p.has_key ? (
                   <Badge variant="green">已配置</Badge>
                 ) : (
@@ -305,6 +337,35 @@ export default function SettingsPage() {
                   </Button>
                 )}
               </div>
+              {(p.models || []).length > 1 && (
+                <div className="mt-3 rounded-xl bg-canvas/60 p-3 dark:bg-gray-950/60">
+                  <label htmlFor={`model-select-${p.name}`} className="text-xs font-medium text-ink-600 dark:text-gray-300">
+                    AI 模型
+                  </label>
+                  <select
+                    id={`model-select-${p.name}`}
+                    data-testid={`model-select-${p.name}`}
+                    value={modelSelections[p.name] || p.selected_model || p.default_model}
+                    onChange={(e) => handleModelChange(p.name, e.target.value)}
+                    disabled={modelSaving[p.name]}
+                    className="mt-1.5 h-11 w-full rounded-xl border border-line bg-white px-3 text-sm text-ink-900 focus:outline-none focus:ring-2 focus:ring-brand-200 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+                  >
+                    {p.models.map((model) => (
+                      <option key={model.id} value={model.id}>{model.label}</option>
+                    ))}
+                  </select>
+                  <p data-testid={`model-pricing-${p.name}`} className="mt-2 text-xs leading-5 text-ink-500 dark:text-gray-400">
+                    官方标准价：输入 ¥{p.models.find((m) => m.id === modelSelections[p.name])?.prompt}
+                    {' / '}输出 ¥{p.models.find((m) => m.id === modelSelections[p.name])?.completion} / MTok
+                    {p.models.find((m) => m.id === modelSelections[p.name])?.cached_prompt != null && (
+                      <>；缓存命中 ¥{p.models.find((m) => m.id === modelSelections[p.name])?.cached_prompt} / MTok</>
+                    )}
+                  </p>
+                  <p className="mt-1 text-[11px] leading-4 text-ink-400">
+                    费用按实际 token 与缓存读写明细估算，以平台账单为准
+                  </p>
+                </div>
+              )}
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <label htmlFor={`api-key-input-${p.name}`} className="text-sm text-ink-600 dark:text-gray-300">
                   API Key
