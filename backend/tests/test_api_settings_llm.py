@@ -64,8 +64,14 @@ class TestGetSettings:
             assert "api_key" not in p  # 永不回传明文 Key
             assert "has_key" in p
         by_name = {p["name"]: p for p in data["providers"]}
-        assert by_name["deepseek"]["default_model"] == "deepseek-chat"
-        assert by_name["minimax"]["default_model"] == "MiniMax-M2"
+        assert by_name["deepseek"]["default_model"] == "deepseek-flash"
+        assert by_name["minimax"]["default_model"] == "MiniMax-M3"
+        assert {m["id"] for m in by_name["deepseek"]["models"]} == {
+            "deepseek-flash", "deepseek-v4-pro",
+        }
+        assert {m["id"] for m in by_name["minimax"]["models"]} == {
+            "MiniMax-M3", "MiniMax-M3.1-Flash",
+        }
         assert by_name["kimi"]["implemented"] is True
         assert by_name["kimi"]["default_model"] == "kimi-k3.1-pro"
         assert by_name["kimi"]["selected_model"] == "kimi-k3.1-pro"
@@ -224,7 +230,7 @@ class TestModelSelection:
         import json
         body = json.loads(route.calls.last.request.content)
         assert body["model"] == "kimi-k3.1-pro-highspeed"
-        assert body["max_completion_tokens"] == 1
+        assert body["max_completion_tokens"] == 256  # 给推理与正文都留余量
 
 
 # ---------- V2-1：连续失败计数与备用模型建议 ----------

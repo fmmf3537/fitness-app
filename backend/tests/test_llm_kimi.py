@@ -110,12 +110,18 @@ class TestKimiChat:
 
     @respx.mock
     def test_empty_content_when_reasoning_exhausts_tokens(self, session, kimi_key):
-        """max_tokens 被推理吃光时 content 为空串：正常返回空串而非报错。"""
-        respx.post(KIMI_URL).mock(
-            return_value=_kimi_resp("", reasoning="...", completion_tokens=99)
-        )
-        result = chat([{"role": "user", "content": "hi"}], provider="kimi", session=session)
-        assert result["content"] == ""
+        """推理耗尽输出额度时必须明确报错，不能把空正文当成功结果。"""
+        respx.post(KIMI_URL).mock(return_value=httpx.Response(200, json={
+            "choices": [{
+                "message": {"role": "assistant", "content": "", "reasoning_content": "..."},
+                "finish_reason": "length",
+            }],
+            "usage": {"prompt_tokens": 11, "completion_tokens": 99},
+        }))
+        with pytest.raises(LLMError, match="输出额度已被推理消耗"):
+            chat([{"role": "user", "content": "hi"}], provider="kimi", session=session)
+        row = session.scalars(select(LLMCall)).one()
+        assert row.status == "error"
 
 
 class TestModelSelectionAndCost:

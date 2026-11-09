@@ -50,6 +50,8 @@ export default function SettingsPage() {
   const [defaultFlags, setDefaultFlags] = useState({})
   const [modelSelections, setModelSelections] = useState({})
   const [modelSaving, setModelSaving] = useState({})
+  const [modelTesting, setModelTesting] = useState({})
+  const [modelTestResults, setModelTestResults] = useState({})
   const [saving, setSaving] = useState({})
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
@@ -127,6 +129,7 @@ export default function SettingsPage() {
   const handleModelChange = (name, model) => {
     setModelSelections((s) => ({ ...s, [name]: model }))
     setModelSaving((s) => ({ ...s, [name]: true }))
+    setModelTestResults((s) => ({ ...s, [name]: null }))
     setError('')
     setMessage('')
     api('/api/settings/llm', {
@@ -142,6 +145,24 @@ export default function SettingsPage() {
         loadSettings()
       })
       .finally(() => setModelSaving((s) => ({ ...s, [name]: false })))
+  }
+
+  const handleModelTest = (name) => {
+    const model = modelSelections[name]
+    setModelTesting((s) => ({ ...s, [name]: true }))
+    setModelTestResults((s) => ({ ...s, [name]: null }))
+    setError('')
+    setMessage('')
+    api('/api/settings/llm/test', {
+      method: 'POST',
+      body: JSON.stringify({ provider: name, model }),
+    })
+      .then((result) => setModelTestResults((s) => ({ ...s, [name]: result })))
+      .catch((err) => setModelTestResults((s) => ({
+        ...s,
+        [name]: { ok: false, message: err.detail || err.message || '测试请求失败' },
+      })))
+      .finally(() => setModelTesting((s) => ({ ...s, [name]: false })))
   }
 
   // V4-4：保存个人资料（性别 + 出生日期）；PATCH 语义一起传
@@ -361,7 +382,50 @@ export default function SettingsPage() {
                       <>；缓存命中 ¥{p.models.find((m) => m.id === modelSelections[p.name])?.cached_prompt} / MTok</>
                     )}
                   </p>
-                  <p className="mt-1 text-[11px] leading-4 text-ink-400">
+                  {p.models.find((m) => m.id === modelSelections[p.name])?.pricing_note && (
+                    <p className="mt-1 text-[11px] leading-4 text-ink-400">
+                      {p.models.find((m) => m.id === modelSelections[p.name]).pricing_note}
+                    </p>
+                  )}
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <Button
+                      variant="secondary"
+                      size="compact"
+                      onClick={() => handleModelTest(p.name)}
+                      disabled={modelTesting[p.name] || !p.has_key}
+                      testId={`test-model-${p.name}`}
+                    >
+                      {modelTesting[p.name] ? '测试中…' : '测试可用性'}
+                    </Button>
+                    <span className="text-[11px] leading-4 text-ink-400">
+                      {p.has_key ? '真实最小调用，产生少量 token 费用' : '请先保存 API Key'}
+                    </span>
+                  </div>
+                  {modelTestResults[p.name] && (
+                    <div
+                      data-testid={`model-test-result-${p.name}`}
+                      role="status"
+                      className={`mt-2 rounded-xl border px-3 py-2 text-xs leading-5 ${
+                        modelTestResults[p.name].ok
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40'
+                          : 'border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40'
+                      }`}
+                    >
+                      <p className="font-medium">{modelTestResults[p.name].message}</p>
+                      <p className="mt-0.5">
+                        耗时 {modelTestResults[p.name].latency_ms ?? '—'} ms
+                        {modelTestResults[p.name].ok && (
+                          <> · tokens {modelTestResults[p.name].prompt_tokens}+{modelTestResults[p.name].completion_tokens}
+                            {' '}· 估算 ¥{Number(modelTestResults[p.name].cost_estimate || 0).toFixed(6)}
+                          </>
+                        )}
+                      </p>
+                      {modelTestResults[p.name].detail && (
+                        <p className="mt-1 break-words opacity-80">厂商信息：{modelTestResults[p.name].detail}</p>
+                      )}
+                    </div>
+                  )}
+                  <p className="mt-2 text-[11px] leading-4 text-ink-400">
                     费用按实际 token 与缓存读写明细估算，以平台账单为准
                   </p>
                 </div>

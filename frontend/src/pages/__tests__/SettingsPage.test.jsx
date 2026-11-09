@@ -362,6 +362,35 @@ describe('SettingsPage', () => {
     })
   })
 
+  it('测试可用性发送所选模型并展示正文、延迟和费用结果', async () => {
+    installFetch({
+      settings: { default_llm: 'kimi', suggested_fallback: null, providers: [KIMI_PROVIDER] },
+    })
+    const baseFetch = globalThis.fetch
+    globalThis.fetch = vi.fn((url, options = {}) => {
+      if (url === '/api/settings/llm/test') {
+        expect(JSON.parse(options.body)).toEqual({ provider: 'kimi', model: 'kimi-k3.1-pro' })
+        return Promise.resolve(mockResponse({
+          ok: true, code: 'ok', message: '模型可用，已成功返回正文',
+          latency_ms: 321, prompt_tokens: 20, completion_tokens: 10,
+          cost_estimate: 0.00094,
+        }))
+      }
+      return baseFetch(url, options)
+    })
+    const user = userEvent.setup()
+    renderPage()
+    await screen.findByTestId('model-select-kimi')
+
+    await user.click(screen.getByTestId('test-model-kimi'))
+
+    const result = await screen.findByTestId('model-test-result-kimi')
+    expect(result).toHaveTextContent('模型可用，已成功返回正文')
+    expect(result).toHaveTextContent('321 ms')
+    expect(result).toHaveTextContent('tokens 20+10')
+    expect(result).toHaveTextContent('¥0.000940')
+  })
+
   it('无连续失败时不显示降级横幅', async () => {
     renderPage()
     await screen.findByTestId('llm-provider-deepseek')

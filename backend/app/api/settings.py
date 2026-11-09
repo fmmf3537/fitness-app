@@ -29,6 +29,11 @@ class LLMSettingsPut(BaseModel):
     model: str | None = None
 
 
+class LLMModelTestPost(BaseModel):
+    provider: str
+    model: str | None = None
+
+
 @router.get("/llm", dependencies=[Depends(require_auth)])
 def get_llm_settings(session: Session = Depends(get_session)) -> dict:
     stored = llm.get_stored_keys(session)
@@ -64,6 +69,17 @@ def get_llm_settings(session: Session = Depends(get_session)) -> dict:
         "suggested_fallback": suggested_fallback,
         "providers": providers,
     }
+
+
+@router.post("/llm/test", dependencies=[Depends(require_auth)])
+def test_llm_model(req: LLMModelTestPost, session: Session = Depends(get_session)) -> dict:
+    """真实最小调用测试指定模型；失败作为正常诊断结果返回，不改默认配置。"""
+    try:
+        return llm.test_model_availability(session, req.provider, req.model)
+    except llm.LLMError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except NotImplementedError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/llm/usage", dependencies=[Depends(require_auth)])

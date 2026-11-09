@@ -34,13 +34,33 @@ from app.models import LLMCall, Setting
 PROVIDERS: dict[str, dict[str, Any]] = {
     "deepseek": {
         "base_url": "https://api.deepseek.com/v1",
-        "default_model": "deepseek-chat",
+        "default_model": "deepseek-flash",
         "implemented": True,
+        "models": [
+            {
+                "id": "deepseek-flash", "label": "DeepSeek V4.1 Flash（推荐）",
+                "pricing_note": "按高峰价估算；闲时半价（法定节假日以账单为准）",
+            },
+            {
+                "id": "deepseek-v4-pro", "label": "DeepSeek V4 Pro（旗舰）",
+                "pricing_note": "按高峰价估算；闲时半价（法定节假日以账单为准）",
+            },
+        ],
     },
     "minimax": {
         "base_url": "https://api.minimaxi.com/v1",
-        "default_model": "MiniMax-M2",
+        "default_model": "MiniMax-M3",
         "implemented": True,
+        "models": [
+            {
+                "id": "MiniMax-M3", "label": "MiniMax M3（旗舰）",
+                "pricing_note": "≤512k 输入永久五折后价格；更长输入按高阶价估算",
+            },
+            {
+                "id": "MiniMax-M3.1-Flash", "label": "MiniMax M3.1 Flash（快速低价）",
+                "pricing_note": "标准服务价格；优先服务为标准价的 1.5 倍",
+            },
+        ],
     },
     "kimi": {
         "base_url": "https://api.moonshot.cn/v1",
@@ -58,18 +78,23 @@ PROVIDERS: dict[str, dict[str, Any]] = {
 # 思考模型需要给推理与正文留足输出余量。
 KIMI_DEFAULT_MAX_TOKENS = 2048
 VISION_DEFAULT_MAX_TOKENS = 4096
+AVAILABILITY_TEST_MAX_TOKENS = 256
 DEFAULT_PROVIDER = "deepseek"
 
-# Provider 默认单价（元 / 1M tokens）。Kimi 默认项对应 K3.1 Pro。
+# Provider 默认单价（元 / 1M tokens）。DeepSeek 按高峰价保守估算。
 _DEFAULT_PRICES: dict[str, dict[str, float]] = {
-    "deepseek": {"prompt": 1.0, "completion": 2.0},
-    "minimax": {"prompt": 2.1, "completion": 8.4},
+    "deepseek": {"prompt": 2.0, "completion": 8.0, "cached_prompt": 0.04},
+    "minimax": {"prompt": 2.1, "completion": 8.4, "cached_prompt": 0.42},
     "kimi": {"prompt": 13.0, "completion": 68.0},
 }
 
-# 模型级单价（元 / 1M tokens），K3 系列价格校准于 2026-11-04 官方定价页。
+# 模型级单价（元 / 1M tokens），校准于 2026-11-06 官方定价页。
 # cached_prompt=缓存命中输入；cache_write_5m/1h=对应 TTL 的缓存写入。
 _DEFAULT_MODEL_PRICES: dict[str, dict[str, float]] = {
+    "deepseek-flash": {"prompt": 2.0, "completion": 8.0, "cached_prompt": 0.04},
+    "deepseek-v4-pro": {"prompt": 9.0, "completion": 27.0, "cached_prompt": 0.30},
+    "MiniMax-M3": {"prompt": 2.1, "completion": 8.4, "cached_prompt": 0.42},
+    "MiniMax-M3.1-Flash": {"prompt": 1.0, "completion": 4.0, "cached_prompt": 0.10},
     "kimi-k3.1-pro": {
         "prompt": 13.0, "completion": 68.0, "cached_prompt": 1.3,
         "cache_write_5m": 13.0, "cache_write_1h": 26.0,
@@ -82,7 +107,10 @@ _DEFAULT_MODEL_PRICES: dict[str, dict[str, float]] = {
         "prompt": 20.0, "completion": 100.0, "cached_prompt": 2.0,
         "cache_write_5m": 20.0, "cache_write_1h": 40.0,
     },
-    # 旧调用与历史数据回算仍使用 K2.6 单价；不再作为新配置的可选项。
+    # 旧调用与历史数据回算仍使用旧单价；不再作为新配置的可选项。
+    "deepseek-chat": {"prompt": 1.0, "completion": 2.0},
+    "deepseek-reasoner": {"prompt": 1.0, "completion": 2.0},
+    "MiniMax-M2": {"prompt": 2.1, "completion": 8.4},
     "kimi-k2.6": {"prompt": 6.5, "completion": 27.0},
 }
 _PRICE_KEYS = {
@@ -164,8 +192,14 @@ def compute_cost(
     cache_write_tokens: int = 0,
     cache_ttl: str = "5m",
 ) -> float:
-    """按具体模型估算成本（元）；K3 缓存读写从总输入中拆分计费。"""
+    """按具体模型估算成本（元）；K3 缓存读写从总输入中拆分计费。
+
+    DeepSeek 始终按高峰价保守估算；MiniMax M3 按实际输入长度选择价格档。
+    """
     price = get_model_prices(provider, model) if model else get_prices().get(provider, {})
+    if model == "MiniMax-M3" and prompt_tokens > 512_000:
+        price = dict(price)
+        price.update({"prompt": 4.2, "completion": 16.8, "cached_prompt": 0.84})
     if "cached_prompt" not in price:
         billable_prompt = prompt_tokens
         cached_tokens = 0
@@ -285,7 +319,155 @@ def resolve_api_key(session: Session | None, provider: str) -> str:
     return env_keys.get(provider, "")
 
 
-# ---------- Key 有效性验证（PUT 设置时调用） ----------
+# ---------- Key 与模型可用性验证 ----------
+
+def _output_limit_key(provider: str, model: str) -> str:
+    """Kimi K3 与 MiniMax M3 使用新版输出参数；DeepSeek 仍为 max_tokens。"""
+    if model.startswith("kimi-k3") or (provider == "minimax" and model.startswith("MiniMax-M3")):
+        return "max_completion_tokens"
+    return "max_tokens"
+
+
+def _provider_error_message(resp: httpx.Response) -> str:
+    """提取适合展示的厂商错误，限制长度且绝不回显认证头。"""
+    try:
+        data = resp.json()
+    except ValueError:
+        data = None
+    message = ""
+    if isinstance(data, dict):
+        error = data.get("error")
+        if isinstance(error, dict):
+            message = str(error.get("message") or error.get("msg") or "")
+        elif error:
+            message = str(error)
+        base = data.get("base_resp") or {}
+        if not message and isinstance(base, dict):
+            message = str(base.get("status_msg") or "")
+        if not message:
+            message = str(data.get("detail") or data.get("message") or "")
+    return (message or resp.text or "厂商未返回错误详情")[:300]
+
+
+def test_model_availability(
+    session: Session | None,
+    provider: str,
+    model: str | None = None,
+    *,
+    api_key: str | None = None,
+    http: httpx.Client | None = None,
+) -> dict[str, Any]:
+    """单次真实调用验证模型，区分权限、Key、限流、空正文与网络问题。
+
+    成功调用以 purpose=availability_test 记账；失败不写入 llm_call，避免诊断动作
+    干扰生产调用的连续失败降级逻辑。
+    """
+    if provider not in PROVIDERS:
+        raise LLMError(f"未知 provider：{provider}")
+    if not PROVIDERS[provider]["implemented"]:
+        raise NotImplementedError(f"provider {provider} 尚未接入")
+    model = model or PROVIDERS[provider]["default_model"]
+    if model not in {item["id"] for item in get_available_models(provider)}:
+        raise LLMError(f"provider {provider} 不支持模型：{model}")
+    key = api_key or resolve_api_key(session, provider)
+    started = time.perf_counter()
+
+    def result(ok: bool, code: str, message: str, **extra: Any) -> dict[str, Any]:
+        return {
+            "ok": ok, "provider": provider, "model": model, "code": code,
+            "message": message, "latency_ms": round((time.perf_counter() - started) * 1000),
+            **extra,
+        }
+
+    if not key:
+        return result(False, "missing_key", "尚未配置 API Key，请先保存 Key")
+
+    client = http or httpx.Client(timeout=45.0)
+    try:
+        resp = client.post(
+            f"{PROVIDERS[provider]['base_url']}/chat/completions",
+            headers={"Authorization": f"Bearer {key}"},
+            json={
+                "model": model,
+                "messages": [{"role": "user", "content": "请只回复 OK，不要解释。"}],
+                _output_limit_key(provider, model): AVAILABILITY_TEST_MAX_TOKENS,
+            },
+        )
+    except httpx.HTTPError as exc:
+        return result(False, "network_error", f"网络连接失败：{type(exc).__name__}，请稍后重试")
+    finally:
+        if http is None:
+            client.close()
+
+    if resp.status_code != 200:
+        detail = _provider_error_message(resp)
+        if key in detail:
+            detail = detail.replace(key, "[已隐藏]")
+        status = resp.status_code
+        if status == 401:
+            code, message = "invalid_key", "API Key 无效或已过期"
+        elif status == 402:
+            code, message = "insufficient_balance", "账户余额不足，请充值后重试"
+        elif status == 403:
+            code, message = "permission_denied", "Key 有效，但当前账号没有该模型权限"
+        elif status == 404:
+            code, message = "model_unavailable", "模型不存在或已下线，请切换到最新模型"
+        elif status == 429:
+            if any(word in detail.lower() for word in ("balance", "insufficient", "欠费", "余额")):
+                code, message = "insufficient_balance", "账户余额不足，请充值后重试"
+            else:
+                code, message = "rate_limited", "请求被限流，请稍后重试"
+        elif status == 400:
+            code, message = "request_rejected", "请求被拒绝，可能是模型未开通或参数不兼容"
+        else:
+            code, message = "provider_error", "厂商服务暂时异常，请稍后重试"
+        return result(False, code, message, http_status=status, detail=detail)
+
+    try:
+        data = resp.json()
+        base = data.get("base_resp") or {}
+        if isinstance(base, dict) and base.get("status_code", 0) not in (0, None):
+            return result(
+                False, "provider_error", "厂商返回业务错误",
+                http_status=200, detail=str(base.get("status_msg") or "")[:300],
+            )
+        choice = data["choices"][0]
+        content = strip_think(choice["message"].get("content"))
+        finish_reason = choice.get("finish_reason")
+        usage = data["usage"]
+        prompt_tokens = int(usage["prompt_tokens"])
+        completion_tokens = int(usage["completion_tokens"])
+        prompt_details = usage.get("prompt_tokens_details") or {}
+        cached_tokens = int(prompt_details.get("cached_tokens") or 0)
+        cache_write_tokens = int(prompt_details.get("cache_write_tokens") or 0)
+    except (KeyError, IndexError, TypeError, ValueError):
+        return result(False, "invalid_response", "接口返回格式异常，未获得正文和 token 用量")
+
+    if not content:
+        code = "output_truncated" if finish_reason == "length" else "empty_response"
+        message = (
+            "模型已连接，但输出额度被推理消耗且正文为空；请增大输出额度"
+            if finish_reason == "length" else "模型已连接，但返回空正文，请切换模型或稍后重试"
+        )
+        return result(False, code, message, finish_reason=finish_reason)
+
+    cost = compute_cost(
+        provider, prompt_tokens, completion_tokens, model=model,
+        cached_tokens=cached_tokens, cache_write_tokens=cache_write_tokens,
+    )
+    if session is not None:
+        session.add(LLMCall(
+            provider=provider, model=model, purpose="availability_test",
+            prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
+            cost_estimate=cost, status="ok",
+        ))
+        session.commit()
+    return result(
+        True, "ok", "模型可用，已成功返回正文", content_preview=content[:40],
+        finish_reason=finish_reason, prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens, cost_estimate=cost,
+    )
+
 
 def verify_api_key(
     provider: str,
@@ -294,30 +476,10 @@ def verify_api_key(
     model: str | None = None,
     http: httpx.Client | None = None,
 ) -> bool:
-    """调一次该厂商轻量 chat 接口验证 Key 有效（不产生记账）。"""
-    if provider not in PROVIDERS:
-        raise LLMError(f"未知 provider：{provider}")
-    if not PROVIDERS[provider]["implemented"]:
-        raise NotImplementedError(f"provider {provider} 尚未接入")
-    model = model or PROVIDERS[provider]["default_model"]
-    output_limit_key = "max_completion_tokens" if model.startswith("kimi-k3") else "max_tokens"
-    client = http or httpx.Client(timeout=30.0)
-    try:
-        resp = client.post(
-            f"{PROVIDERS[provider]['base_url']}/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}"},
-            json={
-                "model": model,
-                "messages": [{"role": "user", "content": "ping"}],
-                output_limit_key: 1,
-            },
-        )
-    except httpx.HTTPError:
-        return False
-    finally:
-        if http is None:
-            client.close()
-    return resp.status_code == 200
+    """保存 Key 前做真实最小调用；空正文也视为验证失败。"""
+    return bool(test_model_availability(
+        None, provider, model, api_key=api_key, http=http,
+    )["ok"])
 
 
 # ---------- 客户端 ----------
@@ -356,13 +518,12 @@ class LLMClient:
     ) -> dict:
         """统一接口：返回正文、模型、token 用量与本次费用估算。"""
         model = model_override or get_selected_model(self._session, self.provider)
-        if self.provider == "kimi":
-            # K3 使用 max_completion_tokens；兼容旧调用方传入的 max_tokens。
-            if model.startswith("kimi-k3") and "max_tokens" in opts:
-                opts["max_completion_tokens"] = opts.pop("max_tokens")
-            if "max_tokens" not in opts and "max_completion_tokens" not in opts:
-                key = "max_completion_tokens" if model.startswith("kimi-k3") else "max_tokens"
-                opts[key] = KIMI_DEFAULT_MAX_TOKENS
+        output_limit_key = _output_limit_key(self.provider, model)
+        if output_limit_key == "max_completion_tokens" and "max_tokens" in opts:
+            # Kimi K3 / MiniMax M3 兼容旧调用方，但不再发送已弃用参数。
+            opts.setdefault("max_completion_tokens", opts.pop("max_tokens"))
+        if self.provider == "kimi" and "max_tokens" not in opts and "max_completion_tokens" not in opts:
+            opts[output_limit_key] = KIMI_DEFAULT_MAX_TOKENS
         body = {"model": model, "messages": messages, **opts}
         url = f"{PROVIDERS[self.provider]['base_url']}/chat/completions"
         headers = {"Authorization": f"Bearer {self._api_key}"}
@@ -430,7 +591,9 @@ class LLMClient:
         self, data: Any, purpose: str | None, model: str, *, cache_ttl: str = "5m",
     ) -> dict:
         try:
-            content = data["choices"][0]["message"]["content"]
+            choice = data["choices"][0]
+            content = strip_think(choice["message"]["content"])
+            finish_reason = choice.get("finish_reason")
             usage = data["usage"]
             prompt_tokens = int(usage["prompt_tokens"])
             completion_tokens = int(usage["completion_tokens"])
@@ -440,6 +603,10 @@ class LLMClient:
         except (KeyError, IndexError, TypeError, ValueError):
             self._record(purpose, model, None, None, None, status="error")
             raise LLMError("响应缺少 choices/usage 字段（禁止本地估算 token）") from None
+        if not content:
+            self._record(purpose, model, prompt_tokens, completion_tokens, None, status="error")
+            suffix = "，输出额度已被推理消耗" if finish_reason == "length" else ""
+            raise LLMError(f"模型返回空正文（finish_reason={finish_reason or 'unknown'}）{suffix}")
         cost = compute_cost(
             self.provider, prompt_tokens, completion_tokens, model=model,
             cached_tokens=cached_tokens, cache_write_tokens=cache_write_tokens,

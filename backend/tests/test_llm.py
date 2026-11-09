@@ -26,7 +26,7 @@ DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
 MINIMAX_URL = "https://api.minimaxi.com/v1/chat/completions"
 
 
-def _resp(content="你好", model="deepseek-chat", prompt_tokens=11, completion_tokens=7):
+def _resp(content="你好", model="deepseek-flash", prompt_tokens=11, completion_tokens=7):
     return httpx.Response(
         200,
         json={
@@ -84,13 +84,13 @@ class TestChat:
         result = chat([{"role": "user", "content": "你好"}], session=session)
         assert result == {
             "content": "回复正文",
-            "model": "deepseek-chat",
+            "model": "deepseek-flash",
             "prompt_tokens": 11,
             "completion_tokens": 7,
             "cached_tokens": 0,
             "cache_write_tokens": 0,
             "cache_ttl": "5m",
-            "cost_estimate": pytest.approx(11 / 1_000_000 + 14 / 1_000_000),
+            "cost_estimate": pytest.approx((11 * 2 + 7 * 8) / 1_000_000),
         }
 
     @respx.mock
@@ -100,19 +100,23 @@ class TestChat:
         chat([{"role": "user", "content": "hi"}], session=session)
         assert route.called
         req = json.loads(route.calls.last.request.content)
-        assert req["model"] == "deepseek-chat"
+        assert req["model"] == "deepseek-flash"
 
     @respx.mock
     def test_minimax_think_block_stripped_before_return(self, session, deepseek_key):
         content = "<think>用户说你好，应礼貌回应</think>你好！有什么可以帮你？"
-        respx.post(MINIMAX_URL).mock(return_value=_resp(content, model="MiniMax-M2"))
+        route = respx.post(MINIMAX_URL).mock(return_value=_resp(content, model="MiniMax-M3"))
         result = chat(
             [{"role": "user", "content": "你好"}],
             provider="minimax",
             session=session,
+            max_tokens=1024,
         )
         assert "<think>" not in result["content"]
         assert result["content"] == "你好！有什么可以帮你？"
+        req = json.loads(route.calls.last.request.content)
+        assert req["max_completion_tokens"] == 1024
+        assert "max_tokens" not in req
 
     @respx.mock
     def test_model_override(self, session, deepseek_key):
@@ -151,7 +155,7 @@ class TestAccounting:
         assert result["completion_tokens"] == 45
         row = session.scalars(select(LLMCall)).one()
         assert row.provider == "deepseek"
-        assert row.model == "deepseek-chat"
+        assert row.model == "deepseek-flash"
         assert row.purpose == "test"
         assert row.prompt_tokens == 123
         assert row.completion_tokens == 45

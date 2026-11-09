@@ -135,9 +135,9 @@ def test_token_and_cost_persisted(session):
 
     assert assistant_msg.prompt_tokens == 100
     assert assistant_msg.completion_tokens == 50
-    assert assistant_msg.model == "deepseek-chat"  # 默认 provider 的默认模型
-    # deepseek 单价：输入 1 元 / 输出 2 元每 1M tokens
-    assert assistant_msg.cost_estimate == pytest.approx(0.0002, abs=1e-9)
+    assert assistant_msg.model == "deepseek-flash"  # 默认 provider 的默认模型
+    # DeepSeek V4.1 Flash 高峰价：输入 2 元 / 输出 8 元每 1M tokens
+    assert assistant_msg.cost_estimate == pytest.approx(0.0006, abs=1e-9)
     # 用户消息不计 token
     user_msg = session.scalars(
         select(ReportChatMessage).where(ReportChatMessage.role == "user")
