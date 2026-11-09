@@ -2,13 +2,13 @@
 
 适用于**已经在运行 Docker Compose 生产环境**的健身看板服务器。进入服务器项目目录（通常为 `~/fitness-app`），启动 Kimi Code，把下面整段一次性粘贴执行。
 
-此版本包含：迟到数据补匹配/手动重新匹配、Kimi K3.1 Pro/K3 模型选择与模型级缓存计费；目标数据库 head 为 `f2a3b4c5d6e7`。
+此版本包含：迟到数据补匹配/手动重新匹配、Kimi K3.1 Pro/K3、DeepSeek V4.1/V4 Pro、MiniMax M3/M3.1 Flash、模型级计费与真实可用性诊断；目标提交为 `4f6502cce62044a1b7ef89d338660ed9fd0e65ee`，目标数据库 head 为 `f2a3b4c5d6e7`。
 
 ---
 
 ## 可直接粘贴的提示词
 
-你现在是生产发布工程师。请在当前服务器项目目录中**直接完成本次生产更新，不要只给方案，不要中途等待我的确认**。目标是把现有 `main` 生产环境安全更新到 `origin/main`，并完成构建、数据库迁移、验证和结果报告。任何发布后的失败都必须自动回滚；任何发布前失败都必须保持旧服务不动并清楚报告。
+你现在是生产发布工程师。请在当前服务器项目目录中**直接完成本次生产更新，不要只给方案，不要中途等待我的确认**。目标是把现有 `main` 生产环境安全更新到固定提交 `4f6502cce62044a1b7ef89d338660ed9fd0e65ee`（不得改用更新的 `origin/main`），并完成构建、数据库迁移、验证和结果报告。任何发布后的失败都必须自动回滚；任何发布前失败都必须保持旧服务不动并清楚报告。
 
 ### 一、不可违反的安全约束
 
@@ -33,6 +33,7 @@ chmod 700 "$RUN_DIR"
 
 在该目录生成并执行**一个** Bash 部署脚本，使用 `set -Eeuo pipefail`，记录完整日志，并设置 `ERR` trap。不要在多个互不保留状态的 shell 调用中假装 trap 仍有效。脚本必须保存：
 
+- `TARGET_COMMIT=4f6502cce62044a1b7ef89d338660ed9fd0e65ee`：本次唯一允许部署的目标；
 - `PREV_COMMIT`：部署前 `git rev-parse HEAD`；
 - `ENV_BEFORE`：部署前 `.env` 的 SHA-256；
 - `REV_BEFORE`：部署前 Alembic current；
@@ -52,7 +53,7 @@ chmod 700 "$RUN_DIR"
 2. 运行 `bash scripts/preflight.sh` 作为诊断。若唯一差异是既有 override 明确禁用 Caddy、宿主机合法占用 80/443 或使用 `:8080`，记录为已知模式；其他 FAIL、磁盘不足 5G、Compose 配置错误均中止。
 3. 检查 `.env` 必填变量是否存在，但不得输出变量值。记录 `.env` 权限和哈希。
 4. 读取当前 Compose 服务、镜像、Alembic 版本和磁盘空间。若存在多个 Alembic head，中止。
-5. `git fetch origin main`，展示 `PREV_COMMIT..origin/main` 的提交和文件清单。若历史不能 fast-forward，中止。确认目标版本包含迁移 `f2a3b4c5d6e7_settings_llm_models.py`，否则中止，避免部署错版本。
+5. `git fetch origin main`，展示 `PREV_COMMIT..TARGET_COMMIT` 的提交和文件清单。必须用 `git merge-base --is-ancestor` 分别确认 `PREV_COMMIT` 是 `TARGET_COMMIT` 的祖先、`TARGET_COMMIT` 是 `origin/main` 的祖先；任一不满足立即中止。确认 `TARGET_COMMIT` 的文件树包含迁移 `f2a3b4c5d6e7_settings_llm_models.py`，否则中止，避免部署错版本。
 
 ### 四、不可跳过的安全快照
 
@@ -68,7 +69,7 @@ chmod 700 "$RUN_DIR"
 
 ### 五、构建、发布和验证
 
-1. 执行 `git pull --ff-only origin main`，记录 `NEW_COMMIT`；工作区必须干净。
+1. 执行 `git merge --ff-only "$TARGET_COMMIT"`，记录 `NEW_COMMIT`；必须满足 `NEW_COMMIT == TARGET_COMMIT` 且工作区干净。这里只允许 fast-forward，禁止产生 merge 提交，禁止部署 `origin/main` 上比 `TARGET_COMMIT` 更新的提交。
 2. 先运行 `docker compose build backend frontend`。构建期间旧容器继续服务；构建失败走发布前中止，不动数据库和旧容器。
 3. 构建成功后，将 `RELEASE_STARTED=1`，记录发布时间，然后执行：
    `docker compose up -d --no-build backend frontend`，再按现有 override 用 `docker compose up -d` 补齐其他服务。
@@ -79,12 +80,14 @@ chmod 700 "$RUN_DIR"
    - `alembic current == alembic heads == f2a3b4c5d6e7`；
    - PostgreSQL `settings.llm_models_json` 列存在；
    - backend 中 Kimi 可选模型为 `kimi-k3.1-pro`、`kimi-k3.1-pro-highspeed`、`kimi-k3`，默认模型为 `kimi-k3.1-pro`；
-   - frontend 最新静态 bundle 中包含 `kimi-k3.1-pro`，证明不是旧缓存镜像；
+   - backend 中 DeepSeek 可选模型为 `deepseek-flash`、`deepseek-v4-pro`，默认模型为 `deepseek-flash`；MiniMax 可选模型为 `MiniMax-M3`、`MiniMax-M3.1-Flash`，默认模型为 `MiniMax-M3`；
+   - backend 静态检查存在 `test_model_availability` 和 `POST /api/settings/llm/test` 路由，但不得通过该路由发起真实调用；
+   - frontend 最新静态 bundle 中包含 `kimi-k3.1-pro`、`deepseek-flash`、`MiniMax-M3.1-Flash` 和 `/api/settings/llm/test`，证明不是旧缓存镜像；
    - 本次发布后的 backend 日志无 migration error、Traceback 或启动失败；
    - `.env` 当前哈希仍等于 `ENV_BEFORE`；
-   - `git rev-parse HEAD == NEW_COMMIT`，工作区干净。
+   - `git rev-parse HEAD == NEW_COMMIT == TARGET_COMMIT`，工作区干净。
 6. 可运行 `bash scripts/preflight.sh --post` 补充验证，但既有 override 禁用 Caddy 时，要按实际模式判断，不能因“故意不运行 Caddy”误回滚。
-7. 所有验证通过后，将 `RELEASE_STARTED=0` 并撤销 ERR trap，保留备份与回滚镜像，输出成功报告。不要主动做任何数据同步或真实 Kimi 调用。
+7. 所有验证通过后，将 `RELEASE_STARTED=0` 并撤销 ERR trap，保留备份与回滚镜像，输出成功报告。不要主动做任何数据同步或真实 LLM 调用。
 
 ### 六、发布失败后的完整自动回滚（必须实现）
 
@@ -105,13 +108,13 @@ chmod 700 "$RUN_DIR"
 | 项目 | 必须报告的值 |
 |---|---|
 | 最终状态 | 成功 / 发布前中止 / 已安全回滚 / 回滚失败 |
-| PREV_COMMIT → NEW_COMMIT | 完整哈希 |
+| PREV_COMMIT → NEW_COMMIT | 完整哈希；成功时 NEW_COMMIT 必须等于 TARGET_COMMIT `4f6502cce62044a1b7ef89d338660ed9fd0e65ee` |
 | REV_BEFORE → REV_AFTER | 实际 Alembic 版本；成功时 AFTER 必须为 f2a3b4c5d6e7 |
 | 数据库备份 | 绝对路径、大小、SHA-256、pg_restore --list 结果 |
 | 旧镜像回滚标签 | backend/frontend 两个标签及对应镜像 ID |
 | 构建与容器 | 实际结果 |
 | 健康检查 | 内部与实际外部 URL、结果、首页 HTTP 状态 |
-| 新版本专项检查 | settings 列、三个 Kimi 模型、前端 bundle |
+| 新版本专项检查 | settings 列、三家默认与可选模型、可用性测试路由、前端 bundle；不得调用真实 LLM |
 | `.env` | 部署前后 SHA-256 是否一致，不得输出内容 |
 | 回滚 | 是否触发、原因、代码/数据库/镜像/健康检查各自结果 |
 | 证据目录 | `$RUN_DIR` 绝对路径 |
