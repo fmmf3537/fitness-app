@@ -16,6 +16,7 @@ const BackfillPage = lazy(() => import('./pages/BackfillPage'))
 const ScreenshotImportPage = lazy(() => import('./pages/ScreenshotImportPage'))
 const FitImportPage = lazy(() => import('./pages/FitImportPage'))
 const PlansPage = lazy(() => import('./pages/PlansPage'))
+const ExerciseMappingsPage = lazy(() => import('./pages/ExerciseMappingsPage'))
 const CoachHubPage = lazy(() => import('./pages/CoachHubPage'))
 const ImportHubPage = lazy(() => import('./pages/ImportHubPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
@@ -50,6 +51,7 @@ export default function App() {
               <Route path="/screenshot-import" element={<ScreenshotImportPage />} />
               <Route path="/fit-import" element={<FitImportPage />} />
               <Route path="/plans" element={<PlansPage />} />
+              <Route path="/exercise-mappings" element={<ExerciseMappingsPage />} />
               <Route path="/coach" element={<CoachHubPage />} />
               <Route
                 path="/coach-preferences"

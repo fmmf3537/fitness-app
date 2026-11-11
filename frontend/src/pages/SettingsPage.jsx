@@ -322,6 +322,7 @@ export default function SettingsPage() {
       <GroupTitle>AI 教练</GroupTitle>
       <Card className="px-3.5 py-1.5">
         <MenuRow to="/coach?tab=prefs" icon="coach" chip="blue" label="教练须知" />
+        <MenuRow to="/exercise-mappings" icon="dumbbell" chip="violet" label="动作映射" />
       </Card>
 
       <Card className="mt-3">
