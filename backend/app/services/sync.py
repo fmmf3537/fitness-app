@@ -270,11 +270,20 @@ def sync_plan_cache(*, session: Session | None = None, xunji=None, days_ahead: i
                     snapshot.plan_json = json.dumps(item, ensure_ascii=False)
                     snapshot.captured_at = datetime.now()
             session.commit()
+            # 顺延检测只读本地缓存和同步表，不实例化任何 Garmin 客户端。
+            from app.services.garmin_reschedule import detect_reschedule_candidates
+            reschedule = detect_reschedule_candidates(session)
             result = {
                 "date": today.isoformat(),
                 "status": "success",
                 "error": None,
-                "detail": {"plans": len(plans), "days_ahead": days_ahead},
+                "detail": {
+                    "plans": len(plans),
+                    "days_ahead": days_ahead,
+                    "reschedule_pending": reschedule["pending"],
+                    "reschedule_conflicts": reschedule["conflicts"],
+                    "reschedule_backfilled": reschedule["backfilled"],
+                },
             }
         except Exception as exc:
             result = {

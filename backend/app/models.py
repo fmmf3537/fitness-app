@@ -21,6 +21,11 @@ class Base(DeclarativeBase):
     pass
 
 
+def local_now() -> datetime:
+    """服务器本地 naive 时间；供 ORM 默认写入与日限统计共用，可在测试中注入。"""
+    return datetime.now()
+
+
 class Setting(Base):
     """用户配置（单用户，单行表）。"""
 
@@ -189,6 +194,41 @@ class XunjiPlan(Base):
     fetched_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
+class GarminPlanSync(Base):
+    """训记计划日到 Garmin Workout 的单向同步状态（不含凭据）。"""
+
+    __tablename__ = "garmin_plan_sync"
+    __table_args__ = (
+        UniqueConstraint("source_key", name="uq_garmin_plan_sync_source_key"),
+        UniqueConstraint("plan_ref", "training_date", name="uq_garmin_plan_sync_plan_date"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    plan_ref: Mapped[str] = mapped_column(String(100))
+    training_date: Mapped[date] = mapped_column(Date)
+    source_key: Mapped[str] = mapped_column(String(255))
+    source_hash: Mapped[str] = mapped_column(String(64))
+    content_hash: Mapped[str | None] = mapped_column(String(64))
+    synced_hash: Mapped[str | None] = mapped_column(String(64))
+    payload_json: Mapped[str | None] = mapped_column(Text)
+    workout_id: Mapped[str | None] = mapped_column(String(64))
+    workout_schedule_id: Mapped[str | None] = mapped_column(String(64))
+    reschedule_to_date: Mapped[date | None] = mapped_column(Date)
+    reschedule_from_date: Mapped[date | None] = mapped_column(Date)
+    reschedule_source_key: Mapped[str | None] = mapped_column(String(255))
+    previous_workout_schedule_id: Mapped[str | None] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(32), default="pending")
+    phase: Mapped[str | None] = mapped_column(String(32))
+    error_code: Mapped[str | None] = mapped_column(String(64))
+    last_error: Mapped[str | None] = mapped_column(Text)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+    synced_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
 class AIReport(Base):
     """AI 报告。"""
 
@@ -252,7 +292,11 @@ class LLMCall(Base):
     completion_tokens: Mapped[int | None] = mapped_column(Integer)
     cost_estimate: Mapped[float | None] = mapped_column(Float)
     status: Mapped[str | None] = mapped_column(String(20))
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    # ORM 新写入用本地 naive 时间，与 _check_regen_limit 的本地日窗口一致；
+    # 保留 server_default 兼容 raw SQL / 历史路径（无需 schema 迁移）。
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: local_now(), server_default=func.now()
+    )
 
 
 class BackfillProgress(Base):

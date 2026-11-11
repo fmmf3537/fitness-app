@@ -47,6 +47,14 @@ class Settings:
         self.garmin_password = os.getenv("GARMIN_PASSWORD", "")
         # 佳明域名：中国区 garmin.cn（PRD §6.2），可用 GARMIN_DOMAIN 覆盖
         self.garmin_domain = os.getenv("GARMIN_DOMAIN", "garmin.cn")
+        # 计划写入默认关闭；预览/状态查询不受此开关影响。
+        self.garmin_plan_sync_enabled = os.getenv(
+            "GARMIN_PLAN_SYNC_ENABLED", "0"
+        ).strip().lower() in {"1", "true", "yes", "on"}
+        # 崩溃遗留 syncing 的本地恢复阈值；只转 failed，不自动发起远端写入。
+        self.garmin_plan_sync_stale_seconds = int(
+            os.getenv("GARMIN_PLAN_SYNC_STALE_SECONDS", "900")
+        )
         # LLM Keys
         self.kimi_api_key = os.getenv("KIMI_API_KEY", "")
         self.deepseek_api_key = os.getenv("DEEPSEEK_API_KEY", "")

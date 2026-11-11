@@ -12,14 +12,22 @@ import threading
 from datetime import date, datetime, timedelta
 from typing import Callable
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.auth import require_auth
 from app.db import get_session
 from app.models import AIReport
 from app.services import ai as ai_service
+from app.services import garmin_plan_sync as garmin_sync_service
+from app.services import garmin_reschedule as garmin_reschedule_service
 from app.services import plans as plan_service
+from app.services.garmin_workout_mapper import (
+    WorkoutMappingError,
+    map_plan_day,
+    source_hash,
+)
 
 router = APIRouter(
     prefix="/api/plans",
@@ -28,18 +36,220 @@ router = APIRouter(
 )
 
 
+@router.get("/garmin/reschedules")
+def list_garmin_reschedules(session: Session = Depends(get_session)) -> dict:
+    """列出顺延候选；只用本地数据，可恢复超时状态，零 Garmin 请求。"""
+    from app.services.garmin_reschedule import list_reschedule_candidates
+
+    items = list_reschedule_candidates(session)
+    return {"count": len(items), "items": items}
+
+
+def _record_for_plan_day(
+    session: Session,
+    plan_ref: str,
+    training_date: date,
+    records: dict | None = None,
+):
+    record = (
+        records.get((plan_ref, training_date))
+        if records is not None
+        else garmin_sync_service.get_sync_record(
+            session, plan_ref=plan_ref, training_date=training_date
+        )
+    )
+    if record is None:
+        record = garmin_sync_service.get_pending_reschedule_for_target(
+            session, plan_ref=plan_ref, target_date=training_date
+        )
+    return record
+
+
 @router.get("/upcoming")
 def upcoming_plans(
     days: int = Query(default=30, ge=1, le=90),
     session: Session = Depends(get_session),
 ) -> dict:
-    """未来 N 天计划日程（含休息日标记），只读本地计划缓存。"""
+    """未来 N 天计划与同步摘要；只用本地数据，可恢复超时状态。"""
     start = date.today()
+    end = start + timedelta(days=days - 1)
+    plan_days = plan_service.query_plan_days(
+        session, start, days=days, include_source=True
+    )
+    records = garmin_sync_service.get_sync_records(session, start=start, end=end)
+    for item in plan_days:
+        source = item.pop("_garmin_source", None)
+        if source is None:
+            item["garmin_sync"] = None
+            continue
+        training_date = date.fromisoformat(source["date"])
+        current_hash = source_hash(source)
+        source_key = garmin_sync_service.source_key_for(
+            source["plan_ref"], training_date
+        )
+        record = _record_for_plan_day(
+            session, source["plan_ref"], training_date, records
+        )
+        item["garmin_sync"] = garmin_sync_service.sync_status_view(
+            record, source_key=source_key, source_hash=current_hash
+        )
+    return {"from": start.isoformat(), "to": end.isoformat(), "days": plan_days}
+
+
+def _require_plan_day(session: Session, day: date) -> dict:
+    plan_day = plan_service.query_plan_day(session, day)
+    if plan_day is None:
+        raise HTTPException(404, plan_service.plan_day_skip_reason(session, day))
+    return plan_day
+
+
+def _current_sync_status(session: Session, plan_day: dict) -> dict:
+    training_date = date.fromisoformat(plan_day["date"])
+    current_hash = source_hash(plan_day)
+    source_key = garmin_sync_service.source_key_for(
+        plan_day["plan_ref"], training_date
+    )
+    record = _record_for_plan_day(session, plan_day["plan_ref"], training_date)
+    return garmin_sync_service.sync_status_view(
+        record, source_key=source_key, source_hash=current_hash
+    )
+
+
+class GarminRescheduleRequest(BaseModel):
+    """顺延确认必须绑定目标日期和用户实际看到的目标来源哈希。"""
+
+    to_date: date
+    source_hash: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+
+
+def _reschedule_http_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, WorkoutMappingError):
+        return HTTPException(
+            status_code=422,
+            detail={"code": "PLAN_MAPPING_UNSUPPORTED", "issues": exc.issues},
+        )
+    if isinstance(exc, garmin_sync_service.PlanSyncError):
+        detail = {"code": exc.error_code, "message": exc.public_message}
+        if exc.issues:
+            detail["issues"] = exc.issues
+        return HTTPException(status_code=exc.status_code, detail=detail)
+    raise exc
+
+
+@router.get("/{day}/garmin/reschedule")
+def preview_garmin_reschedule(
+    day: date,
+    to_date: date = Query(...),
+    session: Session = Depends(get_session),
+) -> dict:
+    """预览原 Workout 保留、内容更新和原日程改期；零 Garmin 请求。"""
+    try:
+        return garmin_reschedule_service.preview_reschedule(
+            session, from_date=day, target_date=to_date
+        )
+    except (WorkoutMappingError, garmin_sync_service.PlanSyncError) as exc:
+        raise _reschedule_http_error(exc) from exc
+
+
+@router.post("/{day}/garmin/reschedule")
+def confirm_garmin_reschedule(
+    day: date,
+    body: GarminRescheduleRequest,
+    response: Response,
+    session: Session = Depends(get_session),
+    manager: garmin_reschedule_service.GarminRescheduleManager = Depends(
+        garmin_reschedule_service.get_garmin_reschedule_manager
+    ),
+) -> dict:
+    """确认原 Workout 更新和原日程改期；202 启动，成功重放 200。"""
+    from app.config import get_settings
+
+    try:
+        result = manager.start(
+            session,
+            from_date=day,
+            target_date=body.to_date,
+            expected_source_hash=body.source_hash,
+            enabled=get_settings().garmin_plan_sync_enabled,
+        )
+    except (WorkoutMappingError, garmin_sync_service.PlanSyncError) as exc:
+        raise _reschedule_http_error(exc) from exc
+    response.status_code = 202 if result["started"] else 200
+    return result
+
+
+@router.get("/{day}/garmin/preview")
+def preview_garmin_plan(
+    day: date,
+    session: Session = Depends(get_session),
+) -> dict:
+    """生成完整本地 Workout 预览；不落同步记录，不访问 Garmin。"""
+    plan_day = _require_plan_day(session, day)
+    try:
+        preview = map_plan_day(plan_day)
+    except WorkoutMappingError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "PLAN_MAPPING_UNSUPPORTED", "issues": exc.issues},
+        ) from exc
+    from app.config import get_settings
+
     return {
-        "from": start.isoformat(),
-        "to": (start + timedelta(days=days - 1)).isoformat(),
-        "days": plan_service.query_plan_days(session, start, days=days),
+        **preview,
+        "remote_write_eligible": get_settings().garmin_plan_sync_enabled,
+        "sync": _current_sync_status(session, plan_day),
     }
+
+
+@router.get("/{day}/garmin/sync")
+def get_garmin_plan_sync(
+    day: date,
+    session: Session = Depends(get_session),
+) -> dict:
+    """查询当前计划相对本地同步记录的状态，不触发任何远端操作。"""
+    plan_day = _require_plan_day(session, day)
+    return _current_sync_status(session, plan_day)
+
+
+class GarminPlanSyncRequest(BaseModel):
+    """确认必须携带用户实际看到的预览哈希，防止按计划变化前的旧预览覆盖。"""
+
+    source_hash: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+
+
+@router.post("/{day}/garmin/sync")
+def confirm_garmin_plan_sync(
+    day: date,
+    body: GarminPlanSyncRequest,
+    response: Response,
+    session: Session = Depends(get_session),
+    manager: garmin_sync_service.GarminPlanSyncManager = Depends(
+        garmin_sync_service.get_garmin_plan_sync_manager
+    ),
+) -> dict:
+    """确认创建/覆盖应用管理的训练；202 后台执行，已同步则 200 幂等返回。"""
+    from app.config import get_settings
+
+    plan_day = _require_plan_day(session, day)
+    try:
+        result = manager.start(
+            session,
+            plan_day,
+            expected_source_hash=body.source_hash,
+            enabled=get_settings().garmin_plan_sync_enabled,
+        )
+    except WorkoutMappingError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "PLAN_MAPPING_UNSUPPORTED", "issues": exc.issues},
+        ) from exc
+    except garmin_sync_service.PlanSyncError as exc:
+        detail = {"code": exc.error_code, "message": exc.public_message}
+        if exc.issues:
+            detail["issues"] = exc.issues
+        raise HTTPException(status_code=exc.status_code, detail=detail) from exc
+    response.status_code = 202 if result["started"] else 200
+    return result
 
 
 # =====================================================================

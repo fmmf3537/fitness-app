@@ -103,11 +103,13 @@ def query_plan_days(
     start: date,
     *,
     days: int = 30,
+    include_source: bool = False,
 ) -> list[dict]:
     """从 start 起逐日计划视图（API 输出形态）：训练日带动作清单，无计划日 is_rest=True。
 
     返回 [{date, is_rest, plan_ref, plan_name, title, movements:[{name, target_sets}]}]，
-    长度恰为 days；status=ended 的计划不产出训练日。
+    长度恰为 days；status=ended 的计划不产出训练日。include_source 仅供内部
+    同步状态计算附加完整来源，默认响应保持原样。
     """
     end = start + timedelta(days=days - 1)
     by_date: dict[date, dict] = {}
@@ -121,7 +123,7 @@ def query_plan_days(
         for d in extract_plan_days(data):
             if not (start <= d["date"] <= end) or d["date"] in by_date:
                 continue
-            by_date[d["date"]] = {
+            plan_day = {
                 "date": d["date"].isoformat(),
                 "is_rest": False,
                 "plan_ref": row.plan_ref,
@@ -135,6 +137,14 @@ def query_plan_days(
                     for mv in d["movements"]
                 ],
             }
+            if include_source:
+                plan_day["_garmin_source"] = {
+                    "plan_ref": row.plan_ref,
+                    "date": d["date"].isoformat(),
+                    "title": d["title"],
+                    "movements": d["movements"],
+                }
+            by_date[d["date"]] = plan_day
     result: list[dict] = []
     for i in range(days):
         day = start + timedelta(days=i)
@@ -149,6 +159,40 @@ def query_plan_days(
                 "movements": [],
             }
         )
+    return result
+
+
+def list_cached_plan_days(session: Session) -> list[dict]:
+    """列出当前缓存中的全部训练日，保留重复项供顺延检测识别歧义。
+
+    与 query_plan_day 的“取第一条”不同，本函数不做日期去重；调用方可以据此
+    拒绝同一 plan_ref/date 出现多个不同候选的情况。全程只读本地缓存。
+    """
+    result: list[dict] = []
+    rows = (
+        session.query(XunjiPlan)
+        .filter(
+            XunjiPlan.plan_json.isnot(None),
+            XunjiPlan.date_from.isnot(None),
+            XunjiPlan.date_to.isnot(None),
+        )
+        .all()
+    )
+    for row in rows:
+        data = parse_json(row.plan_json)
+        if not isinstance(data, dict) or plan_status(data) == PLAN_ENDED:
+            continue
+        name = plan_name_of(data)
+        for item in extract_plan_days(data):
+            result.append(
+                {
+                    "plan_ref": row.plan_ref,
+                    "plan_name": name,
+                    "date": item["date"].isoformat(),
+                    "title": item["title"],
+                    "movements": item["movements"],
+                }
+            )
     return result
 
 
