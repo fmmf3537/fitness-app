@@ -1,126 +1,180 @@
-# 训记 ↔ Garmin 动作匹配方案
+# 训记 ↔ Garmin 动作匹配方案（全量覆盖版）
 
 > 状态：**设计稿，未实施**
-> 日期：2026-11-11
+> 日期：2026-11-11（v2：改为全量覆盖 + 纠错机制）
 > 适用范围：训记训练计划 → Garmin Connect Workout 写入链路
 > 前置阅读：`docs/GARMIN-PLAN-SYNC-MIGRATION.md` §8.1（动作白名单）、§8.2（组次转换）
 
 ## 1. 结论摘要
 
-当前 `EXERCISE_WHITELIST` 只有 **16 个**动作，而训记标准动作表有 **1091 个**、Garmin 目录有
-**1527 个**。计划一旦换动作就触发 `PLAN_MAPPING_UNSUPPORTED`（422）整日禁止同步。
+当前 `EXERCISE_WHITELIST` 只有 **16 个**动作，训记标准动作表 **1091 个**、Garmin 目录
+**1527 个 / 47 category**。计划一换动作就 `PLAN_MAPPING_UNSUPPORTED`（422）整日禁止同步。
 
-方案：**不追求全量映射**，改为「按需采集 → 自动候选 → 人工复核 → 落库生效 → 分级验证」。
-核心是把硬编码字典换成 **DB 驱动的映射表 + 复核 UI**，让新动作无需改代码即可开通。
+本方案改为 **全量映射 + 分级激活 + 纠错闭环**：
+
+1. **全量生成**：939 个力量动作全部建立映射记录（另 152 个拉伸/有氧标记为不适用）
+2. **分级激活**：全量映射默认 `draft`，只有用户采纳或计划实际用到时才转 `active`，
+   避免算法错映射被静默写入 Garmin
+3. **纠错闭环**：任何映射都可随时修改，支持从「预览现场」就地修正；
+   已同步的历史训练会被标记 `stale` 并提示是否重同步
+4. **分级验证**：L1 目录校验全量离线；L2 按 category 抽样真实创建；L3 用户目视
 
 关键结论（已实测/已确认）：
 
-- **重量语义已对齐，不需要换算**：`total`（杠铃/器械）与 `per_hand`（哑铃）两个口径，
-  训记与 Garmin **都按原值一致**。P3 远端 `BARBELL_BACK_SQUAT weightValue=67.5`、
+- **重量语义双边一致，不需要换算**：`total`（杠铃/器械）与 `per_hand`（哑铃）两个口径，
+  训记与 Garmin **都按原值一致**。证据：P3 远端 `BARBELL_BACK_SQUAT weightValue=67.5`、
   P2 远端 `DUMBBELL_BENCH_PRESS weightValue=15.0/17.5/20.0/22.5` 均为训记原值，
-  且用户已目视确认 Connect 与 FR955 显示正确。
+  且用户已目视确认 Connect 与 FR955 显示正确；用户确认「训记哑铃 = 单只，Garmin 也显示单只」。
 - **`bodyweight` 已正确**：`weightValue: null`，不伪造 0。
-- **`assisted`（`exetype=help`）未支持**：mapper 完全不读 `exetype`。这是唯一遗留语义缺口，
-  当前 16 个白名单动作里没有辅助类动作，故不影响现状，但新增时必须显式拦截。
+- **`assisted`（`exetype=help`）未支持**：mapper 完全不读 `exetype`。当前 16 条白名单
+  无此类动作，但全量映射会引入（辅助引体/辅助双杠等），必须显式拦截。
+- **14% 的动作本质不可映射**：拉伸 122 + 有氧 30 = 152，不是力量动作，
+  不能写进 `strength_training` workout。
 
-## 2. 现状实测
+## 2. 现状与全量构成实测
 
 | 项 | 数量 | 位置 |
 |---|---|---|
-| 训记标准动作表 | **1091** | `backend/app/data/xunji_movements.json` |
-| Garmin 动作目录 | **1527 / 47 category** | `garminconnect/exercises.py`（**离线静态表**，`EXERCISES` / `BY_NAME` / `CATEGORIES` / `resolve()` / `find()`） |
-| 代码内映射 | **16**（p0:1 / p2:8 / p3:7） | `garmin_workout_mapper.EXERCISE_WHITELIST` |
-| 覆盖的 Garmin category | **9 / 47** | 同上 |
-| 当前计划实际动作 | 15（全部已覆盖） | `outputs/garmin_p0/movement_coverage.md` |
+| 训记标准动作表 | 1091 | `backend/app/data/xunji_movements.json` |
+| Garmin 动作目录 | 1527 / 47 category | `garminconnect/exercises.py`（**离线静态表**：`EXERCISES` / `BY_NAME` / `CATEGORIES` / `resolve()` / `find()`） |
+| 代码内映射 | 16（p0:1 / p2:8 / p3:7） | `garmin_workout_mapper.EXERCISE_WHITELIST` |
+| 已覆盖 Garmin category | 9 / 47 | 同上 |
 | 部位分类器 | 7 类 | `stats.classify_part` |
-| 已有分析脚本 | 2 个（只读 SQLite） | `scripts/analyze_garmin_movement_coverage.py` / `analyze_garmin_exercise_mappings.py` |
 
-映射条目当前结构（**无 `weight_strategy`**）：
+### 2.1 1091 个动作的大类构成（本地只读分析）
 
-```python
-{"display_name": "Dumbbell Bench Press", "category": "BENCH_PRESS",
- "exerciseName": "DUMBBELL_BENCH_PRESS", "support_level": "p2_verified"}
-```
+| 大类 | 数量 | 占比 | 能否映射为 strength workout |
+|---|---|---|---|
+| **力量类** | **939** | 86.1% | ✅ 可映射（本方案目标） |
+| 拉伸/柔韧类 | 122 | 11.2% | ❌ `not_applicable` |
+| 有氧类 | 30 | 2.7% | ❌ `not_applicable` |
+| 合计 | 1091 | | 无完全重复项（unique = 1091） |
 
-## 3. "找不到 / 找错了" 拆成三个独立问题
+### 2.2 939 个力量动作的匹配难度预估
 
-| # | 问题 | 表现 | 现状 | 优先级 |
+用约 50 词的临时词表粗测（正式实现会用完整词表，high 比例会更高）：
+
+| 信号强度 | 数量 | 占比 | 预估处理方式 |
+|---|---|---|---|
+| 器械 + 动作模式都命中 | 376 | 40.0% | 4 级窄化自动命中 |
+| 只命中动作模式 | 251 | 26.7% | 4 级窄化 + 候选列表 |
+| 只命中器械 | 164 | 17.5% | LLM 兜底 |
+| 无信号 | 148 | 15.8% | LLM + 人工复核 |
+
+> 「无信号」不代表不可映射——临时词表缺"抓举/前平举"等词，正式词表会覆盖。
+
+## 3. 三个独立问题
+
+| # | 问题 | 表现 | 现状 | 本方案对策 |
 |---|---|---|---|---|
-| **P1** | 找不到（未映射） | 422 + 未支持清单，整日禁止同步 | ✅ 有严格白名单，但只覆盖 16 个 | **高** |
-| **P2** | 找错了（映射错动作） | 同步成功但 Garmin/FR955 显示别的动作 | ⚠️ 仅靠人工 P2/P3 目视，无结构化校验 | **高** |
-| **P3** | 重量语义错 | 动作对但重量显示错 | ✅ 已确认双边一致（total / per_hand 均原值） | **已解决** |
-| **P4** | 辅助动作语义反 | `exetype=help` 的辅助重量被当成负荷 | ❌ `exetype` 未被 mapper 读取 | 中（当前无此类动作） |
+| **P1** | 找不到（未映射） | 422 + 清单，整日禁止同步 | 只覆盖 16 个 | 全量映射 + `not_applicable` 跳过 |
+| **P2** | 找错了（映射错动作） | 同步成功但 Garmin 显示别的动作 | 仅人工目视 | **分级激活 + 纠错闭环** |
+| **P3** | 重量语义错 | 动作对但重量显示错 | ✅ 已确认双边一致 | 存 `weight_strategy` 作声明 |
+| **P4** | 辅助动作语义反 | `exetype=help` 被当负荷 | ❌ 未处理 | `assisted` 默认禁用 |
 
 ## 4. 总体架构
 
 ```
-① 需求采集   从计划缓存提取"计划里实际出现的动作"（不追求 1091 全覆盖）
-      ↓
-② 候选生成   4 级窄化：部位 → 器械 → 动作模式 → Garmin 目录模糊匹配
-             覆盖不到的交给 LLM（DeepSeek）从该部位的 category 子集里选
-      ↓
-③ 人工复核   网页 UI：候选 + 置信度 + 重量语义 → 采纳 / 换一个 / 忽略
-             （复用 V5-5 教练须知的 draft 复核模式）
-      ↓
-④ 落库生效   mapper 改为从 DB 读映射（保留硬编码作为 seed 与兜底）
-             → 新动作开通无需改代码、无需发版
-      ↓
-⑤ 分级验证   L1 目录校验（全量、离线、免费）
-             L2 真实创建抽样（**按 category 抽，不按动作抽**）
-             L3 FR955 目视（只验实际在用的）
+① 全量生成   939 个力量动作 → 4 级窄化候选 → 不足的走 LLM → 全部落 draft
+             152 个非力量动作 → status='not_applicable' + 原因
+                  ↓
+② 分级激活   draft ─┬─ 用户在复核页采纳 ──────────────→ active
+                    ├─ 计划里实际用到（预览时提示复核）─→ active
+                    └─ 长期未用 ─────────────────────→ 保持 draft
+                  ↓
+③ 计划写入   只允许 active 映射参与写入；draft 命中时预览弹出待复核引导
+                  ↓
+④ 纠错闭环   随时改映射（含从预览现场就地改）→ 记录审计 → 标 stale 旧同步
+                  ↓
+⑤ 分级验证   L1 目录校验（全量离线）/ L2 按 category 抽样真实创建 / L3 用户目视
 ```
 
-**为什么 L2 按 category 抽样**：Garmin 的写入行为主要由 `category + exerciseName` 决定，
-同 category 走同一创建路径。47 个 category 各验 1-2 个代表动作即可，把验证量从
-"上千次写入"降到 "60-90 次"。
+**核心原则**：**全量映射在库里，但只有"被确认过"的才允许写入 Garmin。**
 
 ## 5. 数据模型
 
-### 5.1 `exercise_mapping`（正式映射）
+### 5.1 `exercise_mapping`（正式映射，全量 1091 行）
 
 ```sql
 exercise_mapping(
-    id                PK,
-    xunji_name        TEXT NOT NULL,          -- 训记标准中文名（对齐 xunji_movements.json）
-    garmin_category   VARCHAR(64) NOT NULL,   -- 47 个之一（exercises.CATEGORIES）
-    garmin_exercise_name VARCHAR(128),        -- 允许空串（Garmin 只显示 category 名）
-    garmin_display_name  VARCHAR(200),        -- 预览展示用
-    weight_strategy   VARCHAR(32) NOT NULL,   -- total / per_hand / bodyweight / assisted
-    status            VARCHAR(20) DEFAULT 'pending',   -- pending / active / disabled
-    confidence        VARCHAR(10),            -- high / medium / low
-    source            VARCHAR(20),            -- seed / auto / llm / manual
-    verified_level    VARCHAR(20),            -- catalog / created / displayed
-    verified_at       DATETIME,
-    note              TEXT,
+    id                    PK,
+    xunji_name            TEXT NOT NULL,          -- 训记标准中文名
+    garmin_category       VARCHAR(64),            -- 47 之一；not_applicable 时为空
+    garmin_exercise_name  VARCHAR(128),           -- 允许空串（Garmin 只显示 category 名）
+    garmin_display_name   VARCHAR(200),           -- 预览展示
+    weight_strategy       VARCHAR(32),            -- total / per_hand / bodyweight / assisted
+    status                VARCHAR(20) NOT NULL,   -- draft / active / disabled / not_applicable
+    not_applicable_reason VARCHAR(100),           -- 如 "拉伸动作，非力量训练"
+    confidence            VARCHAR(10),            -- high / medium / low
+    source                VARCHAR(20),            -- seed / auto / llm / manual
+    verified_level        VARCHAR(20),            -- none / catalog / created / displayed
+    verified_at           DATETIME,
+    mapping_version       INT DEFAULT 1,          -- 每次编辑 +1（供 stale 判定）
+    note                  TEXT,
     created_at, updated_at,
     UNIQUE(xunji_name)
 )
 ```
 
 **`weight_strategy` 的定位**：不是换算系数，而是**语义声明 + 安全闸门**。
-- `total` / `per_hand` → 原值写入（已确认双边一致）
-- `bodyweight` → `weightValue=null`
-- `assisted` → **blocked**，未验证前禁止同步（当前保留为显式不支持位）
+
+| 值 | 写入行为 | 当前状态 |
+|---|---|---|
+| `total` | `weightValue = 训记 weight`（原值） | ✅ P3 已验证 |
+| `per_hand` | `weightValue = 训记 weight`（原值） | ✅ P2 已验证（双方都按单只） |
+| `bodyweight` | `weightValue = null` | ✅ 现有代码已正确 |
+| `assisted` | **拒绝同步**（待专项验证） | ⚠️ 新增，默认 `disabled` |
 
 ### 5.2 `exercise_mapping_candidate`（待复核候选）
 
 ```sql
 exercise_mapping_candidate(
-    id                PK,
-    xunji_name        TEXT NOT NULL,
-    garmin_category   VARCHAR(64) NOT NULL,
-    garmin_exercise_name VARCHAR(128),
-    garmin_display_name  VARCHAR(200),
-    confidence        VARCHAR(10),
-    reason            TEXT,                   -- 命中依据：部位/器械/动作模式/LLM 说明
-    status            VARCHAR(20) DEFAULT 'pending',   -- pending / accepted / rejected
+    id                    PK,
+    xunji_name            TEXT NOT NULL,
+    garmin_category       VARCHAR(64) NOT NULL,
+    garmin_exercise_name  VARCHAR(128),
+    garmin_display_name   VARCHAR(200),
+    confidence            VARCHAR(10),
+    reason                TEXT,                   -- 命中依据
+    rank                  INT,                    -- 候选排序（1 为主推）
+    status                VARCHAR(20) DEFAULT 'pending',  -- pending / accepted / rejected
     created_at, resolved_at
 )
 ```
 
-### 5.3 迁移兼容
+### 5.3 `exercise_mapping_audit`（纠错留痕）
 
-现有 16 条硬编码 → 一次性 seed 进 `exercise_mapping`：
+```sql
+exercise_mapping_audit(
+    id            PK,
+    mapping_id    INT NOT NULL,
+    xunji_name    VARCHAR(200) NOT NULL,   -- 冗余存，映射被删也能追溯
+    action        VARCHAR(20) NOT NULL,    -- create / update / activate / disable / reactivate
+    before_json   TEXT,                     -- 改动前快照（null 表示新建）
+    after_json    TEXT,                     -- 改动后快照
+    reason        TEXT,                     -- 用户填写的修改原因（可选但推荐）
+    actor         VARCHAR(50),              -- 'user' / 'auto' / 'llm'
+    created_at    DATETIME
+)
+```
+
+### 5.4 旧同步的 stale 判定
+
+`garmin_plan_sync` 增加一列：
+
+```sql
+garmin_plan_sync.mapping_hash VARCHAR(64)   -- 该次同步所用映射的快照哈希
+```
+
+生成方式：把本次同步涉及的所有 `(xunji_name, garmin_category, garmin_exercise_name,
+weight_strategy, mapping_version)` 按名称排序后做 sha256。
+
+**用途**：映射被修改后，重新计算当前哈希 ≠ 记录里的 hash → 该同步标记 `stale`，
+UI 提示「此训练使用的映射已更新，是否重新同步？」
+
+### 5.5 迁移兼容
+
+现有 16 条硬编码 → seed 进 `exercise_mapping`：
 - `status='active'`、`verified_level='displayed'`（已过 P2/P3 目视）
 - `source='seed'`、`weight_strategy` 按器械推断（杠铃/器械→`total`，哑铃→`per_hand`）
 - 保留 `EXERCISE_WHITELIST` 作为 fallback（DB 未初始化时不至于全面 422）
@@ -129,7 +183,7 @@ exercise_mapping_candidate(
 
 ### 第 1 级：部位 → Garmin category 子集
 
-复用 `stats.classify_part()`（7 类），配一张**一次性人工表**（47 条）：
+复用 `stats.classify_part()`（7 类），配一次性人工表：
 
 ```python
 PART_TO_GARMIN_CATEGORIES = {
@@ -138,7 +192,7 @@ PART_TO_GARMIN_CATEGORIES = {
     "腿":   ["SQUAT", "DEADLIFT", "LUNGE", "LEG_PRESS", "LEG_CURL",
              "LEG_RAISE", "HIP_RAISE", "PLYO"],
     "肩":   ["SHOULDER_PRESS", "LATERAL_RAISE", "SHOULDER_STABILITY", "FLYE"],
-    "臂":   ["TRICEPS_EXTENSION", "CURL", "BICEPS_CURL"],
+    "臂":   ["TRICEPS_EXTENSION", "CURL"],
     "核心": ["CORE", "CRUNCH", "PLANK", "SIT_UP"],
     "有氧": ["RUN", "RUN_INDOOR", "INDOOR_BIKE", "CARDIO"],
 }
@@ -146,33 +200,22 @@ PART_TO_GARMIN_CATEGORIES = {
 
 ### 第 2 级：器械识别（中文 → 英文词根）
 
-```python
-EQUIPMENT_TOKENS = {
-    "杠铃": "barbell", "哑铃": "dumbbell", "史密斯": "smith machine",
-    "绳索": "cable", "龙门": "cable", "器械": "machine", "坐姿器械": "machine",
-    "壶铃": "kettlebell", "弹力带": "banded", "药球": "medicine ball",
-    "自重": "", "徒手": "",
-}
-```
+`杠铃→barbell`、`哑铃→dumbbell`、`史密斯→smith machine`、`绳索/龙门→cable`、
+`器械→machine`、`壶铃→kettlebell`、`弹力带→banded`、`自重/徒手→（空）` 等。
 
 ### 第 3 级：动作模式识别（中文 → Garmin 英文动作词）
 
-```python
-MOVEMENT_TOKENS = {
-    "卧推": "bench press", "飞鸟": "flye", "夹胸": "flye",
-    "深蹲": "squat", "硬拉": "deadlift", "箭步蹲": "lunge", "腿举": "leg press",
-    "划船": "row", "下拉": "pulldown", "引体": "pull up",
-    "推举": "shoulder press", "推肩": "shoulder press",
-    "侧平举": "lateral raise", "前平举": "front raise",
-    "弯举": "curl", "臂屈伸": "extension", "下压": "pushdown",
-    "卷腹": "crunch", "转体": "twist", "平板支撑": "plank",
-}
-```
+`卧推→bench press`、`飞鸟→flye`、`深蹲→squat`、`硬拉→deadlift`、`腿举→leg press`、
+`划船→row`、`下拉→pulldown`、`引体→pull up`、`推举/推肩→shoulder press`、
+`侧平举→lateral raise`、`弯举→curl`、`臂屈伸→extension`、`卷腹→crunch`、
+`转体→twist`、`平板支撑→plank`、`抓举/挺举→olympic lift` 等。
+
+> 正式实现需要完整词表（预估 100-150 个词），并支持同义词。
 
 ### 第 4 级：目录内模糊匹配
 
-组合成候选英文串（如 `"dumbbell bench press"`），在**第 1 级已缩窄的 category 子集**内，
-用 `garminconnect.exercises.find(term)` 或对 `BY_NAME` 做相似度打分，取 top 1-3。
+组合成候选串（如 `"dumbbell bench press"`），在**第 1 级已缩窄的 category 子集**内，
+用 `exercises.find(term)` 或对 `BY_NAME` 做相似度打分，取 top 1-3 存入候选表（带 `rank`）。
 
 ### 置信度分级
 
@@ -182,38 +225,102 @@ MOVEMENT_TOKENS = {
 | `medium` | 只命中动作模式，或命中 2-3 个候选 |
 | `low` | 仅靠部位兜底，或 LLM 判断 |
 
-### LLM 兜底（只处理 medium / low）
+### LLM 兜底（全量场景）
 
-- 每批 20 个动作 + **该动作所属部位的 category 候选列表**（不送全部 1527）
-- 要求严格 JSON 输出：`{xunji_name, category, exerciseName, confidence, reason}`
+- 范围：预估 **400-500 个** medium/low 动作
+- 每批 20 个 + **该动作所属部位的 category 候选列表**（不送全部 1527）
+- 严格 JSON 输出：`{xunji_name, category, exerciseName, confidence, reason}`
+- 落库前用 `exercises.resolve()` 校验存在性，不存在降级 `low` 并标红
 - 复用 `adapters/llm.chat`，`purpose='exercise_mapping'` 记账
-- 落库前用 `exercises.resolve()` 校验存在性，不存在自动降级 `low`
-- 预估成本：150 个动作 ≈ **¥0.3**（DeepSeek，一次性）
+- 预估成本：25 批 ≈ **¥0.2**（DeepSeek，一次性）
 
-## 7. 复核 UI（复用 V5-5 模式）
+## 7. 复核与纠错 UI
 
-新增 `/exercise-mappings` 页面，结构与 `CoachPreferencesPage` 同构：
+### 7.1 映射管理页 `/exercise-mappings`
 
 ```
-[待复核候选]  N 条
-  ├ 训记名：哑铃卧推
-  ├ 建议：BENCH_PRESS / DUMBBELL_BENCH_PRESS
-  │       （Dumbbell Bench Press）
-  ├ 置信度：high    依据：器械"哑铃" + 动作模式"卧推" 唯一命中
-  ├ 重量语义：[单只 ▾]        ← 默认按器械推断，可改
-  └ [采纳]  [换一个候选 ▾]  [忽略]
+[筛选] 状态：[全部 / draft / active / disabled / not_applicable]
+       置信度：[全部 / high / medium / low]
+       搜索：[____________]
 
-[已生效映射]  M 条（搜索 / 编辑 / 停用）
+[列表]
+  哑铃卧推    BENCH_PRESS / DUMBBELL_BENCH_PRESS
+              active · displayed · 单只                  [编辑] [停用]
+  哑铃上斜卧推 BENCH_PRESS / INCLINE_DUMBBELL_BENCH_PRESS
+              draft · catalog · 单只                    [采纳] [改] [忽略]
+  跑步        —（拉伸/有氧不适用）                        [改为适用?]
+              not_applicable · 「有氧动作，非力量训练」
+
+[批量] 当前筛选结果 N 条 → [批量采纳 high 置信] [批量忽略 low]
 ```
 
-重量语义默认推断：
+### 7.2 计划预览内就地纠错（**最重要的入口**）
 
-| 器械 | 默认 |
-|---|---|
-| 杠铃 / 器械 / 史密斯 / 绳索 | `total` |
-| 哑铃 | `per_hand` |
-| 自重 | `bodyweight` |
-| 辅助类（引体/双杠辅助） | `assisted`（**默认禁止同步**） |
+用户是在"看到错误"的那一刻才有动力修，所以纠错必须能从预览现场直接发起：
+
+```
+Garmin 同步预览弹窗
+┌────────────────────────────────────────────────┐
+│ 哑铃卧推  BENCH_PRESS / DUMBBELL_BENCH_PRESS   │
+│           第1组 15 kg（单只）→ 写入 15 kg       │
+│           [映射不对？]  ← 点击                  │
+│ 上斜哑铃飞鸟  FLYE / INCLINE_DUMBBELL_FLYE     │
+│           [映射不对？]                          │
+└────────────────────────────────────────────────┘
+        ↓ 点「映射不对？」
+┌────────────────────────────────────────────────┐
+│ 修正「哑铃卧推」的映射                          │
+│ 当前：BENCH_PRESS / DUMBBELL_BENCH_PRESS       │
+│ 搜索：[bench________]  （默认带原动作词）        │
+│ ○ BENCH_PRESS / DUMBBELL_BENCH_PRESS           │
+│   （Dumbbell Bench Press）                     │
+│ ○ BENCH_PRESS / BARBELL_BENCH_PRESS            │
+│   （Barbell Bench Press）                      │
+│ ○ FLYE / DUMBBELL_FLYE                         │
+│   （Dumbbell Flye）                            │
+│ 重量语义：[单只 ▾]                              │
+│ 修改原因：[____________________]（可选）         │
+│                          [取消]  [保存并重预览]  │
+└────────────────────────────────────────────────┘
+```
+
+保存后：
+1. 写 `exercise_mapping_audit`
+2. `mapping_version += 1`
+3. 重新加载该日预览（立即看到新映射效果）
+4. 若该日此前已同步过 → 标记 `stale` 并提示
+
+### 7.3 draft 命中时的引导（C 方案落地）
+
+计划里遇到 `draft` 映射时：
+
+```
+┌────────────────────────────────────────────────┐
+│ ⚠ 本训练日有 2 个动作尚未复核映射                │
+│   · 哑铃上斜卧推（建议 BENCH_PRESS/…)           │
+│   · 绳索面拉（建议 SHOULDER_STABILITY/…)        │
+│                                                │
+│ 确认映射后即可同步：[去复核]  [取消]             │
+└────────────────────────────────────────────────┘
+```
+
+不阻断预览（能看），但阻断写入（必须先复核）。
+
+### 7.4 已同步训练的 stale 处理
+
+映射修改后，`garmin_plan_sync.mapping_hash` 不匹配的同步记录标记 `stale`：
+
+```
+┌────────────────────────────────────────────────┐
+│ ⚠ 此训练已在 Garmin 同步，但使用的映射已更新      │
+│   旧：FLYE / INCLINE_DUMBBELL_FLYE             │
+│   新：FLYE / DUMBBELL_FLYE                     │
+│                                                │
+│ [在 Garmin 中保留旧版]  [重新同步]（会覆盖）    │
+└────────────────────────────────────────────────┘
+```
+
+**默认不自动重写**——重新同步会覆盖 Garmin 里已有对象，必须用户显式确认。
 
 ## 8. mapper 改造（保留纯函数性质）
 
@@ -227,65 +334,82 @@ def map_plan_day(plan_day, *, mappings: dict | None = None, plan_ref=None):
     ...
 ```
 
-**关键**：`garmin_workout_mapper` 现在不碰 DB、不碰文件、不碰网络（docstring 明确声明）。
-改造必须保持这个性质——查库在 `garmin_plan_sync` 层做，纯函数只接收映射字典。
-现有 561 行 mapper 测试可继续用注入方式跑，不破坏。
+**关键**：`garmin_workout_mapper` 现在不碰 DB、不碰文件、不碰网络。改造必须保持这个性质
+——查库在 `garmin_plan_sync` 层做，纯函数只接收映射字典。现有 561 行 mapper 测试
+可继续用注入方式跑，不破坏。
+
+**新增校验**：`map_plan_day` 遇到 `status != 'active'` 的映射时，产出
+`MAPPING_NOT_APPROVED` issue（区别于 `MAPPING_UNSUPPORTED`），供上层区分
+「没映射」和「有映射但未复核」。
 
 ## 9. 分级验证
 
-| 级 | 做什么 | 成本 | 覆盖范围 | 落库标记 |
+| 级 | 做什么 | 成本 | 覆盖 | 落库标记 |
 |---|---|---|---|---|
-| **L1 `catalog`** | `exercises.resolve(display_name)` 或按 `(category, exerciseName)` 命中 | 零（离线） | 全量 | 可 active |
-| **L2 `created`** | 真实创建 1 组测试 Workout，回读确认 `exerciseName` 未被规范化掉 | 每 category 1-2 次写入 | ~60-90 次 | 可 active（高可信） |
-| **L3 `displayed`** | 用户目视 Connect + FR955 | 人工 | 只验实际在用的 | 最高 |
+| **L1 `catalog`** | `exercises.resolve(display_name)` 或按 `(category, exerciseName)` 命中 | 零（离线） | 全量 939 | `verified_level='catalog'` |
+| **L2 `created`** | 真实创建测试 Workout，回读确认 `exerciseName` 未被规范化掉 | 每 category 1-2 次写入 | ~60-90 次 | `verified_level='created'` |
+| **L3 `displayed`** | 用户目视 Connect + FR955 | 人工 | 实际在用的 | `verified_level='displayed'` |
 
-**L2 的必要性**（来自 §8.1 已记录的真实坑）：Garmin 创建后会把通用
-`Bench Press` 与 `Lateral Raise` 的 `exerciseName` **规范化为空串**，`category` 保持不变。
-这类行为**目录校验查不出来**，只能靠真实创建 + 回读发现。
+**L2 的必要性**（§8.1 已记录的真实坑）：Garmin 创建后会把通用 `Bench Press` 与
+`Lateral Raise` 的 `exerciseName` **规范化为空串**，`category` 保持。这类行为
+**目录校验查不出来**，只能靠真实创建 + 回读发现。
 
 ## 10. 切片拆分
 
 | 切片 | 内容 | 文件预算 | 依赖 |
 |---|---|---|---|
-| **V6-1** | 2 张新表 + Alembic 迁移 + seed 现有 16 条 + `map_plan_day` 支持注入（行为不变） | 5 | — |
-| **V6-2** | 候选生成器（4 级窄化，纯函数）+ 单测 + 1091 全量覆盖率报告 | 3 | V6-1 |
-| **V6-7** | L1 目录校验批处理 + 覆盖率 API/看板 | 3 | V6-2 |
-| **V6-4** | 复核 API（列表 / 采纳 / 拒绝 / 改重量语义）+ 落库生效 | 4 | V6-1 |
-| **V6-5** | 复核 UI 页面（复用 V5-5 结构 + `ConfirmDialog`） | 4 | V6-4 |
-| **V6-6** | 计划预览接入 DB 映射；422 时返回候选提示；预览展示重量口径 | 3 | V6-4 |
+| **V6-1** | 2 张表 + 1 张审计表 + `garmin_plan_sync.mapping_hash` 列 + 迁移 + seed 16 条 + `map_plan_day` 注入改造 + `MAPPING_NOT_APPROVED` | 6 | — |
+| **V6-2** | 4 级窄化候选生成器（纯函数）+ 完整词表 + 单测 | 4 | V6-1 |
+| **V6-7** | 全量 1091 批处理（生成 draft + not_applicable 分类）+ 覆盖率看板 API | 4 | V6-2 |
+| **V6-4** | 复核/纠错 API（列表 / 采纳 / 改映射 / 停用 / 审计 / stale 判定） | 5 | V6-1 |
+| **V6-5** | 映射管理页 + 批量操作 | 4 | V6-4 |
+| **V6-6** | 计划预览接入 DB 映射 + draft 引导 + 预览内就地纠错弹窗 | 5 | V6-4 |
 | **V6-3** | LLM 兜底候选（批量 + JSON 校验 + 成本记账） | 3 | V6-2 |
 | **V6-8** | L2 抽样验证脚本（按 category 选代表动作，真实创建 + 回读） | 2 | V6-7 |
 
 **推荐顺序**：V6-1 → V6-2 → **V6-7（决策点）** → V6-4 → V6-5 → V6-6 → V6-3 → V6-8
 
-**V6-7 是决策点**：跑完 1091 全量覆盖率才知道 4 级窄化能自动覆盖多少。
+**V6-7 是决策点**：跑完 939 全量覆盖率才知道 4 级窄化自动命中多少。
 若 ≥70%，V6-3（LLM 兜底）可延后或不做。
 
 ## 11. 风险与对策
 
 | 风险 | 对策 |
 |---|---|
-| LLM 给出的 category/exerciseName 不存在 | 落库前 `exercises.resolve()` 校验；不通过自动降 `low` 并在 UI 标红 |
-| 同 category 但动作选错 | 复核 UI 强制展示 Garmin 英文名 + 可切换候选列表（不只给一个） |
-| 辅助动作语义反 | `weight_strategy='assisted'` 默认 `status='disabled'`，显式拦 422 |
-| 映射表变大导致预览变慢 | 启动时预载进内存（1091 条约几十 KB）；按需失效刷新 |
+| LLM/算法给出不存在的 category/exerciseName | 落库前 `exercises.resolve()` 校验；不通过降 `low` 并标红 |
+| 同 category 但动作选错 | **分级激活**（draft 不写入）+ 复核 UI 强制展示英文名 + 候选可切换 |
+| 939 条映射错得多，用户不知道从哪改 | 优先级排序：`high` 置信批量采纳；`low` 优先复核；且**用到时才强制复核** |
+| 修错了映射导致历史更乱 | 每次修改写 `audit`；历史同步标 `stale` 而非自动重写 |
+| 辅助动作语义反 | `weight_strategy='assisted'` 默认 `disabled`，显式 422 |
+| 映射表变大导致预览慢 | 启动预载内存（1091 条 ≈ 几十 KB）；编辑后失效重载 |
 | Garmin 改变 category 枚举 | L2 回读校验发现；`verified_level` 可降级重验 |
 | 现有 15 个动作回归 | V6-1 seed 时**必须**加回归测试，断言这 15 条映射与 `support_level` 不变 |
-| 破坏 mapper 纯函数性质 | V6-1 明确「查库在 sync 层、mapper 只接收注入字典」，测试仍零 DB 依赖 |
+| 破坏 mapper 纯函数性质 | V6-1 明确「查库在 sync 层、mapper 只接收注入字典」 |
 
 ## 12. 成本
 
 | 项 | 成本 |
 |---|---|
-| LLM 候选（假设 150 个走兜底） | **≈ ¥0.3**（DeepSeek 一次性） |
-| L2 抽样验证（60-90 次真实写入） | 0 元，但消耗 Garmin 写入配额，需分批 + 429 冷却 |
-| 开发 | 8 个切片，按现有节奏约 2-3 天 |
+| 4 级窄化（本地计算，939 条） | 0 |
+| LLM 兜底（预估 400-500 个，25 批） | **≈ ¥0.2**（DeepSeek 一次性） |
+| L2 抽样验证（60-90 次真实写入） | 0 元，消耗 Garmin 写入配额，需分批 + 429 冷却 |
+| 开发 | 8 个切片，按现有节奏约 3-4 天 |
 
 ## 13. 已确认的决策
 
 | # | 决策 | 结论 |
 |---|---|---|
-| 1 | 覆盖范围 | **按需**（只覆盖计划实际出现的动作），不做全量 1091 |
-| 2 | 哑铃重量语义 | 训记 = **单只**；Garmin 显示也是**单只** → **双边一致，无需换算** |
+| 1 | **覆盖范围** | **全量**：939 个力量动作全部建立映射；152 个非力量动作标 `not_applicable` |
+| 2 | 哑铃重量语义 | 训记 = 单只；Garmin 也显示单只 → **双边一致，无需换算** |
 | 3 | 复核入口 | 网页 UI（复用 V5-5 模式，手机可用） |
 | 4 | L2 验证深度 | 按 category 抽 1-2 个代表动作 |
+| 5 | **默认激活策略** | **C 方案**：全量 draft + 计划用到时主动提示复核；confirmed 后才 `active` |
+| 6 | **纠错机制** | 任何映射可改（管理页 + 预览内就地改）；写审计；历史同步标 `stale` 由用户决定是否重同步 |
+
+## 14. 未决问题
+
+| # | 问题 | 建议 |
+|---|---|---|
+| 1 | 152 个非力量动作是否需要支持？（Garmin 有 RUN/INDOOR_BIKE 等 category，但需要非 strength 的 workout sport type） | 本期只标 `not_applicable` 并提示；若需要写有氧 workout，另开切片 |
+| 2 | `assisted`（辅助引体/双杠）语义如何对齐？ | 先用 1 个动作做定向真实验证，再决定写入方式；在此之前 `disabled` |
+| 3 | 是否支持「同一训记动作在不同计划里映射不同」（比如你的史密斯机 vs 别人的） | 单用户场景不需要；`UNIQUE(xunji_name)` 够用 |
