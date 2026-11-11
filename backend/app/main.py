@@ -11,6 +11,7 @@ from app.api.fit_import import router as fit_import_router
 from app.api.llm import router as llm_router
 from app.api.body_metrics import router as body_metrics_router
 from app.api.coach_memory import router as coach_memory_router
+from app.api.exercise_mappings import router as exercise_mappings_router
 from app.api.match_candidates import router as match_candidates_router
 from app.api.plans import router as plans_router
 from app.api.posters import router as posters_router
@@ -59,6 +60,7 @@ app.include_router(fit_import_router)
 app.include_router(writeback_router)
 app.include_router(body_metrics_router)
 app.include_router(coach_memory_router)
+app.include_router(exercise_mappings_router)
 app.include_router(skinfold_router)
 app.include_router(screenshot_router)
 app.include_router(plans_router)
