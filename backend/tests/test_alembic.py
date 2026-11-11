@@ -27,6 +27,7 @@ EXPECTED_TABLES = {
     "coach_preference_draft",
     "coach_memory",
     "coach_chat_message",
+    "garmin_plan_sync",
 }
 
 
@@ -270,3 +271,77 @@ def test_coach_memory_tables_and_settings_column_roundtrip(tmp_path):
         assert name in tables
     settings_cols = {c["name"] for c in insp.get_columns("settings")}
     assert "memory_default_provider" in settings_cols
+
+
+def test_garmin_plan_sync_table_roundtrip(tmp_path):
+    """Garmin 同步状态表字段、两个唯一约束及迁移往返。"""
+    db_url = f"sqlite:///{tmp_path}/mig.db"
+    cfg = _make_config(db_url)
+    command.upgrade(cfg, "head")
+    insp = inspect(create_engine(db_url))
+    assert "garmin_plan_sync" in insp.get_table_names()
+    cols = {c["name"] for c in insp.get_columns("garmin_plan_sync")}
+    assert {
+        "id",
+        "plan_ref",
+        "training_date",
+        "source_key",
+        "source_hash",
+        "content_hash",
+        "synced_hash",
+        "payload_json",
+        "workout_id",
+        "workout_schedule_id",
+        "reschedule_to_date",
+        "reschedule_from_date",
+        "reschedule_source_key",
+        "previous_workout_schedule_id",
+        "status",
+        "phase",
+        "error_code",
+        "last_error",
+        "attempt_count",
+        "created_at",
+        "updated_at",
+        "synced_at",
+    } == cols
+    uqs = insp.get_unique_constraints("garmin_plan_sync")
+    assert any(
+        uq.get("name") == "uq_garmin_plan_sync_source_key"
+        and uq.get("column_names") == ["source_key"]
+        for uq in uqs
+    )
+    assert any(
+        uq.get("name") == "uq_garmin_plan_sync_plan_date"
+        and uq.get("column_names") == ["plan_ref", "training_date"]
+        for uq in uqs
+    )
+
+    command.downgrade(cfg, "f2a3b4c5d6e7")
+    insp = inspect(create_engine(db_url))
+    assert "garmin_plan_sync" not in insp.get_table_names()
+
+    command.upgrade(cfg, "head")
+    insp = inspect(create_engine(db_url))
+    assert "garmin_plan_sync" in insp.get_table_names()
+
+
+def test_garmin_reschedule_audit_columns_roundtrip(tmp_path):
+    """顺延原日期/来源审计字段独立回滚，不影响既有同步字段。"""
+    db_url = f"sqlite:///{tmp_path}/mig.db"
+    cfg = _make_config(db_url)
+    command.upgrade(cfg, "head")
+    insp = inspect(create_engine(db_url))
+    cols = {c["name"] for c in insp.get_columns("garmin_plan_sync")}
+    assert {"reschedule_from_date", "reschedule_source_key"} <= cols
+
+    command.downgrade(cfg, "b4c5d6e7f8a9")
+    insp = inspect(create_engine(db_url))
+    cols = {c["name"] for c in insp.get_columns("garmin_plan_sync")}
+    assert {"reschedule_from_date", "reschedule_source_key"}.isdisjoint(cols)
+    assert "reschedule_to_date" in cols
+
+    command.upgrade(cfg, "head")
+    insp = inspect(create_engine(db_url))
+    cols = {c["name"] for c in insp.get_columns("garmin_plan_sync")}
+    assert {"reschedule_from_date", "reschedule_source_key"} <= cols

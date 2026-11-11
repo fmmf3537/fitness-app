@@ -495,6 +495,129 @@ class TestDailyRegenLimit:
         expected_purpose = f"session_review_regen:w{w.id}"
         assert recorded_purposes[:5] == [expected_purpose] * 5
 
+    def test_orm_default_created_at_shares_local_day_with_limit(
+        self, session, monkeypatch
+    ):
+        """ORM 默认写入与限流读取处于同一服务器本地日。"""
+        from app import models as models_mod
+        from app.services import ai as ai_module
+
+        local_morning = datetime(2026, 11, 11, 1, 30, 0)
+        monkeypatch.setattr(models_mod, "local_now", lambda: local_morning)
+
+        w = _make_workout(session)
+        call = LLMCall(
+            provider="deepseek",
+            model="deepseek-chat",
+            purpose=f"session_review_regen:w{w.id}",
+            prompt_tokens=1,
+            completion_tokens=1,
+            cost_estimate=0.0,
+            status="ok",
+        )
+        session.add(call)
+        session.commit()
+        session.refresh(call)
+
+        assert call.created_at == local_morning
+        assert call.created_at.date() == local_morning.date()
+
+        for _ in range(4):
+            _make_regen_llm_call(
+                session, w.id, "session_review", created_at=local_morning
+            )
+
+        def fake_chat(messages):
+            return {"content": "x", "prompt_tokens": 1, "completion_tokens": 1}
+
+        with pytest.raises(ai_module.RegenerateLimitError):
+            ai_module.regenerate_session_review_with_feedback(
+                session, w.id, chat_fn=fake_chat
+            )
+
+    def test_real_closed_loop_when_utc_already_next_day(
+        self, session, monkeypatch
+    ):
+        """本地凌晨与 UTC 已跨日时：ORM 默认本地写入仍计入当日，5 次成功第 6 次 429。"""
+        from app import models as models_mod
+        from app.services import ai as ai_module
+
+        # 本地 2026-11-11 01:30；若误用 UTC now 则可能仍是 2026-11-10。
+        local_morning = datetime(2026, 11, 11, 1, 30, 0)
+        monkeypatch.setattr(models_mod, "local_now", lambda: local_morning)
+
+        w = _make_workout(session)
+        _make_report(session, w.id, "session_review")
+
+        recorded_purposes: list[str | None] = []
+
+        def fake_chat(messages, *, session=None, purpose=None, **opts):
+            recorded_purposes.append(purpose)
+            # 不显式写 created_at，走 ORM default=local_now（可注入）。
+            session.add(LLMCall(
+                provider="deepseek",
+                model="deepseek-chat",
+                purpose=purpose,
+                prompt_tokens=10,
+                completion_tokens=20,
+                cost_estimate=0.0001,
+                status="ok",
+            ))
+            session.commit()
+            return {
+                "content": _session_review_content(),
+                "prompt_tokens": 10, "completion_tokens": 20,
+                "model": "deepseek-chat",
+            }
+
+        monkeypatch.setattr(ai_module.llm, "chat", fake_chat)
+
+        for _ in range(5):
+            report = ai_service.regenerate_session_review_with_feedback(
+                session, w.id
+            )
+            assert report is not None
+
+        with pytest.raises(ai_service.RegenerateLimitError) as exc_info:
+            ai_service.regenerate_session_review_with_feedback(session, w.id)
+        assert "每日重生成上限 5 次" in str(exc_info.value)
+        assert recorded_purposes[:5] == [f"session_review_regen:w{w.id}"] * 5
+
+        # 同窗口内的 5 条均落在注入的本地日；UTC 昨日假象不得漏计。
+        rows = (
+            session.query(LLMCall)
+            .filter(LLMCall.purpose == f"session_review_regen:w{w.id}")
+            .all()
+        )
+        assert len(rows) == 5
+        assert all(r.created_at == local_morning for r in rows)
+
+    def test_yesterday_and_other_type_do_not_count(self, session, monkeypatch):
+        """昨日记录与其他 type 不计入；原有限流契约不变。"""
+        from app import models as models_mod
+
+        local_now_value = datetime(2026, 11, 11, 10, 0, 0)
+        monkeypatch.setattr(models_mod, "local_now", lambda: local_now_value)
+
+        w = _make_workout(session)
+        yesterday = datetime(2026, 11, 10, 23, 59, 0)
+        for _ in range(5):
+            _make_regen_llm_call(
+                session, w.id, "session_review", created_at=yesterday
+            )
+        for _ in range(5):
+            _make_regen_llm_call(
+                session, w.id, "next_advice", created_at=local_now_value
+            )
+
+        def fake_chat(messages):
+            return {"content": "x", "prompt_tokens": 1, "completion_tokens": 1}
+
+        new = ai_service.regenerate_session_review_with_feedback(
+            session, w.id, chat_fn=fake_chat
+        )
+        assert new is not None
+
 
 # ---------- 5. next_advice 重生成 ----------
 

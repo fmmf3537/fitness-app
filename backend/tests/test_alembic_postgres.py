@@ -13,22 +13,44 @@ from pathlib import Path
 import pytest
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(BACKEND_DIR))
 
-ALL_TABLES = [
-    "settings",
-    "xunji_train",
-    "garmin_activity",
-    "garmin_daily",
-    "body_metric",
-    "workout",
-    "match_candidate",
-    "xunji_plan",
-    "ai_report",
-    "llm_call",
-    "backfill_progress",
-    "job_run",
-    "report_chat_message",
-]
+# 表清单从 ORM 元数据动态派生，任何新表自动纳入迁移回归，杜绝清单陈旧
+# （2026-11-11 审计发现：此前硬编码 13 张，漏掉 coach_* / skinfold_record /
+#  workout_set_hr / training_insights 系列共 10 张表在 PG 上从未被验证存在）
+from app.models import Base  # noqa: E402
+
+ALL_TABLES = sorted(Base.metadata.tables)
+
+# 动态派生会包含 Alembic 自身不建的表时，显式排除（当前无）
+ALL_TABLES = [t for t in ALL_TABLES if not t.startswith("alembic_")]
+
+EXPECTED_ALEMBIC_HEAD = "c5d6e7f8a9b0"
+
+GARMIN_PLAN_SYNC_COLUMNS = {
+    "id",
+    "plan_ref",
+    "training_date",
+    "source_key",
+    "source_hash",
+    "content_hash",
+    "synced_hash",
+    "payload_json",
+    "workout_id",
+    "workout_schedule_id",
+    "reschedule_to_date",
+    "reschedule_from_date",
+    "reschedule_source_key",
+    "previous_workout_schedule_id",
+    "status",
+    "phase",
+    "error_code",
+    "last_error",
+    "attempt_count",
+    "created_at",
+    "updated_at",
+    "synced_at",
+}
 
 PG_URL_PLACEHOLDER = "postgresql+psycopg2://fitness:fitness@localhost:5432/fitness"
 
@@ -107,6 +129,24 @@ class TestAlembicOnlinePostgres:
                 assert table in existing, f"PG 中缺少表 {table}"
             assert "alembic_version" in existing
 
+            garmin_cols = {c["name"] for c in inspector.get_columns("garmin_plan_sync")}
+            assert garmin_cols == GARMIN_PLAN_SYNC_COLUMNS, (
+                f"garmin_plan_sync 字段不完整: missing="
+                f"{GARMIN_PLAN_SYNC_COLUMNS - garmin_cols} extra="
+                f"{garmin_cols - GARMIN_PLAN_SYNC_COLUMNS}"
+            )
+            assert len(garmin_cols) == 22
+
+            uniques = {
+                u["name"]: set(u["column_names"])
+                for u in inspector.get_unique_constraints("garmin_plan_sync")
+            }
+            assert uniques.get("uq_garmin_plan_sync_source_key") == {"source_key"}
+            assert uniques.get("uq_garmin_plan_sync_plan_date") == {
+                "plan_ref",
+                "training_date",
+            }
+
             # 写入/读取冒烟：确认 PG 方言下 CRUD 正常
             with engine.begin() as conn:
                 conn.execute(
@@ -130,4 +170,6 @@ class TestAlembicOnlinePostgres:
         assert head.returncode == 0, head.stderr
         current_rev = current.stdout.strip().split()[0]
         head_rev = head.stdout.strip().split()[0]
+        assert head_rev == EXPECTED_ALEMBIC_HEAD
+        assert current_rev.startswith(EXPECTED_ALEMBIC_HEAD)
         assert current_rev.startswith(head_rev)
