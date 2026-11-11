@@ -1,6 +1,6 @@
 """动作映射批处理、覆盖率看板与复核/纠错 API（V6-7 / V6-4）。
 
-固定路径（/coverage /generate /catalog /stale-syncs /batch-activate）
+固定路径（/coverage /generate /catalog /stale-syncs /batch-activate /llm-suggest）
 必须注册在 /{mapping_id} 之前，避免被路径参数吞掉。
 """
 from __future__ import annotations
@@ -15,6 +15,7 @@ from app.api.auth import require_auth
 from app.db import get_session
 from app.services import exercise_mapping as mapping_svc
 from app.services import exercise_mapping_batch as batch_svc
+from app.services import exercise_mapping_llm as llm_svc
 from app.services.exercise_mapping import MappingValueError
 
 router = APIRouter(
@@ -111,6 +112,22 @@ def post_batch_activate(
         session,
         confidence=payload.confidence,
         only_confirmed_catalog=payload.only_confirmed_catalog,
+    )
+
+
+@router.post("/llm-suggest")
+def post_llm_suggest(
+    limit: int = Query(default=200, ge=1, le=400),
+    max_batches: int = Query(default=10, ge=1, le=30),
+    only_without_candidate: bool = Query(default=True),
+    session: Session = Depends(get_session),
+) -> dict:
+    """用 LLM 为无候选的动作补候选（只写 candidate 表，绝不自动激活）。"""
+    return llm_svc.suggest_candidates_with_llm(
+        session,
+        limit=limit,
+        max_batches=max_batches,
+        only_without_candidate=only_without_candidate,
     )
 
 

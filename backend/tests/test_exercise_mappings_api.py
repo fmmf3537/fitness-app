@@ -8,6 +8,7 @@ from sqlalchemy import select
 from app.db import get_session
 from app.main import app
 from app.models import ExerciseMapping
+from app.services import exercise_mapping_llm as llm_svc
 from app.services.exercise_mapping import seed_mappings
 
 
@@ -173,3 +174,38 @@ def test_batch_activate_endpoint(client, auth_headers, session):
     assert body["activated"] >= 1
     session.refresh(row)
     assert row.status == "active"
+
+
+def test_llm_suggest_endpoint_requires_auth(client):
+    resp = client.post("/api/exercise-mappings/llm-suggest")
+    assert resp.status_code in (401, 403)
+
+
+def test_llm_suggest_endpoint_returns_stats(client, auth_headers, monkeypatch):
+    def fake_chat(messages, **kwargs):
+        return {
+            "content": "[]",
+            "prompt_tokens": 1,
+            "completion_tokens": 1,
+        }
+
+    monkeypatch.setattr(llm_svc.llm, "chat", fake_chat)
+    monkeypatch.setattr(llm_svc, "_load_movement_names", lambda: ["API-LLM占位"])
+    resp = client.post(
+        "/api/exercise-mappings/llm-suggest",
+        params={"limit": 1, "max_batches": 1},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    for key in (
+        "requested",
+        "processed",
+        "batches",
+        "accepted",
+        "rejected",
+        "skipped_no_candidate_list",
+        "prompt_tokens",
+        "completion_tokens",
+    ):
+        assert key in body
