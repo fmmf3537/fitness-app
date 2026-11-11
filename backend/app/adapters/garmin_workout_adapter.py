@@ -3,14 +3,28 @@
 本模块故意不依赖 SQLAlchemy，便于用独立 Python 3.12 环境做真实验收。
 所有 POST 均禁止自动重试；只有幂等 GET/PUT 在认证或限流失败后最多恢复一次。
 异常只暴露操作名、异常类型和 HTTP 状态，绝不拼接远端原始响应。
+
+中国区认证兜底（V5-9）：
+garminconnect 0.3.20 的 SSO 认证 URL 硬编码在 garmin.com（上游 issue #365，
+PR #366 尚未合并），`is_cn=True` 只影响数据 API 的 domain，不影响登录。
+因此中国区账号用密码登录必然 401（"Invalid Username or Password"）。
+garth 支持 `configure(domain='garmin.cn')`，本模块在密码登录遇 401/403 时用
+garth 建立会话，把 oauth2 token 转成 garminconnect 的 tokenstore 格式
+（di_token / di_refresh_token / di_client_id），再重试一次 tokenstore 登录。
+只兜底一次，不循环登录；token 落盘后后续进程直接复用。
 """
 from __future__ import annotations
 
+import base64
+import json
 import os
 import time
 from datetime import date
 from pathlib import Path
 from typing import Any, Callable
+
+# garth 会话目录（与 adapters/garmin_adapter.py 的 DEFAULT_TOKEN_STORE 一致）
+GARTH_TOKEN_STORE = Path.home() / ".garminconnect"
 
 
 class GarminWorkoutAdapterError(RuntimeError):
@@ -44,6 +58,37 @@ def _status_code(exc: BaseException) -> int | None:
     return value if isinstance(value, int) else None
 
 
+def _is_auth_failure(exc: BaseException) -> bool:
+    """判断是否属于「认证失败」——中国区兜底的触发条件。
+
+    garminconnect 的 `GarminConnectAuthenticationError` 通常**不带** status_code
+    属性（消息里才有 "401 Unauthorized"），因此不能只看 `_status_code`。
+    """
+    if _status_code(exc) in {401, 403}:
+        return True
+    # 按类名判断：GarminConnectAuthenticationError / AuthenticationError 等
+    for klass in type(exc).__mro__:
+        if "authentication" in klass.__name__.lower():
+            return True
+    # 兜底：消息里明确出现 401/403（不匹配泛化的 "40x"）
+    text = str(exc)
+    return "401" in text or "403" in text
+
+
+def _jwt_claim(token: str | None, claim: str) -> str | None:
+    """读取 JWT payload 的单个声明（不验签，仅用于取 client_id）。"""
+    if not token:
+        return None
+    try:
+        payload = token.split(".")[1]
+        payload += "=" * (-len(payload) % 4)
+        data = json.loads(base64.urlsafe_b64decode(payload))
+    except (IndexError, ValueError, TypeError):
+        return None
+    value = data.get(claim) if isinstance(data, dict) else None
+    return value if isinstance(value, str) and value else None
+
+
 def _source_marker(payload: dict[str, Any], key: str) -> str | None:
     for part in str(payload.get("description") or "").split(";"):
         name, separator, value = part.strip().partition("=")
@@ -67,12 +112,19 @@ class GarminWorkoutAdapter:
         sleep: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,
         min_interval: float = 0.5,
+        garth: Any = None,
+        garth_token_store: str | os.PathLike[str] | None = None,
     ) -> None:
         self._sleep = sleep
         self._monotonic = monotonic
         self._min_interval = min_interval
         self._last_request_at: float | None = None
         self._tokenstore = str(tokenstore) if tokenstore is not None else None
+        # 中国区认证兜底用：garth 模块与 garth 会话目录均可注入以便零外呼测试。
+        self._garth = garth
+        self._garth_token_store = (
+            Path(garth_token_store) if garth_token_store is not None else GARTH_TOKEN_STORE
+        )
         self._client = client or self._login(
             client_factory=client_factory,
             email=email if email is not None else os.getenv("GARMIN_EMAIL", ""),
@@ -142,14 +194,147 @@ class GarminWorkoutAdapter:
         except GarminWorkoutAdapterError:
             raise
         except Exception as exc:
+            # 中国区兜底：密码登录认证失败时改用 garth 会话引导 tokenstore，
+            # 之后再用 tokenstore 重试一次（不重复密码登录）。
+            if is_cn and _is_auth_failure(exc):
+                bootstrap_error = self._bootstrap_tokenstore_from_garth(
+                    email=email, password=password, is_cn=is_cn
+                )
+                if bootstrap_error is None:
+                    try:
+                        client = client_factory(
+                            email,
+                            password,
+                            is_cn=is_cn,
+                            prompt_mfa=reject_mfa,
+                            return_on_mfa=False,
+                            retry_attempts=0,
+                        )
+                        status, _ = client.login(tokenstore=self._tokenstore)
+                        if status == "needs_mfa":
+                            raise _MFARequired()
+                        return client
+                    except _MFARequired as mfa_exc:
+                        raise GarminWorkoutAdapterError(
+                            "GARMIN_MFA_REQUIRED",
+                            "Garmin 要求 MFA，请账号所有者完成验证后再恢复同步",
+                            operation="login",
+                        ) from mfa_exc
+                    except Exception as retry_exc:
+                        raise self._bootstrap_failed_error(
+                            retry_exc, bootstrap_error=None
+                        ) from retry_exc
+                raise self._bootstrap_failed_error(exc, bootstrap_error=bootstrap_error) from exc
             raise self._error("login", exc) from exc
+
+    def _bootstrap_failed_error(
+        self, exc: BaseException, *, bootstrap_error: str | None
+    ) -> GarminWorkoutAdapterError:
+        """中国区兜底也失败时的脱敏错误（不暴露 token/密码/远端响应）。"""
+        base = self._error("login", exc)
+        detail = base.public_message
+        if bootstrap_error:
+            detail = f"{detail}；garth 引导失败（{bootstrap_error}）"
+        return GarminWorkoutAdapterError(
+            base.error_code,
+            detail,
+            operation=base.operation,
+            status_code=base.status_code,
+        )
+
+    def _bootstrap_tokenstore_from_garth(
+        self, *, email: str | None, password: str | None, is_cn: bool
+    ) -> str | None:
+        """用 garth 建立中国区会话，写入 garminconnect tokenstore。
+
+        返回 None 表示成功；返回字符串表示失败原因（脱敏，可直接进错误信息）。
+        只在 `_login` 的 401/403 分支调用一次，不做任何循环登录。
+        """
+        if not self._tokenstore:
+            return "未配置 tokenstore"
+        try:
+            garth_mod = self._garth_module()
+        except Exception as exc:  # noqa: BLE001 - 依赖缺失只报告类型
+            return f"garth 不可用（{type(exc).__name__}）"
+
+        domain = "garmin.cn" if is_cn else "garmin.com"
+        try:
+            garth_mod.configure(domain=domain)
+        except Exception as exc:  # noqa: BLE001
+            return f"garth configure 失败（{type(exc).__name__}）"
+
+        # 先尝试复用既有 garth 会话；失败再凭据登录（各一次，不循环）。
+        resumed = False
+        try:
+            garth_mod.resume(str(self._garth_token_store))
+            resumed = True
+        except Exception:  # noqa: BLE001 - 缓存缺失/失效都转凭据登录
+            resumed = False
+
+        if not resumed:
+            if not email or not password:
+                return "缺少 GARMIN_EMAIL/GARMIN_PASSWORD 且无可用 garth 会话"
+            try:
+                garth_mod.login(email, password)
+            except Exception as exc:  # noqa: BLE001
+                return f"garth 登录失败（{type(exc).__name__}）"
+
+        oauth2 = getattr(getattr(garth_mod, "client", None), "oauth2_token", None)
+        access_token = getattr(oauth2, "access_token", None)
+        refresh_token = getattr(oauth2, "refresh_token", None)
+        client_id = _jwt_claim(access_token, "client_id")
+        if not access_token or not refresh_token or not client_id:
+            return "garth 会话缺少 access_token/refresh_token/client_id"
+
+        store = {
+            "di_token": access_token,
+            "di_refresh_token": refresh_token,
+            "di_client_id": client_id,
+        }
+        try:
+            self._write_tokenstore(store)
+            garth_mod.save(str(self._garth_token_store))
+        except Exception as exc:  # noqa: BLE001
+            return f"tokenstore 写入失败（{type(exc).__name__}）"
+        return None
+
+    def _garth_module(self) -> Any:
+        """惰性加载 garth（测试可注入 self._garth）。"""
+        if self._garth is None:
+            import garth as garth_module
+
+            self._garth = garth_module
+        return self._garth
+
+    def _write_tokenstore(self, store: dict[str, str]) -> None:
+        """把 tokenstore 写到 `self._tokenstore`（目录则补 garmin_tokens.json）。
+
+        与 garminconnect 的 `token_file_path` 语义一致：目录 → 目录内
+        `garmin_tokens.json`；以 `.json` 结尾 → 视为文件本身。
+        权限收紧到 0600（仅属主可读写）。
+        """
+        target = Path(self._tokenstore)
+        if target.suffix.casefold() != ".json":
+            target = target / "garmin_tokens.json"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_suffix(target.suffix + ".tmp")
+        tmp.write_text(json.dumps(store), encoding="utf-8")
+        try:
+            os.chmod(tmp, 0o600)
+        except OSError:  # Windows 无 POSIX 权限位，忽略
+            pass
+        os.replace(tmp, target)
 
     @staticmethod
     def _error(operation: str, exc: BaseException) -> GarminWorkoutAdapterError:
         status = _status_code(exc)
-        if status in {401, 403}:
+        # 认证类异常即使没有 status_code（garminconnect 的
+        # GarminConnectAuthenticationError 只在消息里带 401）也归为 AUTH_REQUIRED，
+        # 否则会被误报成 GARMIN_REQUEST_FAILED，掩盖真实原因。
+        if _is_auth_failure(exc):
             code = "GARMIN_AUTH_REQUIRED"
-            message = f"Garmin 认证失败：{operation}（HTTP {status}）"
+            suffix = f"HTTP {status}" if status is not None else type(exc).__name__
+            message = f"Garmin 认证失败：{operation}（{suffix}）"
         elif status == 429:
             code = "GARMIN_RATE_LIMITED"
             message = f"Garmin 请求受限：{operation}（HTTP 429）"
