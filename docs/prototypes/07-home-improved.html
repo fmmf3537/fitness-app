@@ -1,0 +1,230 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>07 · 训练日历首页（改进版）</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = { theme: { extend: { fontFamily: { sans: ['-apple-system','PingFang SC','Microsoft YaHei','sans-serif'] } } } }
+</script>
+<style>
+  .annot{position:absolute;left:432px;width:300px;font-size:11px;color:#475569;line-height:1.5}
+  .annot b{color:#0f172a}
+  .card-frame{position:relative;width:412px;border:1px dashed #cbd5e1;border-radius:24px;background:#f1f5f9;padding:12px}
+  .label{position:absolute;top:-10px;left:12px;background:#0f172a;color:#fff;font-size:11px;padding:2px 8px;border-radius:6px}
+  .swatch{display:inline-block;width:10px;height:10px;border-radius:3px;vertical-align:middle;margin-right:4px}
+</style>
+</head>
+<body class="bg-white font-sans text-gray-900">
+<div class="mx-auto my-6 max-w-[1280px] px-4">
+  <h1 class="text-xl font-bold">07 · 训练日历首页（改进版）</h1>
+  <p class="mt-1 text-sm text-slate-600">对比原版：紧凑 header · 本月统计条 · 回到今天 · 图例上移 · 训练格可读性增强</p>
+
+  <div class="mt-6 flex gap-8">
+
+    <!-- ============ 原版（左） ============ -->
+    <div class="card-frame">
+      <span class="label">原版</span>
+      <div class="relative mx-auto" style="width:388px">
+        <!-- 状态栏 -->
+        <div class="flex items-center justify-between px-2 pt-1 text-[11px] font-medium text-gray-900">
+          <span>9:41</span>
+          <span>●●●● 5G ▓▓</span>
+        </div>
+        <!-- header -->
+        <div class="mt-1 flex items-center justify-between px-3 pb-2">
+          <span class="text-base font-bold">健身看板</span>
+          <button class="flex h-9 items-center gap-1 rounded-md border border-gray-300 px-2 text-xs">⟳ 立即同步</button>
+        </div>
+        <!-- 原版日历 header -->
+        <div class="mx-3 mt-2 flex flex-wrap items-center justify-between gap-y-1">
+          <button class="h-9 rounded border border-gray-200 bg-white px-2 text-xs">← 上个月</button>
+          <span class="text-sm font-bold">2026-09</span>
+          <button class="h-9 rounded border border-gray-200 bg-white px-2 text-xs">下个月 →</button>
+        </div>
+        <p class="mx-3 mt-1 text-right text-[10px] text-slate-400">↑ SyncButton 在移动端会换行到下一行</p>
+
+        <!-- 日历 -->
+        <div class="mx-3 mt-2 grid grid-cols-7 gap-1 text-center text-[10px] font-medium text-gray-500">
+          <div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div>六</div><div>日</div>
+        </div>
+        <div class="mx-3 mt-1 grid grid-cols-7 gap-1">
+          <!-- 占位 + 1-30 -->
+          <div class="h-14"></div><div class="h-14"></div>
+          <button class="flex h-14 flex-col items-center rounded border border-gray-200 bg-white text-xs"><span>3</span></button>
+          <button class="flex h-14 flex-col items-center rounded border border-gray-200 bg-white text-xs"><span>4</span><span class="mt-1 flex gap-0.5"><span class="h-1.5 w-1.5 rounded-full bg-indigo-500"></span></span></button>
+          <button class="flex h-14 flex-col items-center rounded border border-gray-200 bg-white text-xs"><span>5</span></button>
+          <button class="flex h-14 flex-col items-center rounded border border-gray-200 bg-white text-xs"><span>6</span><span class="mt-1 flex gap-0.5"><span class="h-1.5 w-1.5 rounded-full bg-green-500"></span><span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span></span></button>
+          <button class="flex h-14 flex-col items-center rounded border border-gray-200 bg-white text-xs"><span>7</span></button>
+          <button class="flex h-14 flex-col items-center rounded border border-gray-200 bg-white text-xs"><span>8</span></button>
+          <button class="flex h-14 flex-col items-center rounded border border-gray-200 bg-white text-xs"><span>9</span><span class="mt-1 flex gap-0.5"><span class="h-1.5 w-1.5 rounded-full bg-green-500"></span></span></button>
+          <button class="flex h-14 flex-col items-center rounded border border-gray-200 bg-white text-xs"><span>10</span></button>
+          <button class="flex h-14 flex-col items-center rounded border border-gray-200 bg-white text-xs"><span>11</span><span class="mt-1 flex gap-0.5"><span class="h-1.5 w-1.5 rounded-full bg-indigo-500"></span></span></button>
+          <button class="flex h-14 flex-col items-center rounded border border-gray-200 bg-white text-xs"><span>12</span></button>
+          <button class="flex h-14 flex-col items-center rounded border border-gray-200 bg-white text-xs"><span>13</span><span class="mt-1 flex gap-0.5"><span class="h-1.5 w-1.5 rounded-full bg-green-500"></span></span></button>
+          <button class="flex h-14 flex-col items-center rounded border-2 border-indigo-600 bg-indigo-50 text-xs"><span class="font-bold text-indigo-700">14</span><span class="mt-1 flex gap-0.5"><span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span></span></button>
+          <button class="flex h-14 flex-col items-center rounded border border-gray-200 bg-white text-xs"><span>15</span></button>
+          <button class="flex h-14 flex-col items-center rounded border border-gray-200 bg-white text-xs"><span>16</span></button>
+          <button class="flex h-14 flex-col items-center rounded border border-gray-200 bg-white text-xs"><span>17</span></button>
+          <button class="flex h-14 flex-col items-center rounded border border-gray-200 bg-white text-xs"><span>18</span></button>
+        </div>
+
+        <!-- 图例 底部 -->
+        <div class="mx-3 mt-2 flex gap-3 text-[10px] text-gray-600">
+          <span><span class="swatch bg-green-500"></span>已匹配</span>
+          <span><span class="swatch bg-indigo-500"></span>仅单源</span>
+          <span><span class="swatch bg-amber-500"></span>待确认</span>
+        </div>
+
+        <!-- 底部 Tab -->
+        <div class="mt-3 flex border-t border-gray-200 bg-white px-2 py-2 text-[10px]">
+          <div class="flex-1 text-center text-indigo-600">📅 日历</div>
+          <div class="flex-1 text-center text-gray-400">📋 计划</div>
+          <div class="flex-1 text-center text-gray-400">📈 趋势</div>
+          <div class="flex-1 text-center text-gray-400">💬 教练</div>
+          <div class="flex-1 text-center text-gray-400">👤 我的</div>
+        </div>
+      </div>
+      <div class="annot" style="top:80px">
+        <b>问题 ①：</b>移动端月份切换器 + SyncButton 用 flex-wrap 强行堆成 2 行，重心失衡。
+      </div>
+      <div class="annot" style="top:240px">
+        <b>问题 ②：</b>日历格只有「日期 + 几个小圆点」，无法一眼判断哪天强度大。
+      </div>
+      <div class="annot" style="top:480px">
+        <b>问题 ③：</b>图例塞在底部，弱；缺本月汇总数字。
+      </div>
+    </div>
+
+    <!-- ============ 改进版（右） ============ -->
+    <div class="card-frame">
+      <span class="label" style="background:#16a34a">改进版</span>
+      <div class="relative mx-auto" style="width:388px">
+        <!-- 状态栏 -->
+        <div class="flex items-center justify-between px-2 pt-1 text-[11px] font-medium text-gray-900">
+          <span>9:41</span>
+          <span>●●●● 5G ▓▓</span>
+        </div>
+        <!-- 改进 header：紧凑 -->
+        <div class="mt-1 flex items-center justify-between px-3 pb-2">
+          <span class="text-base font-bold">健身看板</span>
+          <div class="flex items-center gap-1">
+            <button class="flex h-9 w-9 items-center justify-center rounded-md border border-gray-300" aria-label="搜索">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16" y2="16"/></svg>
+            </button>
+            <button class="flex h-9 w-9 items-center justify-center rounded-md border border-gray-300" aria-label="更多">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- 改进 月份导航 + 回到今天 chip -->
+        <div class="mx-3 mt-1 flex items-center justify-between">
+          <div class="flex items-center gap-1">
+            <button class="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white" aria-label="上个月">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+            <h2 class="px-1 text-base font-bold">2026 年 9 月</h2>
+            <button class="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white" aria-label="下个月">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+            <button class="ml-2 rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-700">今</button>
+          </div>
+          <!-- 月/周 切换 -->
+          <div class="flex rounded-md bg-gray-100 p-0.5 text-[11px]">
+            <button class="rounded bg-white px-2 py-0.5 font-medium text-gray-900 shadow-sm">月</button>
+            <button class="rounded px-2 py-0.5 text-gray-500">周</button>
+          </div>
+        </div>
+
+        <!-- 本月统计条 -->
+        <div class="mx-3 mt-2 grid grid-cols-3 gap-1 rounded-xl border border-gray-200 bg-white px-2 py-2 text-center text-[10px]">
+          <div><div class="font-bold text-gray-900">13</div><div class="text-gray-500">训练天数</div></div>
+          <div class="border-x border-gray-100"><div class="font-bold text-gray-900">21.4t</div><div class="text-gray-500">总容量 ↑12%</div></div>
+          <div><div class="font-bold text-amber-600">2</div><div class="text-amber-600">待确认</div></div>
+        </div>
+
+        <!-- 星期头 -->
+        <div class="mx-3 mt-2 grid grid-cols-7 gap-1 text-center text-[10px] font-medium text-gray-500">
+          <div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div>六</div><div>日</div>
+        </div>
+        <!-- 日历格：高度提升 + 数字 + dot + +N 多训练标记 -->
+        <div class="mx-3 mt-1 grid grid-cols-7 gap-1">
+          <div class="h-12"></div><div class="h-12"></div>
+          <button class="flex h-12 flex-col items-center rounded border border-gray-200 bg-white text-[11px]"><span>3</span></button>
+          <button class="flex h-12 flex-col items-center rounded border border-gray-200 bg-white text-[11px]"><span>4</span><span class="mt-0.5 flex gap-0.5"><span class="h-1.5 w-1.5 rounded-full bg-indigo-500"></span></span></button>
+          <button class="flex h-12 flex-col items-center rounded border border-gray-200 bg-white text-[11px]"><span>5</span></button>
+          <button class="relative flex h-12 flex-col items-center rounded border border-gray-200 bg-white text-[11px]"><span>6</span><span class="mt-0.5 flex gap-0.5"><span class="h-1.5 w-1.5 rounded-full bg-green-500"></span><span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span></span></button>
+          <button class="flex h-12 flex-col items-center rounded border border-gray-200 bg-white text-[11px]"><span>7</span></button>
+          <button class="flex h-12 flex-col items-center rounded border border-gray-200 bg-white text-[11px]"><span>8</span></button>
+          <button class="flex h-12 flex-col items-center rounded border border-gray-200 bg-white text-[11px]"><span>9</span><span class="mt-0.5 flex gap-0.5"><span class="h-1.5 w-1.5 rounded-full bg-green-500"></span></span></button>
+          <button class="flex h-12 flex-col items-center rounded border border-gray-200 bg-white text-[11px]"><span>10</span></button>
+          <button class="flex h-12 flex-col items-center rounded border border-gray-200 bg-white text-[11px]"><span>11</span><span class="mt-0.5 flex gap-0.5"><span class="h-1.5 w-1.5 rounded-full bg-indigo-500"></span></span></button>
+          <button class="flex h-12 flex-col items-center rounded border border-gray-200 bg-white text-[11px]"><span>12</span></button>
+          <button class="flex h-12 flex-col items-center rounded border border-gray-200 bg-white text-[11px]"><span>13</span><span class="mt-0.5 flex gap-0.5"><span class="h-1.5 w-1.5 rounded-full bg-green-500"></span></span></button>
+          <!-- 今日 高亮 -->
+          <button class="relative flex h-12 flex-col items-center rounded-lg border-2 border-indigo-600 bg-indigo-50 text-[11px]">
+            <span class="font-bold text-indigo-700">14</span>
+            <span class="mt-0.5 flex items-center gap-0.5">
+              <span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
+              <span class="rounded bg-amber-100 px-1 text-[8px] font-bold text-amber-700">+2</span>
+            </span>
+          </button>
+          <button class="flex h-12 flex-col items-center rounded border border-gray-200 bg-white text-[11px]"><span>15</span></button>
+          <button class="flex h-12 flex-col items-center rounded border border-gray-200 bg-white text-[11px]"><span>16</span></button>
+          <button class="flex h-12 flex-col items-center rounded border border-gray-200 bg-white text-[11px]"><span>17</span></button>
+          <button class="flex h-12 flex-col items-center rounded border border-gray-200 bg-white text-[11px]"><span>18</span></button>
+        </div>
+
+        <!-- 图例 上移为 chip 形式带计数 -->
+        <div class="mx-3 mt-2 flex gap-1.5 text-[10px]">
+          <span class="flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-green-700"><span class="h-1.5 w-1.5 rounded-full bg-green-500"></span>已匹配 8</span>
+          <span class="flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-indigo-700"><span class="h-1.5 w-1.5 rounded-full bg-indigo-500"></span>仅单源 3</span>
+          <span class="flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-amber-700"><span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span>待确认 2</span>
+        </div>
+
+        <!-- 待确认 quick action card -->
+        <div class="mx-3 mt-2 flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+          <div class="flex items-center gap-2">
+            <span class="flex h-6 w-6 items-center justify-center rounded-full bg-amber-100 text-amber-700 text-[12px]">!</span>
+            <span class="text-[12px] font-medium text-amber-800">2 条记录待你确认</span>
+          </div>
+          <button class="text-[12px] font-medium text-amber-700">去处理 →</button>
+        </div>
+
+        <!-- 底部 Tab -->
+        <div class="mt-3 flex border-t border-gray-200 bg-white px-2 py-2 text-[10px]">
+          <div class="flex-1 text-center text-indigo-600">
+            <div class="flex flex-col items-center gap-0.5">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+              日历
+            </div>
+          </div>
+          <div class="flex-1 text-center text-gray-400">📋 计划</div>
+          <div class="flex-1 text-center text-gray-400">📈 趋势</div>
+          <div class="flex-1 text-center text-gray-400">💬 教练</div>
+          <div class="flex-1 text-center text-gray-400">👤 我的</div>
+        </div>
+      </div>
+      <div class="annot" style="top:80px">
+        <b>改动 ①：</b>右上角用 2 个图标按钮（搜索 / 更多）取代单独的「立即同步」按钮，「同步今日」移到 ⋯ 菜单或长按入口。
+      </div>
+      <div class="annot" style="top:160px">
+        <b>改动 ②：</b>月份切换紧凑化（`‹` `›` 8×8 单字符按钮），加 `今` 快捷 chip 与月/周切换。
+      </div>
+      <div class="annot" style="top:240px">
+        <b>改动 ③：</b>新增「本月统计条」三宫格——训练天数 / 总容量 / 待确认数，用户首屏就能看到月度摘要。
+      </div>
+      <div class="annot" style="top:480px">
+        <b>改动 ④：</b>图例上移为 chip 形式带计数，可点击作为筛选。
+      </div>
+      <div class="annot" style="top:580px">
+        <b>改动 ⑤：</b>多训练日增加 `+N` 徽章（如 14 日 `+2`）。
+      </div>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

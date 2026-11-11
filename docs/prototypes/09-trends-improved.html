@@ -1,0 +1,174 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>09 · 趋势页（改进版）</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config = { theme: { extend: { fontFamily: { sans: ['-apple-system','PingFang SC','Microsoft YaHei','sans-serif'] } } } }</script>
+<style>
+  .annot{position:absolute;left:432px;width:300px;font-size:11px;color:#475569;line-height:1.5}
+  .annot b{color:#0f172a}
+  .card-frame{position:relative;width:412px;border:1px dashed #cbd5e1;border-radius:24px;background:#f1f5f9;padding:12px}
+  .label{position:absolute;top:-10px;left:12px;background:#0f172a;color:#fff;font-size:11px;padding:2px 8px;border-radius:6px}
+</style>
+</head>
+<body class="bg-white font-sans text-gray-900">
+<div class="mx-auto my-6 max-w-[1280px] px-4">
+  <h1 class="text-xl font-bold">09 · 趋势页（改进版）</h1>
+  <p class="mt-1 text-sm text-slate-600">对比原版：3 张 Hero 指标卡 · 主图升主 · 一句话洞察 · 周/月对比切换</p>
+
+  <div class="mt-6 flex gap-8">
+
+    <!-- 原版 -->
+    <div class="card-frame">
+      <span class="label">原版</span>
+      <div class="relative mx-auto bg-gray-50" style="width:388px">
+        <div class="flex items-center justify-between px-3 py-2 text-[11px] font-medium">
+          <span>9:41</span><span>●●●● 5G ▓▓</span>
+        </div>
+        <div class="mx-3 flex items-center justify-between bg-white px-3 py-2">
+          <h1 class="text-base font-bold">训练趋势</h1>
+          <div class="flex rounded-md bg-gray-100 p-0.5 text-[11px]">
+            <div class="rounded bg-white px-2 py-0.5 font-medium">4 周</div>
+            <div class="rounded px-2 py-0.5 text-gray-500">12 周</div>
+          </div>
+        </div>
+        <!-- 4 张等权图 -->
+        <div class="mx-3 mt-2 grid grid-cols-2 gap-2">
+          <div class="rounded-xl border bg-white p-2"><p class="mb-1 text-[11px] font-medium">每周总容量（吨）</p><div class="h-28 rounded bg-gradient-to-t from-indigo-50 to-indigo-200"></div></div>
+          <div class="rounded-xl border bg-white p-2"><p class="mb-1 text-[11px] font-medium">各部位训练频次</p><div class="h-28 rounded bg-gradient-to-t from-emerald-50 to-emerald-200"></div></div>
+          <div class="rounded-xl border bg-white p-2"><p class="mb-1 text-[11px] font-medium">体重/体脂曲线</p><div class="h-28 rounded bg-gradient-to-t from-amber-50 to-amber-200"></div></div>
+          <div class="rounded-xl border bg-white p-2"><p class="mb-1 text-[11px] font-medium">睡眠-容量散点</p><div class="h-28 rounded bg-rose-50"></div></div>
+        </div>
+        <p class="mx-3 mt-2 px-3 text-[10px] text-slate-500">↑ 4 张图等权，缺少主次与洞察</p>
+        <div class="h-3"></div>
+        <div class="flex border-t border-gray-200 bg-white px-2 py-2 text-[10px]">
+          <div class="flex-1 text-center text-gray-400">📅 日历</div>
+          <div class="flex-1 text-center text-gray-400">📋 计划</div>
+          <div class="flex-1 text-center text-indigo-600">📈 趋势</div>
+          <div class="flex-1 text-center text-gray-400">💬 教练</div>
+          <div class="flex-1 text-center text-gray-400">👤 我的</div>
+        </div>
+      </div>
+      <div class="annot" style="top:140px">
+        <b>问题：</b>4 张图等权（h-28 × 2×2），缺少主辅分层与数据洞察文字，用户看不出图代表什么。
+      </div>
+    </div>
+
+    <!-- 改进版 -->
+    <div class="card-frame">
+      <span class="label" style="background:#16a34a">改进版</span>
+      <div class="relative mx-auto bg-gray-50" style="width:388px">
+        <div class="flex items-center justify-between px-3 py-2 text-[11px] font-medium">
+          <span>9:41</span><span>●●●● 5G ▓▓</span>
+        </div>
+        <div class="mx-3 flex items-center justify-between bg-white px-3 pb-1">
+          <h1 class="text-base font-bold">训练趋势</h1>
+        </div>
+        <!-- 4/12 周切换 + 对比切换 -->
+        <div class="mx-3 flex items-center justify-between bg-white px-3 pb-2">
+          <div class="flex rounded-md bg-gray-100 p-0.5 text-[11px]">
+            <div class="rounded bg-white px-2 py-0.5 font-medium">4 周</div>
+            <div class="rounded px-2 py-0.5 text-gray-500">12 周</div>
+            <div class="rounded px-2 py-0.5 text-gray-500">全部</div>
+          </div>
+          <div class="flex items-center gap-1 text-[11px] text-gray-600">
+            <span>对比</span>
+            <select class="rounded border bg-white px-1 py-0.5"><option>上周</option><option>上月</option></select>
+          </div>
+        </div>
+
+        <!-- 3 张 Hero 指标卡 -->
+        <div class="mx-3 mt-1 grid grid-cols-3 gap-1.5">
+          <div class="rounded-xl border bg-white p-2">
+            <div class="text-[10px] text-gray-500">本周训练</div>
+            <div class="text-base font-bold text-gray-900">5 <span class="text-[10px] font-normal text-gray-500">次</span></div>
+            <div class="mt-0.5 flex items-center gap-0.5 text-[10px] text-emerald-600">↑ +1<span class="text-gray-400">同比</span></div>
+          </div>
+          <div class="rounded-xl border bg-white p-2">
+            <div class="text-[10px] text-gray-500">连续天数</div>
+            <div class="text-base font-bold text-gray-900">12 <span class="text-[10px] font-normal text-gray-500">天</span></div>
+            <div class="mt-0.5 flex items-center gap-0.5 text-[10px] text-amber-600">🔥 在轨</div>
+          </div>
+          <div class="rounded-xl border bg-white p-2">
+            <div class="text-[10px] text-gray-500">本月 PR</div>
+            <div class="text-[12px] font-bold text-gray-900">深蹲 102.5kg×5</div>
+            <div class="mt-0.5 text-[10px] text-gray-500">↑ +2.5kg vs 上月</div>
+          </div>
+        </div>
+
+        <!-- 主图：每周容量（跨整宽） -->
+        <div class="mx-3 mt-2 rounded-xl border bg-white p-3">
+          <div class="flex items-baseline justify-between">
+            <div>
+              <h2 class="text-[12px] font-bold">每周总容量（吨）</h2>
+              <p class="mt-0.5 text-[11px] text-gray-500">本周 21.4t · 同比上周 ↑12%</p>
+            </div>
+            <span class="text-[10px] text-gray-400">近 4 周</span>
+          </div>
+          <!-- 简化的柱状图 -->
+          <div class="mt-2 h-32 flex items-end gap-1.5">
+            <div class="flex-1 flex flex-col items-center"><div class="w-full rounded-t bg-indigo-300" style="height:60%"></div><div class="mt-1 text-[9px] text-gray-500">W-3</div></div>
+            <div class="flex-1 flex flex-col items-center"><div class="w-full rounded-t bg-indigo-400" style="height:75%"></div><div class="mt-1 text-[9px] text-gray-500">W-2</div></div>
+            <div class="flex-1 flex flex-col items-center"><div class="w-full rounded-t bg-indigo-500" style="height:88%"></div><div class="mt-1 text-[9px] text-gray-500">W-1</div></div>
+            <div class="flex-1 flex flex-col items-center"><div class="w-full rounded-t bg-indigo-600 ring-2 ring-indigo-200" style="height:100%"></div><div class="mt-1 text-[9px] font-bold text-indigo-700">本周</div></div>
+          </div>
+          <!-- 洞察条 -->
+          <div class="mt-2 flex items-start gap-1.5 rounded bg-emerald-50 px-2 py-1.5 text-[10px]">
+            <span class="text-emerald-600">✨</span>
+            <span class="text-emerald-800">本周下肢拉类容量连续 2 周上升，上肢推类连续 2 周下降——可考虑下次加入水平推日平衡。</span>
+          </div>
+        </div>
+
+        <!-- 辅助图：2 张缩略 -->
+        <div class="mx-3 mt-2 grid grid-cols-2 gap-1.5">
+          <div class="rounded-xl border bg-white p-2">
+            <p class="text-[10px] font-medium">各部位训练频次</p>
+            <div class="mt-1 h-16 rounded bg-gradient-to-r from-emerald-100 to-emerald-300"></div>
+            <p class="mt-0.5 text-[9px] text-gray-500">腿部 4 次 · 推 3 · 拉 2</p>
+          </div>
+          <div class="rounded-xl border bg-white p-2">
+            <p class="text-[10px] font-medium">体重/体脂曲线</p>
+            <div class="mt-1 h-16 rounded bg-gradient-to-t from-amber-100 to-amber-200"></div>
+            <p class="mt-0.5 text-[9px] text-gray-500">72.5 kg · 体脂 16.2%</p>
+          </div>
+        </div>
+
+        <!-- 睡眠-容量 散点 + 解读 -->
+        <div class="mx-3 mt-2 rounded-xl border bg-white p-3">
+          <p class="text-[11px] font-medium">睡眠-容量 关系</p>
+          <div class="mt-1 h-20 rounded bg-rose-50/50"></div>
+          <div class="mt-1.5 flex items-start gap-1.5 rounded bg-amber-50 px-2 py-1.5 text-[10px]">
+            <span class="text-amber-600">💡</span>
+            <span class="text-amber-800">睡眠 &lt; 6h 的训练容量平均下降 18%；本周有 1 次睡眠 5.5h 后训练表现明显下滑。</span>
+          </div>
+        </div>
+
+        <div class="h-3"></div>
+        <div class="flex border-t border-gray-200 bg-white px-2 py-2 text-[10px]">
+          <div class="flex-1 text-center text-gray-400">📅 日历</div>
+          <div class="flex-1 text-center text-gray-400">📋 计划</div>
+          <div class="flex-1 text-center text-indigo-600">📈 趋势</div>
+          <div class="flex-1 text-center text-gray-400">💬 教练</div>
+          <div class="flex-1 text-center text-gray-400">👤 我的</div>
+        </div>
+      </div>
+      <div class="annot" style="top:120px">
+        <b>改动 ①：</b>顶部 3 张 Hero 指标卡：本周训练 / 连续天数 / 本月 PR——首屏即给关键数字。
+      </div>
+      <div class="annot" style="top:240px">
+        <b>改动 ②：</b>「每周总容量」升级为主图（跨整宽、高 128px），加洞察条解释趋势。
+      </div>
+      <div class="annot" style="top:440px">
+        <b>改动 ③：</b>辅助图缩略为 2 列紧凑布局（h-16），保留数据但不让用户陷入细节。
+      </div>
+      <div class="annot" style="top:560px">
+        <b>改动 ④：</b>「睡眠-容量」图加解读文字，把 AI 已算出的相关性显式呈现。
+      </div>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,184 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>10 · 教练聊天（改进版）</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config = { theme: { extend: { fontFamily: { sans: ['-apple-system','PingFang SC','Microsoft YaHei','sans-serif'] } } } }</script>
+<style>
+  .annot{position:absolute;left:432px;width:300px;font-size:11px;color:#475569;line-height:1.5}
+  .annot b{color:#0f172a}
+  .card-frame{position:relative;width:412px;border:1px dashed #cbd5e1;border-radius:24px;background:#f1f5f9;padding:12px}
+  .label{position:absolute;top:-10px;left:12px;background:#0f172a;color:#fff;font-size:11px;padding:2px 8px;border-radius:6px}
+  @keyframes bounce-dot{0%,80%,100%{transform:translateY(0);opacity:.4}40%{transform:translateY(-4px);opacity:1}}
+  .dot{animation:bounce-dot 1.4s infinite}
+  .dot:nth-child(2){animation-delay:.2s}
+  .dot:nth-child(3){animation-delay:.4s}
+</style>
+</head>
+<body class="bg-white font-sans text-gray-900">
+<div class="mx-auto my-6 max-w-[1280px] px-4">
+  <h1 class="text-xl font-bold">10 · 教练聊天（改进版）</h1>
+  <p class="mt-1 text-sm text-slate-600">对比原版：教练上下文卡 · 快捷提问 · 思考三点动画 · 附件 + 按钮</p>
+
+  <div class="mt-6 flex gap-8">
+
+    <!-- 原版 -->
+    <div class="card-frame">
+      <span class="label">原版</span>
+      <div class="relative mx-auto flex flex-col bg-gray-50" style="width:388px;height:780px">
+        <div class="flex items-center justify-between bg-white px-3 py-2 text-[11px] font-medium">
+          <span>9:41</span><span>●●●● 5G ▓▓</span>
+        </div>
+        <div class="flex items-center justify-between border-b bg-white px-3 py-2">
+          <h1 class="text-base font-bold">教练中心</h1>
+          <span class="text-[11px] text-red-500">清空对话</span>
+        </div>
+        <div class="mx-3 mt-2 flex rounded-lg bg-gray-100 p-1 text-[11px]">
+          <div class="flex-1 rounded-md bg-white py-1 text-center font-medium shadow-sm">聊天</div>
+          <div class="flex-1 py-1 text-center text-gray-500">教练须知</div>
+        </div>
+
+        <!-- 空状态 -->
+        <div class="flex flex-1 flex-col items-center justify-center px-4 text-center">
+          <p class="text-sm font-medium">跟教练说点什么吧</p>
+          <p class="mt-1 text-xs text-gray-500">比如「我深蹲时膝盖疼，下周训练怎么调？」</p>
+        </div>
+
+        <p class="px-3 text-center text-[10px] text-slate-500">↑ 仅给一行示例，没有上下文卡和快捷提问</p>
+
+        <!-- 输入框 -->
+        <div class="flex items-center gap-1 border-t bg-white px-2 py-2">
+          <textarea rows="1" class="flex-1 resize-none rounded-md border px-2 py-1.5 text-[12px]" placeholder="向教练提问..."> </textarea>
+          <button class="rounded-md bg-indigo-600 px-3 py-1.5 text-[12px] text-white">发送</button>
+        </div>
+      </div>
+      <div class="annot" style="top:300px">
+        <b>问题 ①：</b>首屏空状态只给一行示例，缺少「教练能参考的数据」上下文。
+      </div>
+      <div class="annot" style="top:480px">
+        <b>问题 ②：</b>无快捷提问 chip，新用户无从下手。
+      </div>
+      <div class="annot" style="top:650px">
+        <b>问题 ③：</b>输入框无附件按钮，无法引用训练/报告。
+      </div>
+    </div>
+
+    <!-- 改进版 -->
+    <div class="card-frame">
+      <span class="label" style="background:#16a34a">改进版</span>
+      <div class="relative mx-auto flex flex-col bg-gray-50" style="width:388px;height:780px">
+        <div class="flex items-center justify-between bg-white px-3 py-2 text-[11px] font-medium">
+          <span>9:41</span><span>●●●● 5G ▓▓</span>
+        </div>
+        <div class="flex items-center justify-between border-b bg-white px-3 py-2">
+          <h1 class="text-base font-bold">教练中心</h1>
+          <span class="text-[11px] text-red-500">清空</span>
+        </div>
+        <div class="mx-3 mt-2 flex rounded-lg bg-gray-100 p-1 text-[11px]">
+          <div class="flex-1 rounded-md bg-white py-1 text-center font-medium shadow-sm">聊天</div>
+          <div class="flex-1 py-1 text-center text-gray-500">教练须知</div>
+        </div>
+
+        <!-- 教练数据上下文卡 -->
+        <div class="mx-3 mt-2 rounded-xl border border-indigo-100 bg-indigo-50/50 p-2">
+          <div class="flex items-center justify-between">
+            <div class="text-[11px] font-medium text-indigo-900">教练能参考这些数据</div>
+            <button class="text-[10px] text-indigo-600">查看 ›</button>
+          </div>
+          <div class="mt-1.5 flex flex-wrap gap-1 text-[10px]">
+            <span class="rounded-full bg-white px-2 py-0.5 text-gray-700">📊 近 7 天训练 5 次</span>
+            <span class="rounded-full bg-white px-2 py-0.5 text-gray-700">😴 平均睡眠 6.8h</span>
+            <span class="rounded-full bg-white px-2 py-0.5 text-gray-700">💪 平均 RPE 7.2</span>
+            <span class="rounded-full bg-white px-2 py-0.5 text-gray-700">⚖️ 体重 72.5 kg</span>
+          </div>
+        </div>
+
+        <!-- 欢迎 + 快捷提问 -->
+        <div class="mx-3 mt-2">
+          <div class="rounded-2xl rounded-bl-sm bg-gray-100 px-3 py-2 text-[12px] text-gray-800">
+            你好！我是你的 AI 教练。告诉我你想聊的，或者从下面的快捷问题开始 👇
+          </div>
+        </div>
+
+        <div class="mx-3 mt-2">
+          <div class="text-[10px] font-medium text-gray-500">快捷提问</div>
+          <div class="mt-1.5 grid grid-cols-2 gap-1.5">
+            <button class="rounded-xl border bg-white p-2 text-left">
+              <div class="text-[16px]">📊</div>
+              <div class="mt-0.5 text-[11px] font-medium">复盘上次训练</div>
+              <div class="text-[9px] text-gray-500">质量与改进点</div>
+            </button>
+            <button class="rounded-xl border bg-white p-2 text-left">
+              <div class="text-[16px]">😴</div>
+              <div class="mt-0.5 text-[11px] font-medium">解读最近睡眠</div>
+              <div class="text-[9px] text-gray-500">睡眠与训练容量</div>
+            </button>
+            <button class="rounded-xl border bg-white p-2 text-left">
+              <div class="text-[16px]">🎯</div>
+              <div class="mt-0.5 text-[11px] font-medium">下次训练重点</div>
+              <div class="text-[9px] text-gray-500">基于本周数据</div>
+            </button>
+            <button class="rounded-xl border bg-white p-2 text-left">
+              <div class="text-[16px]">📈</div>
+              <div class="mt-0.5 text-[11px] font-medium">体脂变化趋势</div>
+              <div class="text-[9px] text-gray-500">过去 12 周</div>
+            </button>
+          </div>
+        </div>
+
+        <!-- 已发送示例对话 -->
+        <div class="mx-3 mt-2 flex justify-end">
+          <div class="max-w-[80%]">
+            <div class="rounded-2xl rounded-br-sm bg-indigo-600 px-3 py-2 text-[12px] text-white">这周深蹲要不要加重？</div>
+            <p class="mt-0.5 text-right text-[10px] text-gray-500">09:32</p>
+          </div>
+        </div>
+
+        <div class="mx-3 mt-2 flex justify-start">
+          <div class="max-w-[85%]">
+            <div class="rounded-2xl rounded-bl-sm bg-white px-3 py-2 text-[12px] shadow-sm">
+              可以小幅加。建议 <b>102.5kg 做 3×5</b>，观察第三次组的速度。如果最后一次明显粘滞，下周就维持。另外注意最近两次深蹲前夜睡眠都不到 6h，强度尽量安排在睡眠充足后。
+            </div>
+            <p class="mt-0.5 text-[10px] text-gray-500">09:33 · 由 Kimi 生成</p>
+          </div>
+        </div>
+
+        <!-- 思考中三点动画 -->
+        <div class="mx-3 mt-1 flex justify-start">
+          <div class="flex items-center gap-1 rounded-2xl rounded-bl-sm bg-gray-100 px-3 py-2">
+            <span class="dot h-1.5 w-1.5 rounded-full bg-gray-400"></span>
+            <span class="dot h-1.5 w-1.5 rounded-full bg-gray-400"></span>
+            <span class="dot h-1.5 w-1.5 rounded-full bg-gray-400"></span>
+            <span class="ml-1 text-[10px] text-gray-500">教练正在读你的本周训练...</span>
+          </div>
+        </div>
+
+        <div class="flex-1"></div>
+
+        <!-- 输入框：+ 附件 + 发送 -->
+        <div class="mx-3 mb-2 flex items-end gap-1 rounded-2xl border bg-white px-2 py-1.5">
+          <button class="flex h-7 w-7 items-center justify-center rounded-full text-gray-500" aria-label="附件">+</button>
+          <textarea rows="1" class="flex-1 resize-none bg-transparent text-[12px] focus:outline-none" placeholder="输入你的问题..."> </textarea>
+          <button class="flex h-7 w-7 items-center justify-center rounded-full bg-indigo-600 text-white" aria-label="发送">➤</button>
+        </div>
+      </div>
+      <div class="annot" style="top:240px">
+        <b>改动 ①：</b>顶部「教练能参考这些数据」上下文卡——明确告诉用户 AI 看的是什么。
+      </div>
+      <div class="annot" style="top:380px">
+        <b>改动 ②：</b>2×2 快捷提问 chip 网格（复盘 / 睡眠 / 下次重点 / 体脂）——降低首次输入成本。
+      </div>
+      <div class="annot" style="top:620px">
+        <b>改动 ③：</b>思考中用三点跳动动画 + 阶段文字（"正在读本周训练"），给用户进度感。
+      </div>
+      <div class="annot" style="top:720px">
+        <b>改动 ④：</b>输入框加 + 附件按钮，可引用训练/报告；输入框整体圆角胶囊化。
+      </div>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

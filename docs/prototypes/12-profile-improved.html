@@ -1,0 +1,187 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>12 · 我的 / 设置（改进版）</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config = { theme: { extend: { fontFamily: { sans: ['-apple-system','PingFang SC','Microsoft YaHei','sans-serif'] } } } }</script>
+<style>
+  .annot{position:absolute;left:432px;width:300px;font-size:11px;color:#475569;line-height:1.5}
+  .annot b{color:#0f172a}
+  .card-frame{position:relative;width:412px;border:1px dashed #cbd5e1;border-radius:24px;background:#f1f5f9;padding:12px}
+  .label{position:absolute;top:-10px;left:12px;background:#0f172a;color:#fff;font-size:11px;padding:2px 8px;border-radius:6px}
+</style>
+</head>
+<body class="bg-white font-sans text-gray-900">
+<div class="mx-auto my-6 max-w-[1280px] px-4">
+  <h1 class="text-xl font-bold">12 · 我的 / 设置（改进版）</h1>
+  <p class="mt-1 text-sm text-slate-600">对比原版：iOS 风格菜单 · 本月训练卡 · 按类别分组 · 删除训练收纳进设置</p>
+
+  <div class="mt-6 flex gap-8">
+
+    <!-- 原版 -->
+    <div class="card-frame">
+      <span class="label">原版</span>
+      <div class="relative mx-auto bg-gray-50" style="width:388px">
+        <div class="flex items-center justify-between px-3 py-2 text-[11px] font-medium">
+          <span>9:41</span><span>●●●● 5G ▓▓</span>
+        </div>
+        <h1 class="mx-3 text-base font-bold">我的</h1>
+        <!-- 功能菜单 -->
+        <div class="mx-3 mt-2 grid grid-cols-3 gap-2">
+          <button class="rounded-xl border bg-white p-2 text-center"><div class="text-base">📊</div><div class="mt-0.5 text-[10px]">AI 报告</div></button>
+          <button class="rounded-xl border bg-white p-2 text-center"><div class="text-base">📝</div><div class="mt-0.5 text-[10px]">复盘中心</div></button>
+          <button class="rounded-xl border bg-white p-2 text-center"><div class="text-base">⏳</div><div class="mt-0.5 text-[10px]">待确认队列</div></button>
+          <button class="rounded-xl border bg-white p-2 text-center"><div class="text-base">⚖️</div><div class="mt-0.5 text-[10px]">身体数据</div></button>
+          <button class="rounded-xl border bg-white p-2 text-center"><div class="text-base">📥</div><div class="mt-0.5 text-[10px]">数据导入</div></button>
+          <button class="rounded-xl border bg-white p-2 text-center"><div class="text-base">⚙️</div><div class="mt-0.5 text-[10px]">教练须知</div></button>
+        </div>
+        <!-- LLM 设置 -->
+        <div class="mx-3 mt-2 rounded-xl border bg-white p-3">
+          <p class="text-[11px] font-medium">LLM 提供商</p>
+          <div class="mt-1.5 space-y-1 text-[11px]">
+            <div class="flex items-center justify-between rounded bg-indigo-50 px-2 py-1.5">
+              <span>Kimi <span class="rounded bg-indigo-600 px-1 text-[9px] text-white">默认</span></span>
+              <span class="text-emerald-600">✓</span>
+            </div>
+            <div class="flex items-center justify-between rounded px-2 py-1.5">
+              <span>DeepSeek</span>
+              <span class="text-gray-400">未配</span>
+            </div>
+          </div>
+        </div>
+        <!-- 月用量 -->
+        <div class="mx-3 mt-2 rounded-xl border bg-white p-3">
+          <p class="text-[11px] font-medium">本月用量（2026-09）</p>
+          <div class="mt-1 text-[11px]">总调用 <b>42</b> 次 · 总费用 <b>¥1.23</b></div>
+        </div>
+        <!-- 个人资料 -->
+        <div class="mx-3 mt-2 rounded-xl border bg-white p-3">
+          <p class="text-[11px] font-medium">个人资料</p>
+          <div class="mt-1.5 grid grid-cols-2 gap-2 text-[11px]">
+            <select class="rounded border px-2 py-1.5"><option>男</option></select>
+            <input class="rounded border px-2 py-1.5" placeholder="出生日期">
+          </div>
+        </div>
+        <p class="mx-3 mt-2 text-[10px] text-slate-500">↑ 6 件功能平铺 + LLM 配置 + 月用量 + 个人资料 全混在一页</p>
+
+        <!-- 已删除训练 -->
+        <div class="mx-3 mt-2 rounded-xl border bg-white p-3">
+          <p class="text-[11px] font-medium">已删除的训练</p>
+          <p class="mt-1 text-[11px] text-gray-500">暂无</p>
+        </div>
+      </div>
+      <div class="annot" style="top:80px">
+        <b>问题 ①：</b>一个页面塞了 6 类内容，没有层级。
+      </div>
+      <div class="annot" style="top:380px">
+        <b>问题 ②：</b>个人资料 / 月用量专业感强，普通用户看不懂。
+      </div>
+      <div class="annot" style="top:480px">
+        <b>问题 ③：</b>退出登录与「LLM 配置」同级，体验突兀。
+      </div>
+    </div>
+
+    <!-- 改进版 -->
+    <div class="card-frame">
+      <span class="label" style="background:#16a34a">改进版</span>
+      <div class="relative mx-auto bg-gray-50" style="width:388px">
+        <div class="flex items-center justify-between px-3 py-2 text-[11px] font-medium">
+          <span>9:41</span><span>●●●● 5G ▓▓</span>
+        </div>
+        <h1 class="mx-3 text-base font-bold">我的</h1>
+
+        <!-- 个人卡片：头像 + 摘要 -->
+        <div class="mx-3 mt-2 rounded-2xl bg-gradient-to-br from-indigo-500 to-indigo-700 p-3 text-white shadow-md">
+          <div class="flex items-center gap-3">
+            <div class="flex h-12 w-12 items-center justify-center rounded-full bg-white/20 text-base font-bold">F</div>
+            <div class="flex-1">
+              <div class="text-base font-bold">Fit 用户</div>
+              <div class="text-[10px] opacity-80">已登录 · 连续训练 12 天</div>
+            </div>
+            <button class="rounded-md bg-white/15 px-2 py-1 text-[10px]">编辑</button>
+          </div>
+          <div class="mt-3 grid grid-cols-3 gap-2 text-center text-[10px]">
+            <div><div class="text-base font-bold">87</div><div>本月次数</div></div>
+            <div><div class="text-base font-bold">12</div><div>连续天数</div></div>
+            <div><div class="text-base font-bold">2.1t</div><div>本周容量</div></div>
+          </div>
+        </div>
+
+        <!-- iOS 风格分块菜单 -->
+        <!-- 数据 -->
+        <div class="mx-3 mt-3">
+          <div class="mb-1 px-1 text-[10px] font-medium text-gray-500">数据</div>
+          <div class="overflow-hidden rounded-xl border bg-white">
+            <a class="flex items-center justify-between px-3 py-2.5 text-[12px]"><span>⚖️ 身体数据</span><span class="text-gray-400">›</span></a>
+            <a class="flex items-center justify-between border-t px-3 py-2.5 text-[12px]"><span>📥 数据导入</span><span class="text-gray-400">›</span></a>
+            <a class="flex items-center justify-between border-t px-3 py-2.5 text-[12px]"><span>🗑️ 已删除训练 <span class="ml-1 rounded bg-gray-100 px-1.5 text-[10px] text-gray-500">2</span></span><span class="text-gray-400">›</span></a>
+            <a class="flex items-center justify-between border-t px-3 py-2.5 text-[12px]"><span>📊 AI 报告</span><span class="text-gray-400">›</span></a>
+            <a class="flex items-center justify-between border-t px-3 py-2.5 text-[12px]"><span>📝 复盘中心</span><span class="text-gray-400">›</span></a>
+            <a class="flex items-center justify-between border-t px-3 py-2.5 text-[12px]"><span>⏳ 待确认队列 <span class="ml-1 rounded bg-amber-100 px-1.5 text-[10px] font-medium text-amber-700">2</span></span><span class="text-gray-400">›</span></a>
+          </div>
+        </div>
+
+        <!-- AI -->
+        <div class="mx-3 mt-3">
+          <div class="mb-1 px-1 text-[10px] font-medium text-gray-500">AI</div>
+          <div class="overflow-hidden rounded-xl border bg-white">
+            <a class="flex items-center justify-between px-3 py-2.5 text-[12px]">
+              <span class="flex items-center gap-2"><span>🤖</span><span>LLM 提供商</span></span>
+              <span class="text-gray-400">Kimi ›</span>
+            </a>
+            <a class="flex items-center justify-between border-t px-3 py-2.5 text-[12px]">
+              <span>📋 教练须知</span>
+              <span class="text-gray-400">3 条 ›</span>
+            </a>
+            <a class="flex items-center justify-between border-t px-3 py-2.5 text-[12px]">
+              <span>💰 本月用量</span>
+              <span class="text-gray-400">¥1.23 ›</span>
+            </a>
+          </div>
+        </div>
+
+        <!-- 账户 -->
+        <div class="mx-3 mt-3">
+          <div class="mb-1 px-1 text-[10px] font-medium text-gray-500">账户</div>
+          <div class="overflow-hidden rounded-xl border bg-white">
+            <a class="flex items-center justify-between px-3 py-2.5 text-[12px]">
+              <span>👤 个人资料</span>
+              <span class="text-gray-400">男 · 1990-06-15 ›</span>
+            </a>
+            <a class="flex items-center justify-between border-t px-3 py-2.5 text-[12px]">
+              <span>🔒 修改访问口令</span>
+              <span class="text-gray-400">›</span>
+            </a>
+            <button class="block w-full border-t px-3 py-2.5 text-left text-[12px] font-medium text-red-600">退出登录</button>
+          </div>
+        </div>
+
+        <div class="h-3"></div>
+        <div class="flex border-t border-gray-200 bg-white px-2 py-2 text-[10px]">
+          <div class="flex-1 text-center text-gray-400">📅 日历</div>
+          <div class="flex-1 text-center text-gray-400">📋 计划</div>
+          <div class="flex-1 text-center text-gray-400">📈 趋势</div>
+          <div class="flex-1 text-center text-gray-400">💬 教练</div>
+          <div class="flex-1 text-center text-indigo-600">👤 我的</div>
+        </div>
+      </div>
+      <div class="annot" style="top:140px">
+        <b>改动 ①：</b>顶部 indigo Hero 卡：头像 + 用户名 + 本月训练次数 / 连续天数 / 本周容量——首屏即给用户自己的摘要。
+      </div>
+      <div class="annot" style="top:300px">
+        <b>改动 ②：</b>iOS 风格分块菜单（数据 / AI / 账户），每行 chevron `›` 跳子页；待确认带 badge 数字。
+      </div>
+      <div class="annot" style="top:560px">
+        <b>改动 ③：</b>退出登录单独红色按钮放最底部，与账户区其余项视觉区分。
+      </div>
+      <div class="annot" style="top:660px">
+        <b>改动 ④：</b>LLM 用量折叠为「本月 ¥X」摘要，点击进二级页查看明细——首屏不被表格淹没。
+      </div>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>
