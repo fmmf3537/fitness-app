@@ -106,6 +106,7 @@ describe('Garmin 计划确认同步交互', () => {
     let writes = globalThis.fetch.mock.calls.filter(([, options]) => options.method === 'POST' && !options?.url?.includes('/auth/'))
     expect(writes).toHaveLength(0)
     await user.click(screen.getByTestId('garmin-confirm-sync'))
+    await user.click(await screen.findByTestId('confirm-dialog-confirm'))
     expect(screen.getAllByText('Garmin · 同步中')).not.toHaveLength(0)
 
     await act(async () => { await vi.advanceTimersByTimeAsync(1600) })
@@ -156,6 +157,7 @@ describe('Garmin 计划确认同步交互', () => {
     renderPage()
     await user.click(await screen.findByTestId(`garmin-preview-button-${DATE}`))
     await user.click(await screen.findByTestId('garmin-confirm-sync'))
+    await user.click(await screen.findByTestId('confirm-dialog-confirm'))
 
     await screen.findByTestId('garmin-confirm-sync')
     expect(screen.getByText(new RegExp(HASH_B))).toBeInTheDocument()
@@ -182,6 +184,7 @@ describe('Garmin 计划确认同步交互', () => {
     await user.click(await screen.findByTestId(`garmin-preview-button-${DATE}`))
     expect(screen.getByText(/Garmin 请求受限/)).toBeInTheDocument()
     await user.click(await screen.findByTestId('garmin-confirm-sync'))
+    await user.click(await screen.findByTestId('confirm-dialog-confirm'))
 
     expect(await screen.findByText('Garmin 同步存在冲突，请先人工核对')).toBeInTheDocument()
     const writes = globalThis.fetch.mock.calls.filter(([url, options]) => url.includes('/garmin/') && options.method === 'POST')
@@ -211,5 +214,61 @@ describe('Garmin 计划确认同步交互', () => {
     expect(screen.getByTestId('garmin-preview-movement-1')).toHaveTextContent('已端到端验证')
     expect(screen.getByTestId('garmin-preview-movement-1')).not.toHaveTextContent('待远端验收')
     expect(screen.getByTestId('garmin-preview-movement-2')).toHaveTextContent('目录映射已确认 · 待远端验收')
+  })
+
+  it('test_confirm_sync_requires_second_confirmation', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    globalThis.fetch = routeFetch([
+      ['/api/plans/upcoming', makeUpcoming()],
+      [`/api/plans/${DATE}/garmin/preview`, makePreview()],
+      [`/api/plans/${DATE}/garmin/sync`, () => response({
+        started: true, sync: makeSync({ status: 'syncing', phase: 'create', attempt_count: 1 }),
+      }, 202)],
+      ['/api/plans/review/', response({}, 404)],
+    ])
+    renderPage()
+    await user.click(await screen.findByTestId(`garmin-preview-button-${DATE}`))
+    await user.click(await screen.findByTestId('garmin-confirm-sync'))
+
+    expect(await screen.findByTestId('confirm-dialog')).toBeInTheDocument()
+    const writes = globalThis.fetch.mock.calls.filter(([url, options]) => url.includes('/garmin/sync') && options.method === 'POST')
+    expect(writes).toHaveLength(0)
+  })
+
+  it('test_confirm_sync_cancel_does_not_write', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    globalThis.fetch = routeFetch([
+      ['/api/plans/upcoming', makeUpcoming()],
+      [`/api/plans/${DATE}/garmin/preview`, makePreview()],
+      [`/api/plans/${DATE}/garmin/sync`, () => response({
+        started: true, sync: makeSync({ status: 'syncing', phase: 'create', attempt_count: 1 }),
+      }, 202)],
+      ['/api/plans/review/', response({}, 404)],
+    ])
+    renderPage()
+    await user.click(await screen.findByTestId(`garmin-preview-button-${DATE}`))
+    await user.click(await screen.findByTestId('garmin-confirm-sync'))
+    await user.click(await screen.findByTestId('confirm-dialog-cancel'))
+
+    expect(screen.queryByTestId('confirm-dialog')).not.toBeInTheDocument()
+    expect(screen.getByTestId('garmin-confirm-sync')).toBeInTheDocument()
+    const writes = globalThis.fetch.mock.calls.filter(([url, options]) => url.includes('/garmin/sync') && options.method === 'POST')
+    expect(writes).toHaveLength(0)
+  })
+
+  it('test_confirm_dialog_mentions_garmin_and_date', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    globalThis.fetch = routeFetch([
+      ['/api/plans/upcoming', makeUpcoming()],
+      [`/api/plans/${DATE}/garmin/preview`, makePreview()],
+      ['/api/plans/review/', response({}, 404)],
+    ])
+    renderPage()
+    await user.click(await screen.findByTestId(`garmin-preview-button-${DATE}`))
+    await user.click(await screen.findByTestId('garmin-confirm-sync'))
+
+    const dialog = await screen.findByTestId('confirm-dialog')
+    expect(dialog).toHaveTextContent('Garmin')
+    expect(dialog).toHaveTextContent(DATE)
   })
 })

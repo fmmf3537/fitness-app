@@ -154,6 +154,7 @@ describe('Garmin 顺延确认交互', () => {
     expect(rescheduleWrites()).toHaveLength(0)
 
     await user.click(screen.getByTestId('garmin-confirm-reschedule'))
+    await user.click(await screen.findByTestId('confirm-dialog-confirm'))
     expect(screen.getAllByText('Garmin · 同步中')).not.toHaveLength(0)
     await act(async () => { await vi.advanceTimersByTimeAsync(1600) })
 
@@ -192,6 +193,7 @@ describe('Garmin 顺延确认交互', () => {
     expect(await screen.findByText(/Garmin 请求受限/)).toBeInTheDocument()
     expect(screen.getByTestId('garmin-write-confirmation')).toHaveTextContent('先回读原 Workout 和日程')
     await user.click(screen.getByTestId('garmin-confirm-reschedule'))
+    await user.click(await screen.findByTestId('confirm-dialog-confirm'))
 
     expect(await screen.findByText('已关联的 Garmin 训练不属于原顺延来源')).toBeInTheDocument()
     expect(rescheduleWrites()).toHaveLength(1)
@@ -217,6 +219,7 @@ describe('Garmin 顺延确认交互', () => {
     renderPage()
     await user.click(await screen.findByTestId(`garmin-preview-button-${TARGET_DATE}`))
     await user.click(await screen.findByTestId('garmin-confirm-reschedule'))
+    await user.click(await screen.findByTestId('confirm-dialog-confirm'))
 
     await screen.findByTestId('garmin-confirm-reschedule')
     expect(screen.getByText(new RegExp(HASH_B))).toBeInTheDocument()
@@ -245,6 +248,7 @@ describe('Garmin 顺延确认交互', () => {
     renderPage()
     await user.click(await screen.findByTestId(`garmin-preview-button-${TARGET_DATE}`))
     await user.click(await screen.findByTestId('garmin-confirm-reschedule'))
+    await user.click(await screen.findByTestId('confirm-dialog-confirm'))
     await act(async () => { await vi.advanceTimersByTimeAsync(1600) })
 
     expect(await screen.findByText('临时状态错误')).toBeInTheDocument()
@@ -277,6 +281,46 @@ describe('Garmin 顺延确认交互', () => {
     expect(await screen.findByText('目标日期已有其他同步记录，未自动覆盖或改期')).toBeInTheDocument()
     expect(screen.getByText(/Garmin 写入当前未启用/)).toBeInTheDocument()
     expect(screen.queryByTestId('garmin-confirm-reschedule')).not.toBeInTheDocument()
+    expect(rescheduleWrites()).toHaveLength(0)
+  })
+
+  it('test_confirm_reschedule_requires_second_confirmation', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    globalThis.fetch = routeFetch([
+      ['/api/plans/upcoming', makeUpcoming()],
+      [`/api/plans/${FROM_DATE}/garmin/reschedule`, (url, options) => (
+        options.method === 'POST'
+          ? response({ started: true, sync: makeSync({ status: 'syncing' }) }, 202)
+          : response(makePreview())
+      )],
+      ['/api/plans/review/', response({}, 404)],
+    ])
+    renderPage()
+    await user.click(await screen.findByTestId(`garmin-preview-button-${TARGET_DATE}`))
+    await user.click(await screen.findByTestId('garmin-confirm-reschedule'))
+
+    expect(await screen.findByTestId('confirm-dialog')).toBeInTheDocument()
+    expect(rescheduleWrites()).toHaveLength(0)
+  })
+
+  it('test_confirm_reschedule_cancel_does_not_write', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    globalThis.fetch = routeFetch([
+      ['/api/plans/upcoming', makeUpcoming()],
+      [`/api/plans/${FROM_DATE}/garmin/reschedule`, (url, options) => (
+        options.method === 'POST'
+          ? response({ started: true, sync: makeSync({ status: 'syncing' }) }, 202)
+          : response(makePreview())
+      )],
+      ['/api/plans/review/', response({}, 404)],
+    ])
+    renderPage()
+    await user.click(await screen.findByTestId(`garmin-preview-button-${TARGET_DATE}`))
+    await user.click(await screen.findByTestId('garmin-confirm-reschedule'))
+    await user.click(await screen.findByTestId('confirm-dialog-cancel'))
+
+    expect(screen.queryByTestId('confirm-dialog')).not.toBeInTheDocument()
+    expect(screen.getByTestId('garmin-confirm-reschedule')).toBeInTheDocument()
     expect(rescheduleWrites()).toHaveLength(0)
   })
 })

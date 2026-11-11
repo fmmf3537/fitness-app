@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { api, ApiError } from '../api/client'
 import useModalAccessibility from '../hooks/useModalAccessibility'
 import Button from './ui/Button'
+import ConfirmDialog from './ui/ConfirmDialog'
 import Icon from './ui/Icon'
 import Skeleton from './ui/Skeleton'
 
@@ -183,12 +184,17 @@ export default function GarminPlanPreviewModal({ day, onClose, onSyncChange }) {
   const [actionError, setActionError] = useState(null)
   const [loading, setLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
   const [retryToken, setRetryToken] = useState(0)
   const [pollRetryToken, setPollRetryToken] = useState(0)
   const dialogRef = useRef(null)
   const closeRef = useRef(null)
   const titleId = useId()
   useModalAccessibility({ open, containerRef: dialogRef, initialFocusRef: closeRef, onClose })
+
+  useEffect(() => {
+    if (!open) setConfirmOpen(false)
+  }, [open])
 
   useEffect(() => {
     if (!dayDate || !fromDate || !targetDate) return undefined
@@ -246,6 +252,19 @@ export default function GarminPlanPreviewModal({ day, onClose, onSyncChange }) {
     && !['synced', 'syncing', 'conflict', 'source_removed'].includes(status),
   )
 
+  const confirmDescription = isReschedule
+    ? `将从 ${preview?.from_date} 顺延到 ${preview?.to_date}，保留原 Workout ${sync?.workout_id || '—'} 与日程 ${sync?.workout_schedule_id || '—'} 的关联。`
+    : status === 'update_available'
+      ? `将覆盖此应用管理的 Garmin 训练（保留原 Workout 与日程关联），日期 ${dayDate}。`
+      : status === 'failed'
+        ? `将从已保存的阶段恢复，系统会先对账，不会重复创建。日期 ${dayDate}。`
+        : `将在 Garmin Connect 为 ${dayDate} 创建训练并安排日程。Garmin 不支持批量删除，误创建需在 App 中手动删除。`
+
+  const requestConfirm = () => {
+    if (!canWrite || submitting || confirmOpen) return
+    setConfirmOpen(true)
+  }
+
   const handleConfirm = async () => {
     if (!canWrite || submitting) return
     setSubmitting(true)
@@ -273,6 +292,11 @@ export default function GarminPlanPreviewModal({ day, onClose, onSyncChange }) {
     } finally {
       setSubmitting(false)
     }
+  }
+
+  const handleDialogConfirm = () => {
+    setConfirmOpen(false)
+    void handleConfirm()
   }
 
   return createPortal(
@@ -405,7 +429,7 @@ export default function GarminPlanPreviewModal({ day, onClose, onSyncChange }) {
               <Button
                 variant="primary"
                 fullWidth
-                onClick={handleConfirm}
+                onClick={requestConfirm}
                 disabled={submitting}
                 testId={isReschedule ? 'garmin-confirm-reschedule' : 'garmin-confirm-sync'}
               >
@@ -415,6 +439,16 @@ export default function GarminPlanPreviewModal({ day, onClose, onSyncChange }) {
           </div>
         </footer>
       </div>
+      <ConfirmDialog
+        open={confirmOpen}
+        title={isReschedule ? '确认顺延改期？' : '确认写入 Garmin？'}
+        description={confirmDescription}
+        confirmText={isReschedule ? '确认改期' : '确认写入'}
+        cancelText="取消"
+        danger
+        onConfirm={handleDialogConfirm}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </div>,
     document.body,
   )
