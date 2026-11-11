@@ -18,6 +18,7 @@ from app.adapters.garmin_workout_adapter import (
     GarminWorkoutAdapterError,
 )
 from app.models import GarminPlanSync, JobRun
+from app.services import exercise_mapping as mapping_service
 from app.services.garmin_workout_mapper import (
     content_hash as calculate_content_hash,
     expand_workout,
@@ -301,6 +302,7 @@ def _claim_existing(
     current_hash: str,
     current_content_hash: str,
     payload: dict[str, Any],
+    mapping_hash: str | None = None,
 ) -> GarminPlanSync:
     updated = (
         session.query(GarminPlanSync)
@@ -313,6 +315,7 @@ def _claim_existing(
                 GarminPlanSync.source_hash: current_hash,
                 GarminPlanSync.content_hash: current_content_hash,
                 GarminPlanSync.payload_json: json.dumps(payload, ensure_ascii=False),
+                GarminPlanSync.mapping_hash: mapping_hash,
                 GarminPlanSync.status: "syncing",
                 GarminPlanSync.phase: "update" if record.workout_id else "create",
                 GarminPlanSync.reschedule_to_date: None,
@@ -355,7 +358,12 @@ def claim_plan_sync(
         raise PlanSyncError(
             409, "PLAN_CHANGED", "训记计划已变化，请重新生成预览后再确认"
         )
-    preview = map_plan_day(plan_day)
+    mappings = mapping_service.load_all_mappings(session)
+    preview = map_plan_day(plan_day, mappings=mappings)
+    movement_names = [
+        str(m.get("name") or "").strip() for m in (plan_day.get("movements") or [])
+    ]
+    mapping_hash = mapping_service.load_mapping_snapshot_hash(session, movement_names)
     training_date = date.fromisoformat(plan_day["date"])
     pending_reschedule = get_pending_reschedule_for_target(
         session, plan_ref=plan_day["plan_ref"], target_date=training_date
@@ -379,6 +387,8 @@ def claim_plan_sync(
         and record.workout_id
         and record.workout_schedule_id
     ):
+        record.mapping_hash = mapping_hash
+        session.commit()
         return record, False
     if record is not None:
         return _claim_existing(
@@ -387,6 +397,7 @@ def claim_plan_sync(
             current_hash=current_hash,
             current_content_hash=current_content_hash,
             payload=preview["workout"],
+            mapping_hash=mapping_hash,
         ), True
 
     record = GarminPlanSync(
@@ -396,6 +407,7 @@ def claim_plan_sync(
         source_hash=current_hash,
         content_hash=current_content_hash,
         payload_json=json.dumps(preview["workout"], ensure_ascii=False),
+        mapping_hash=mapping_hash,
         status="syncing",
         phase="create",
         attempt_count=1,
@@ -441,11 +453,17 @@ def _verify_source(record: GarminPlanSync, remote: dict[str, Any]) -> None:
 
 
 def _verify_workout_semantics(
-    record: GarminPlanSync, remote: dict[str, Any], desired: dict[str, Any]
+    record: GarminPlanSync,
+    remote: dict[str, Any],
+    desired: dict[str, Any],
+    *,
+    mappings: dict | None = None,
 ) -> None:
     _verify_source(record, remote)
     try:
-        matches = expand_workout(remote) == expand_workout(desired)
+        matches = expand_workout(remote, mappings=mappings) == expand_workout(
+            desired, mappings=mappings
+        )
     except (TypeError, ValueError, KeyError) as exc:
         raise PlanSyncConflict(
             "GARMIN_WORKOUT_READBACK_INVALID",
@@ -559,6 +577,7 @@ def run_plan_sync(
 
             adapter = GarminWorkoutAdapter.from_settings(get_settings())
         desired = json.loads(record.payload_json or "{}")
+        mappings = mapping_service.load_all_mappings(session)
         if not record.workout_id:
             record.phase = "create"
             session.commit()
@@ -584,7 +603,9 @@ def run_plan_sync(
         _verify_source(record, remote)
         current_description_hash = _description_marker(remote, "source_hash")
         try:
-            semantics_match = expand_workout(remote) == expand_workout(desired)
+            semantics_match = expand_workout(
+                remote, mappings=mappings
+            ) == expand_workout(desired, mappings=mappings)
         except (TypeError, ValueError, KeyError):
             semantics_match = False
         if (
@@ -597,7 +618,7 @@ def run_plan_sync(
             # 保留服务器字段，只替换应用管理的完整训练内容，workoutId 不变。
             adapter.update_workout(record.workout_id, {**remote, **desired})
             remote = adapter.get_workout(record.workout_id)
-        _verify_workout_semantics(record, remote, desired)
+        _verify_workout_semantics(record, remote, desired, mappings=mappings)
 
         if not record.workout_schedule_id:
             record.phase = "schedule"

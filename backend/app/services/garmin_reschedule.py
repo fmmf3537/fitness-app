@@ -17,6 +17,7 @@ from app.adapters.garmin_workout_adapter import (
     GarminWorkoutAdapterError,
 )
 from app.models import GarminPlanSync, JobRun
+from app.services import exercise_mapping as mapping_service
 from app.services.garmin_plan_sync import (
     ACTIVE_RESCHEDULE_STATUSES,
     PlanSyncConflict,
@@ -390,7 +391,8 @@ def preview_reschedule(
         from_date=from_date,
         target_date=target_date,
     )
-    preview = map_plan_day(target_day)
+    mappings = mapping_service.load_all_mappings(session)
+    preview = map_plan_day(target_day, mappings=mappings)
     return {
         **preview,
         "from_date": from_date.isoformat(),
@@ -468,7 +470,8 @@ def claim_reschedule(
             409, "RESCHEDULE_CLAIM_FAILED", "顺延状态已变化，请刷新后重试"
         )
 
-    preview = map_plan_day(target_day)
+    mappings = mapping_service.load_all_mappings(session)
+    preview = map_plan_day(target_day, mappings=mappings)
     original_date = record.training_date
     original_source_key = record.source_key
     updated = (
@@ -523,9 +526,17 @@ def _verify_reschedule_source(remote: dict, allowed_source_keys: set[str]) -> No
         )
 
 
-def _workout_matches(remote: dict, desired: dict, record: GarminPlanSync) -> bool:
+def _workout_matches(
+    remote: dict,
+    desired: dict,
+    record: GarminPlanSync,
+    *,
+    mappings: dict | None = None,
+) -> bool:
     try:
-        semantics_match = expand_workout(remote) == expand_workout(desired)
+        semantics_match = expand_workout(remote, mappings=mappings) == expand_workout(
+            desired, mappings=mappings
+        )
     except (TypeError, ValueError, KeyError):
         semantics_match = False
     return (
@@ -542,8 +553,14 @@ def desired_source_key(record: GarminPlanSync) -> str:
     return source_key_for(record.plan_ref, record.reschedule_to_date)
 
 
-def _verify_desired_workout(remote: dict, desired: dict, record: GarminPlanSync) -> None:
-    if not _workout_matches(remote, desired, record):
+def _verify_desired_workout(
+    remote: dict,
+    desired: dict,
+    record: GarminPlanSync,
+    *,
+    mappings: dict | None = None,
+) -> None:
+    if not _workout_matches(remote, desired, record, mappings=mappings):
         raise PlanSyncConflict(
             "GARMIN_WORKOUT_READBACK_MISMATCH",
             "Garmin 回读的动作、组次、重量、日期来源或哈希不一致",
@@ -665,6 +682,7 @@ def run_reschedule(
                 "顺延缺少原 Workout 或日程关联，禁止创建替代对象",
             )
         desired = json.loads(record.payload_json or "{}")
+        mappings = mapping_service.load_all_mappings(session)
         original_source_key = record.reschedule_source_key or source_key_for(
             record.plan_ref, from_date
         )
@@ -672,11 +690,11 @@ def run_reschedule(
 
         remote = adapter.get_workout(record.workout_id)
         _verify_reschedule_source(remote, {original_source_key, target_source_key})
-        if not _workout_matches(remote, desired, record):
+        if not _workout_matches(remote, desired, record, mappings=mappings):
             # 已确定原 ID 的完整 PUT；内容或目标日期来源变化都原地更新。
             adapter.update_workout(record.workout_id, {**remote, **desired})
             remote = adapter.get_workout(record.workout_id)
-        _verify_desired_workout(remote, desired, record)
+        _verify_desired_workout(remote, desired, record, mappings=mappings)
 
         schedule = adapter.get_schedule(record.workout_schedule_id)
         if _schedule_workout_id(schedule) != str(record.workout_id):

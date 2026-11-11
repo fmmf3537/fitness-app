@@ -10,16 +10,18 @@ from __future__ import annotations
 
 import threading
 from datetime import date, datetime, timedelta
-from typing import Callable
+from typing import Any, Callable
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.auth import require_auth
 from app.db import get_session
-from app.models import AIReport
+from app.models import AIReport, ExerciseMapping, ExerciseMappingCandidate
 from app.services import ai as ai_service
+from app.services import exercise_mapping as mapping_service
 from app.services import garmin_plan_sync as garmin_sync_service
 from app.services import garmin_reschedule as garmin_reschedule_service
 from app.services import plans as plan_service
@@ -101,6 +103,57 @@ def _require_plan_day(session: Session, day: date) -> dict:
     if plan_day is None:
         raise HTTPException(404, plan_service.plan_day_skip_reason(session, day))
     return plan_day
+
+
+def _pending_review_for_plan_day(session: Session, plan_day: dict) -> list[dict]:
+    """本训练日中 status=draft 且有 rank-1 候选的动作，供 V6-6b 引导弹窗。"""
+    names = [
+        str(m.get("name") or "").strip()
+        for m in (plan_day.get("movements") or [])
+    ]
+    names = [n for n in names if n]
+    if not names:
+        return []
+    draft_rows = session.scalars(
+        select(ExerciseMapping).where(
+            ExerciseMapping.xunji_name.in_(names),
+            ExerciseMapping.status == "draft",
+        )
+    ).all()
+    if not draft_rows:
+        return []
+    result: list[dict] = []
+    for row in draft_rows:
+        candidate = session.scalars(
+            select(ExerciseMappingCandidate)
+            .where(ExerciseMappingCandidate.xunji_name == row.xunji_name)
+            .order_by(
+                ExerciseMappingCandidate.rank.asc(),
+                ExerciseMappingCandidate.id.asc(),
+            )
+            .limit(1)
+        ).first()
+        if candidate is None:
+            continue
+        result.append(
+            {
+                "xunji_name": row.xunji_name,
+                "suggested_category": candidate.garmin_category,
+                "suggested_exercise": candidate.garmin_exercise_name,
+            }
+        )
+    return result
+
+
+def _preview_mappings(mappings: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """预览不阻断 draft（§7.3 能看）；写入路径仍用原始 load_all_mappings 拒绝。"""
+    softened: dict[str, dict[str, Any]] = {}
+    for name, item in mappings.items():
+        if item.get("status") == "draft":
+            softened[name] = {**item, "status": "active"}
+        else:
+            softened[name] = item
+    return softened
 
 
 def _current_sync_status(session: Session, plan_day: dict) -> dict:
@@ -185,8 +238,10 @@ def preview_garmin_plan(
 ) -> dict:
     """生成完整本地 Workout 预览；不落同步记录，不访问 Garmin。"""
     plan_day = _require_plan_day(session, day)
+    mappings = mapping_service.load_all_mappings(session)
+    pending_review = _pending_review_for_plan_day(session, plan_day)
     try:
-        preview = map_plan_day(plan_day)
+        preview = map_plan_day(plan_day, mappings=_preview_mappings(mappings))
     except WorkoutMappingError as exc:
         raise HTTPException(
             status_code=422,
@@ -198,6 +253,7 @@ def preview_garmin_plan(
         **preview,
         "remote_write_eligible": get_settings().garmin_plan_sync_enabled,
         "sync": _current_sync_status(session, plan_day),
+        "pending_review": pending_review,
     }
 
 
