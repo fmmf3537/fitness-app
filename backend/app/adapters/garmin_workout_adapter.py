@@ -496,6 +496,14 @@ class GarminWorkoutAdapter:
             retryable=True,
         )
 
+    def delete_workout(self, workout_id: str) -> None:
+        """删除一个 Workout。**不可重试**（DELETE 的重复执行语义与结果不确定性）。"""
+        self._call(
+            "delete_workout",
+            lambda: self._client.delete_workout(workout_id),
+            retryable=False,
+        )
+
     def schedule_workout(self, workout_id: str, training_date: date | str) -> str:
         day = training_date.isoformat() if isinstance(training_date, date) else training_date
         result = self._call(

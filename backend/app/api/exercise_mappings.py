@@ -1,6 +1,6 @@
-"""动作映射批处理、覆盖率看板与复核/纠错 API（V6-7 / V6-4）。
+"""动作映射批处理、覆盖率看板与复核/纠错 API（V6-7 / V6-4 / V6-8）。
 
-固定路径（/coverage /generate /catalog /stale-syncs /batch-activate /llm-suggest）
+固定路径（/coverage /generate /catalog /stale-syncs /batch-activate /llm-suggest /probe）
 必须注册在 /{mapping_id} 之前，避免被路径参数吞掉。
 """
 from __future__ import annotations
@@ -48,6 +48,12 @@ class AcceptCandidateBody(BaseModel):
 class BatchActivateBody(BaseModel):
     confidence: str = "high"
     only_confirmed_catalog: bool = True
+
+
+class ProbeRequest(BaseModel):
+    pairs: list[dict] = []  # [{"category": str, "exercise_name": str}]
+    keep: bool = False
+    apply: bool = True  # 是否把结果写回映射表
 
 
 def _http_from_mapping_error(exc: MappingValueError) -> HTTPException:
@@ -129,6 +135,48 @@ def post_llm_suggest(
         max_batches=max_batches,
         only_without_candidate=only_without_candidate,
     )
+
+
+@router.post("/probe")
+def post_probe(body: ProbeRequest, session: Session = Depends(get_session)) -> dict:
+    """L2 探针：真实创建并删除 Garmin Workout，验证目录组合是否被原样接受。
+    **会写 Garmin**，仅在 GARMIN_PLAN_SYNC_ENABLED=1 时允许。"""
+    from app.config import get_settings
+    from app.services.exercise_catalog_probe import (
+        ProbeResult,
+        apply_probe_results,
+        probe_batch,
+    )
+
+    settings = get_settings()
+    if not settings.garmin_plan_sync_enabled:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "GARMIN_WRITE_DISABLED",
+                "message": "Garmin 写入未启用（GARMIN_PLAN_SYNC_ENABLED）",
+            },
+        )
+    if not body.pairs:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "EMPTY_PAIRS"},
+        )
+
+    # 延迟导入，避免模块导入期就要求 garminconnect 依赖
+    from app.adapters.garmin_workout_adapter import GarminWorkoutAdapter
+
+    adapter = GarminWorkoutAdapter.from_settings(settings)
+    pairs = [
+        (str(item.get("category") or ""), str(item.get("exercise_name") or ""))
+        for item in body.pairs
+    ]
+    result = probe_batch(adapter, pairs, keep=body.keep)
+    applied = None
+    if body.apply:
+        probe_results = [ProbeResult(**row) for row in result["results"]]
+        applied = apply_probe_results(session, probe_results)
+    return {**result, "applied": applied}
 
 
 @router.get("")
