@@ -195,37 +195,84 @@ class GarminWorkoutAdapter:
             raise
         except Exception as exc:
             # 中国区兜底：密码登录认证失败时改用 garth 会话引导 tokenstore，
-            # 之后再用 tokenstore 重试一次（不重复密码登录）。
+            # 之后再用 tokenstore 重试。两阶段，最多各一次，不循环：
+            #   A：复用 garth 缓存会话（必要时 refresh）
+            #   B：A 产出的 token 仍被 API 拒绝时，强制 garth 凭据重登一次再写
             if is_cn and _is_auth_failure(exc):
-                bootstrap_error = self._bootstrap_tokenstore_from_garth(
-                    email=email, password=password, is_cn=is_cn
+                return self._login_via_garth_bootstrap(
+                    client_factory=client_factory,
+                    email=email,
+                    password=password,
+                    is_cn=is_cn,
+                    reject_mfa=reject_mfa,
+                    original_exc=exc,
                 )
-                if bootstrap_error is None:
-                    try:
-                        client = client_factory(
-                            email,
-                            password,
-                            is_cn=is_cn,
-                            prompt_mfa=reject_mfa,
-                            return_on_mfa=False,
-                            retry_attempts=0,
-                        )
-                        status, _ = client.login(tokenstore=self._tokenstore)
-                        if status == "needs_mfa":
-                            raise _MFARequired()
-                        return client
-                    except _MFARequired as mfa_exc:
-                        raise GarminWorkoutAdapterError(
-                            "GARMIN_MFA_REQUIRED",
-                            "Garmin 要求 MFA，请账号所有者完成验证后再恢复同步",
-                            operation="login",
-                        ) from mfa_exc
-                    except Exception as retry_exc:
-                        raise self._bootstrap_failed_error(
-                            retry_exc, bootstrap_error=None
-                        ) from retry_exc
-                raise self._bootstrap_failed_error(exc, bootstrap_error=bootstrap_error) from exc
             raise self._error("login", exc) from exc
+
+    def _login_via_garth_bootstrap(
+        self,
+        *,
+        client_factory: Callable[..., Any],
+        email: str | None,
+        password: str | None,
+        is_cn: bool,
+        reject_mfa: Callable[[], str],
+        original_exc: BaseException,
+    ) -> Any:
+        """中国区认证兜底：garth 引导 tokenstore 后重试 garminconnect 登录。
+
+        - 阶段 A：复用 garth 缓存会话（过期则 refresh），写 tokenstore 后重试。
+        - 阶段 B：A 的 token 仍被 API 拒绝（如 "Failed to retrieve social profile"）
+          且具备凭据时，强制 garth 凭据登录一次，重写 tokenstore 后最后重试。
+        两阶段各自最多一次，总登录尝试不超过「一次刷新技术 + 一次凭据登录」。
+        """
+        bootstrap_error: str | None = None
+        for phase in ("cached", "relogin"):
+            if phase == "relogin":
+                if not email or not password:
+                    break  # 无凭据，无法强制重登
+                if bootstrap_error is not None:
+                    break  # 阶段 A 本身就没成功，重登也无基础
+            err = self._bootstrap_tokenstore_from_garth(
+                email=email,
+                password=password,
+                is_cn=is_cn,
+                force_login=(phase == "relogin"),
+            )
+            if err is not None:
+                bootstrap_error = err
+                if phase == "cached":
+                    continue  # 让阶段 B 用凭据再试一次
+                break
+            bootstrap_error = None
+            try:
+                client = client_factory(
+                    email,
+                    password,
+                    is_cn=is_cn,
+                    prompt_mfa=reject_mfa,
+                    return_on_mfa=False,
+                    retry_attempts=0,
+                )
+                status, _ = client.login(tokenstore=self._tokenstore)
+                if status == "needs_mfa":
+                    raise _MFARequired()
+                return client
+            except _MFARequired as mfa_exc:
+                raise GarminWorkoutAdapterError(
+                    "GARMIN_MFA_REQUIRED",
+                    "Garmin 要求 MFA，请账号所有者完成验证后再恢复同步",
+                    operation="login",
+                ) from mfa_exc
+            except Exception as retry_exc:  # noqa: BLE001
+                if phase == "cached" and _is_auth_failure(retry_exc):
+                    continue  # 缓存 token 不被接受 → 走阶段 B 强制重登
+                raise self._bootstrap_failed_error(
+                    retry_exc, bootstrap_error=None
+                ) from retry_exc
+        raise self._bootstrap_failed_error(
+            original_exc, bootstrap_error=bootstrap_error or "garth 引导未产出可用 token"
+        ) from original_exc
 
     def _bootstrap_failed_error(
         self, exc: BaseException, *, bootstrap_error: str | None
@@ -243,12 +290,20 @@ class GarminWorkoutAdapter:
         )
 
     def _bootstrap_tokenstore_from_garth(
-        self, *, email: str | None, password: str | None, is_cn: bool
+        self,
+        *,
+        email: str | None,
+        password: str | None,
+        is_cn: bool,
+        force_login: bool = False,
     ) -> str | None:
         """用 garth 建立中国区会话，写入 garminconnect tokenstore。
 
         返回 None 表示成功；返回字符串表示失败原因（脱敏，可直接进错误信息）。
-        只在 `_login` 的 401/403 分支调用一次，不做任何循环登录。
+
+        `force_login=True` 时跳过缓存，直接用凭据重登一次——用于「缓存 token 看起来
+        有效但被 API 拒绝」（garminconnect 报 Failed to retrieve social profile）的场景。
+        无论哪种模式，登录/刷新各最多一次，不做循环。
         """
         if not self._tokenstore:
             return "未配置 tokenstore"
@@ -263,21 +318,28 @@ class GarminWorkoutAdapter:
         except Exception as exc:  # noqa: BLE001
             return f"garth configure 失败（{type(exc).__name__}）"
 
-        # 先尝试复用既有 garth 会话；失败再凭据登录（各一次，不循环）。
         resumed = False
-        try:
-            garth_mod.resume(str(self._garth_token_store))
-            resumed = True
-        except Exception:  # noqa: BLE001 - 缓存缺失/失效都转凭据登录
-            resumed = False
-
-        if not resumed:
-            if not email or not password:
-                return "缺少 GARMIN_EMAIL/GARMIN_PASSWORD 且无可用 garth 会话"
+        if not force_login:
             try:
-                garth_mod.login(email, password)
-            except Exception as exc:  # noqa: BLE001
-                return f"garth 登录失败（{type(exc).__name__}）"
+                garth_mod.resume(str(self._garth_token_store))
+                resumed = True
+            except Exception:  # noqa: BLE001 - 缓存缺失/失效都转凭据登录
+                resumed = False
+
+        if resumed and self._garth_token_usable(garth_mod):
+            pass  # 缓存里的 token 仍有效，直接用
+        else:
+            refreshed = False
+            if resumed:
+                refreshed = self._garth_refresh(garth_mod)
+            if not refreshed:
+                if not email or not password:
+                    reason = "garth token 已过期" if resumed else "无可用 garth 会话"
+                    return f"{reason}且缺少 GARMIN_EMAIL/GARMIN_PASSWORD"
+                try:
+                    garth_mod.login(email, password)
+                except Exception as exc:  # noqa: BLE001
+                    return f"garth 登录失败（{type(exc).__name__}）"
 
         oauth2 = getattr(getattr(garth_mod, "client", None), "oauth2_token", None)
         access_token = getattr(oauth2, "access_token", None)
@@ -305,6 +367,31 @@ class GarminWorkoutAdapter:
 
             self._garth = garth_module
         return self._garth
+
+    # token 提前刷新的安全余量（秒）：避免「刚转换完就过期」
+    TOKEN_REFRESH_SKEW_S = 120
+
+    def _garth_token_usable(self, garth_mod: Any) -> bool:
+        """garth 当前 oauth2 token 是否足够新鲜（不存在视为不可用）。"""
+        oauth2 = getattr(getattr(garth_mod, "client", None), "oauth2_token", None)
+        token = getattr(oauth2, "access_token", None)
+        if not token:
+            return False
+        expires_at = getattr(oauth2, "expires_at", None)
+        if not isinstance(expires_at, (int, float)):
+            return True  # 无过期信息时按可用处理，交给 API 判定
+        return float(expires_at) > time.time() + self.TOKEN_REFRESH_SKEW_S
+
+    def _garth_refresh(self, garth_mod: Any) -> bool:
+        """用 refresh_token 换新 access_token；成功返回 True（失败不抛）。"""
+        refresh = getattr(getattr(garth_mod, "client", None), "refresh_oauth2", None)
+        if not callable(refresh):
+            return False
+        try:
+            refresh()
+        except Exception:  # noqa: BLE001 - 刷新失败转凭据登录
+            return False
+        return self._garth_token_usable(garth_mod)
 
     def _write_tokenstore(self, store: dict[str, str]) -> None:
         """把 tokenstore 写到 `self._tokenstore`（目录则补 garmin_tokens.json）。

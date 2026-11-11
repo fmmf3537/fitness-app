@@ -46,9 +46,10 @@ def make_jwt(claims: dict) -> str:
 
 
 class FakeOAuth2:
-    def __init__(self, access_token: str, refresh_token: str):
+    def __init__(self, access_token: str, refresh_token: str, expires_at=None):
         self.access_token = access_token
         self.refresh_token = refresh_token
+        self.expires_at = expires_at
 
 
 class FakeGarth:
@@ -62,19 +63,44 @@ class FakeGarth:
         client_id: str = "GARMIN_CONNECT_MOBILE_ANDROID_DI",
         resume_ok: bool = True,
         login_ok: bool = True,
+        expires_at: float | None = None,
+        refresh_ok: bool = True,
+        refresh_sets_fresh: bool = True,
     ):
         self.configured_domains: list[str] = []
         self.resume_calls: list[str] = []
         self.login_calls: list[tuple] = []
         self.save_calls: list[str] = []
+        self.refresh_calls = 0
         self._resume_ok = resume_ok
         self._login_ok = login_ok
+        self._refresh_ok = refresh_ok
+        self._refresh_sets_fresh = refresh_sets_fresh
         token = access_token if access_token is not None else make_jwt(
             {"client_id": client_id, "exp": 4102444800}
         )
-        self.client = type(
-            "GarthClient", (), {"oauth2_token": FakeOAuth2(token, refresh_token)}
-        )()
+        oauth2 = FakeOAuth2(token, refresh_token, expires_at)
+        garth_self = self
+
+        class _GarthClient:
+            oauth2_token = oauth2
+
+            @staticmethod
+            def refresh_oauth2():
+                garth_self.refresh_calls += 1
+                if not garth_self._refresh_ok:
+                    raise RuntimeError("refresh rejected")
+                if garth_self._refresh_sets_fresh:
+                    import time as _t
+
+                    _GarthClient.oauth2_token = FakeOAuth2(
+                        make_jwt({"client_id": client_id, "exp": 4102444800}),
+                        refresh_token,
+                        _t.time() + 86400,
+                    )
+                    garth_self.client.__dict__["oauth2_token"] = _GarthClient.oauth2_token
+
+        self.client = _GarthClient()
 
     def configure(self, domain: str):
         self.configured_domains.append(domain)
@@ -181,14 +207,20 @@ class TestChinaBootstrap:
             build(tmp_path, garth=garth, is_cn=False)
         assert garth.configured_domains == []
 
-    def test_bootstrap_retries_only_once(self, tmp_path):
-        """引导后重试一次；仍失败则抛错，不进入循环登录。"""
+    def test_two_phase_bootstrap_then_gives_up(self, tmp_path):
+        """两阶段兜底（缓存 + 强制重登）后仍失败：抛错，不进入无限循环。
+
+        调用序列：初始登录(1) → 阶段A引导 → 重试(2) → 仍401 →
+                  阶段B强制重登 → 重试(3) → 仍401 → 抛错。
+        """
         factory = ClientFactory(always_fail=True)  # 永远 401
+        garth = FakeGarth()
         with pytest.raises(GarminWorkoutAdapterError) as info:
-            build(tmp_path, client_factory=factory)
+            build(tmp_path, client_factory=factory, garth=garth)
         assert info.value.error_code == "GARMIN_AUTH_REQUIRED"
-        # 首次 + 引导后重试 = 2 次，不多
-        assert len(factory.created) == 2
+        assert len(factory.created) == 3, "初始 + 阶段A重试 + 阶段B重试"
+        assert garth.configured_domains == ["garmin.cn", "garmin.cn"]
+        assert len(garth.login_calls) == 1, "阶段B只强制重登一次"
 
     def test_bootstrap_skipped_when_not_cn(self, tmp_path):
         """非中国区不做 garth 引导，直接抛 401。"""
@@ -308,13 +340,74 @@ class TestJwtClaim:
         assert garth.configured_domains == ["garmin.cn"]
         assert (tmp_path / "tokens" / "garmin_tokens.json").exists()
 
-    def test_no_bootstrap_when_auth_error_but_already_retried(self, tmp_path):
-        """引导后仍认证失败：抛错且不进入第二次引导。"""
+    def test_auth_error_without_status_code_also_two_phase(self, tmp_path):
+        """无 status_code 的认证异常同样走两阶段，且不超过两阶段。"""
         garth = FakeGarth()
         factory = ClientFactory(always_fail=True, bare_auth_error=True)
         with pytest.raises(GarminWorkoutAdapterError) as info:
             build(tmp_path, client_factory=factory, garth=garth)
         assert info.value.error_code == "GARMIN_AUTH_REQUIRED"
-        # garth 只 configure 一次、只 save 一次（不循环）
-        assert garth.configured_domains == ["garmin.cn"]
-        assert len(garth.save_calls) == 1
+        assert len(garth.configured_domains) == 2, "阶段A + 阶段B，不循环"
+        assert len(garth.save_calls) == 2
+
+class TestGarthTokenExpiry:
+    """garth 缓存 token 过期时：先 refresh，失败再凭据登录，各一次。"""
+
+    def test_valid_cached_token_skips_refresh_and_login(self, tmp_path):
+        import time
+
+        garth = FakeGarth(expires_at=time.time() + 86400)
+        build(tmp_path, garth=garth)
+        assert garth.refresh_calls == 0
+        assert garth.login_calls == []
+
+    def test_expired_cached_token_triggers_refresh(self, tmp_path):
+        import time
+
+        garth = FakeGarth(expires_at=time.time() - 60, refresh_ok=True)
+        build(tmp_path, garth=garth)
+        assert garth.refresh_calls == 1
+        assert garth.login_calls == [], "refresh 成功就不该做凭据登录"
+
+    def test_refresh_failure_falls_back_to_credential_login(self, tmp_path):
+        import time
+
+        garth = FakeGarth(expires_at=time.time() - 60, refresh_ok=False)
+        build(tmp_path, garth=garth)
+        assert garth.refresh_calls == 1
+        assert garth.login_calls == [("user@example.com", "secret-password")]
+
+    def test_expired_token_without_credentials_reports_reason(self, tmp_path):
+        import time
+
+        garth = FakeGarth(expires_at=time.time() - 60, refresh_ok=False)
+        with pytest.raises(GarminWorkoutAdapterError) as info:
+            build(tmp_path, garth=garth, password="")
+        message = info.value.public_message
+        assert "garth" in message
+        assert "secret" not in message.lower()
+
+    def test_token_expiring_within_skew_is_refreshed(self, tmp_path):
+        """临近过期（小于安全余量）也要刷新，避免刚转换完就失效。"""
+        import time
+
+        garth = FakeGarth(expires_at=time.time() + 30)  # 30s < 120s skew
+        build(tmp_path, garth=garth)
+        assert garth.refresh_calls == 1
+
+    def test_phase_b_skipped_when_phase_a_succeeds(self, tmp_path):
+        """阶段 A（缓存会话）产出可用 token 后，不应再强制重登。"""
+        garth = FakeGarth()
+        adapter = build(tmp_path, garth=garth)
+        assert isinstance(adapter, GarminWorkoutAdapter)
+        assert len(garth.configured_domains) == 1, "只走了阶段A"
+        assert garth.login_calls == [], "阶段A用缓存成功，不应凭据登录"
+
+    def test_phase_b_uses_force_login(self, tmp_path):
+        """阶段 A 的 token 被拒 → 阶段 B 跳过缓存直接凭据登录。"""
+        garth = FakeGarth()
+        # 第一次 client 登录成功（阶段A重试通过），但我们要断言阶段A成功后不重登
+        factory = ClientFactory(fail_logins=1)  # 初始失败，重试成功
+        adapter = build(tmp_path, client_factory=factory, garth=garth)
+        assert isinstance(adapter, GarminWorkoutAdapter)
+        assert len(garth.login_calls) == 0
