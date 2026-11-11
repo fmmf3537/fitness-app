@@ -20,7 +20,17 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.adapters import llm
-from app.models import AIReport, BodyMetric, GarminDaily, JobRun, LLMCall, Workout, WorkoutSetHr, XunjiPlan
+from app.models import (
+    AIReport,
+    BodyMetric,
+    GarminDaily,
+    JobRun,
+    LLMCall,
+    Workout,
+    WorkoutSetHr,
+    XunjiPlan,
+    local_now,
+)
 from app.movements import load_movement_names
 # V2-8：计划缓存解析原语提取到 services/plans.py 共享（禁止复制粘贴）
 from app.services import plans as plan_service
@@ -958,18 +968,20 @@ def _check_regen_limit(session: Session, workout_id: int, report_type: str) -> N
     """校验当日（服务器本地日期）该 workout 该 type 的重生成次数。
 
     V4-5 fix1：改统计 llm_call 表中 purpose == f"{report_type}_regen:w{workout_id}"
-    且 created_at >= 当日 00:00（本地）的行数。llm_call 行不随 ai_report 删除而消失，
-    且用量统计按 (provider, model) 分组、不按 purpose，故用专用 purpose 串记账
-    无副作用——真实使用中每点一次重生成 +1，连点 5 次后第 6 次即触发护栏。
-    行数 >= REGEN_DAILY_LIMIT 时抛 RegenerateLimitError（消息含「每日重生成上限 5 次」）。
+    且 created_at 落在 [当日 00:00, 次日 00:00)（本地）的行数。llm_call 行不随
+    ai_report 删除而消失，且用量统计按 (provider, model) 分组、不按 purpose，故用
+    专用 purpose 串记账无副作用——真实使用中每点一次重生成 +1，连点 5 次后第 6 次
+    即触发护栏。行数 >= REGEN_DAILY_LIMIT 时抛 RegenerateLimitError
+    （消息含「每日重生成上限 5 次」）。
     """
-    today = date.today()
-    today_start = datetime.combine(today, time.min)
+    today_start = datetime.combine(local_now().date(), time.min)
+    tomorrow_start = today_start + timedelta(days=1)
     purpose = f"{report_type}_regen:w{workout_id}"
     count = session.scalar(
         select(func.count(LLMCall.id)).where(
             LLMCall.purpose == purpose,
             LLMCall.created_at >= today_start,
+            LLMCall.created_at < tomorrow_start,
         )
     ) or 0
     if count >= REGEN_DAILY_LIMIT:
