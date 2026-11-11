@@ -1,21 +1,69 @@
-"""动作映射批处理与覆盖率看板 API（V6-7）。
+"""动作映射批处理、覆盖率看板与复核/纠错 API（V6-7 / V6-4）。
 
-列表/编辑/采纳属 V6-4，本模块仅提供 coverage + generate。
+固定路径（/coverage /generate /catalog /stale-syncs /batch-activate）
+必须注册在 /{mapping_id} 之前，避免被路径参数吞掉。
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from app.api.auth import require_auth
 from app.db import get_session
+from app.services import exercise_mapping as mapping_svc
 from app.services import exercise_mapping_batch as batch_svc
+from app.services.exercise_mapping import MappingValueError
 
 router = APIRouter(
     prefix="/api/exercise-mappings",
     tags=["exercise-mappings"],
     dependencies=[Depends(require_auth)],
 )
+
+
+class MappingPatchBody(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    garmin_category: str | None = None
+    garmin_exercise_name: str | None = None
+    garmin_display_name: str | None = None
+    weight_strategy: str | None = None
+    status: str | None = None
+    reason: str | None = None
+
+
+class ReasonBody(BaseModel):
+    reason: str | None = None
+
+
+class AcceptCandidateBody(BaseModel):
+    weight_strategy: str | None = None
+    reason: str | None = None
+
+
+class BatchActivateBody(BaseModel):
+    confidence: str = "high"
+    only_confirmed_catalog: bool = True
+
+
+def _http_from_mapping_error(exc: MappingValueError) -> HTTPException:
+    return HTTPException(
+        status_code=422,
+        detail={"code": exc.code, "message": str(exc)},
+    )
+
+
+def _not_found() -> HTTPException:
+    return HTTPException(
+        status_code=404,
+        detail={"code": "MAPPING_NOT_FOUND"},
+    )
+
+
+# ---------- 固定路径（必须在 /{mapping_id} 之前） ----------
 
 
 @router.get("/coverage")
@@ -31,3 +79,161 @@ def post_generate(
 ) -> dict:
     """触发全量批处理。幂等；refresh_drafts=True 时重算 draft 与 not_applicable。"""
     return batch_svc.generate_all(session, refresh_drafts=refresh_drafts)
+
+
+@router.get("/catalog")
+def get_catalog(
+    q: str = Query(default=""),
+    category: str | None = Query(default=None),
+    limit: int = Query(default=30),
+) -> list[dict]:
+    """Garmin 离线目录搜索，供前端换候选。"""
+    return mapping_svc.search_catalog(q=q, category=category, limit=limit)
+
+
+@router.get("/stale-syncs")
+def get_stale_syncs(
+    limit: int = Query(default=50),
+    session: Session = Depends(get_session),
+) -> list[dict]:
+    """已同步但映射已变更的记录。"""
+    return mapping_svc.list_stale_syncs(session, limit=limit)
+
+
+@router.post("/batch-activate")
+def post_batch_activate(
+    body: BatchActivateBody | None = None,
+    session: Session = Depends(get_session),
+) -> dict:
+    """批量把符合条件的 draft 转 active。"""
+    payload = body or BatchActivateBody()
+    return mapping_svc.batch_activate(
+        session,
+        confidence=payload.confidence,
+        only_confirmed_catalog=payload.only_confirmed_catalog,
+    )
+
+
+@router.get("")
+def list_mappings(
+    status: str | None = Query(default=None),
+    confidence: str | None = Query(default=None),
+    verified_level: str | None = Query(default=None),
+    keyword: str | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    session: Session = Depends(get_session),
+) -> dict:
+    """映射分页列表。"""
+    return mapping_svc.list_mappings(
+        session,
+        status=status,
+        confidence=confidence,
+        verified_level=verified_level,
+        keyword=keyword,
+        page=page,
+        page_size=page_size,
+    )
+
+
+# ---------- 动态路径 ----------
+
+
+@router.get("/{mapping_id}")
+def get_mapping_detail(
+    mapping_id: int,
+    session: Session = Depends(get_session),
+) -> dict:
+    detail = mapping_svc.get_mapping_detail(session, mapping_id)
+    if detail is None:
+        raise _not_found()
+    return detail
+
+
+@router.patch("/{mapping_id}")
+def patch_mapping(
+    mapping_id: int,
+    body: MappingPatchBody,
+    session: Session = Depends(get_session),
+) -> dict:
+    data = body.model_dump(exclude_unset=True)
+    reason = data.pop("reason", None)
+    kwargs: dict[str, Any] = {
+        field: data[field]
+        for field in (
+            "garmin_category",
+            "garmin_exercise_name",
+            "garmin_display_name",
+            "weight_strategy",
+            "status",
+        )
+        if field in data
+    }
+    try:
+        item = mapping_svc.update_mapping(
+            session,
+            mapping_id,
+            reason=reason,
+            **kwargs,
+        )
+    except MappingValueError as exc:
+        raise _http_from_mapping_error(exc) from exc
+    if item is None:
+        raise _not_found()
+    return item
+
+
+@router.post("/{mapping_id}/activate")
+def post_activate(
+    mapping_id: int,
+    body: ReasonBody | None = None,
+    session: Session = Depends(get_session),
+) -> dict:
+    payload = body or ReasonBody()
+    try:
+        item = mapping_svc.activate_mapping(
+            session, mapping_id, reason=payload.reason
+        )
+    except MappingValueError as exc:
+        raise _http_from_mapping_error(exc) from exc
+    if item is None:
+        raise _not_found()
+    return item
+
+
+@router.post("/{mapping_id}/disable")
+def post_disable(
+    mapping_id: int,
+    body: ReasonBody | None = None,
+    session: Session = Depends(get_session),
+) -> dict:
+    payload = body or ReasonBody()
+    item = mapping_svc.disable_mapping(
+        session, mapping_id, reason=payload.reason
+    )
+    if item is None:
+        raise _not_found()
+    return item
+
+
+@router.post("/{mapping_id}/candidates/{candidate_id}/accept")
+def post_accept_candidate(
+    mapping_id: int,
+    candidate_id: int,
+    body: AcceptCandidateBody | None = None,
+    session: Session = Depends(get_session),
+) -> dict:
+    payload = body or AcceptCandidateBody()
+    try:
+        item = mapping_svc.accept_candidate(
+            session,
+            mapping_id,
+            candidate_id,
+            weight_strategy=payload.weight_strategy,
+            reason=payload.reason,
+        )
+    except MappingValueError as exc:
+        raise _http_from_mapping_error(exc) from exc
+    if item is None:
+        raise _not_found()
+    return item
