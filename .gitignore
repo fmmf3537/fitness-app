@@ -52,3 +52,29 @@ backend/_verify_*.py
 frontend/_vite.*
 backend/scripts/_*.py
 backend/scripts/fix_dns_and_hosts_*.ps1
+
+# 本地数据库文件（可能含 settings 密文与训练历史）
+backend/*.db
+backend/*.db-journal
+backend/*.sqlite
+backend/*.sqlite3
+
+# 虚拟环境备份目录（.venv/ 规则不匹配 .venv-py311-backup/ 这类变体）
+.venv-*/
+backend/.venv-*/
+
+# Android 构建产物
+frontend/android/.android-build/
+frontend/android/app/build/
+frontend/android/build/
+*.apk
+*.aab
+
+# 一次性部署/交付报告（临时产物）
+_deploy_*_report.txt
+_uix*_delivery_report.txt
+
+# GARMIN 阶段性一次性排查脚本（过程产物；验收证据见 docs/GARMIN-PLAN-SYNC-MIGRATION.md §2）
+scripts/p[0-9]_garmin_*.py
+scripts/inspect_garmin_*.py
+scripts/validate_garmin_*_browser.mjs
