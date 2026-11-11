@@ -93,10 +93,19 @@ class TestDeployArtifacts:
         assert "pgdata" in compose, "postgres 必须挂数据卷"
         assert "POSTGRES_PASSWORD" in compose
         assert "APP_PASSWORD" in compose
+        # Garmin Plan Sync：三变量、默认开关 0、独立新卷、旧卷保持、TZ
+        assert "GARMIN_PLAN_SYNC_ENABLED: ${GARMIN_PLAN_SYNC_ENABLED:-0}" in compose
+        assert "GARMIN_PLAN_SYNC_STALE_SECONDS" in compose
+        assert "GARMIN_WORKOUT_TOKENSTORE" in compose
+        assert "TZ: ${TZ:-Asia/Shanghai}" in compose
+        assert "garmin_tokens:/root/.garminconnect" in compose
+        assert "garmin_workout_tokens:/var/lib/fitness/garmin-workout" in compose
+        assert "garmin_workout_tokens:" in compose.split("volumes:")[-1]
 
     def test_backend_dockerfile_and_entrypoint(self):
         dockerfile = (BACKEND_DIR / "Dockerfile").read_text(encoding="utf-8")
-        assert "python:3.11" in dockerfile
+        assert "python:3.12" in dockerfile
+        assert "tzdata" in dockerfile, "镜像须安装 tzdata 以支持 TZ"
         assert "requirements.txt" in dockerfile
         entrypoint = (BACKEND_DIR / "docker-entrypoint.sh").read_text(encoding="utf-8")
         assert "alembic upgrade head" in entrypoint, "启动前必须重放迁移"
@@ -130,16 +139,46 @@ class TestDeployArtifacts:
             "SITE_ADDRESS",
             "XUNJI_API_KEY",
             "GARMIN_EMAIL",
+            "GARMIN_PLAN_SYNC_ENABLED",
+            "GARMIN_PLAN_SYNC_STALE_SECONDS",
+            "GARMIN_WORKOUT_TOKENSTORE",
+            "TZ",
         ):
             assert var in prod, f".env.production.example 缺少 {var}"
         assert "postgresql+psycopg2" in prod
+        assert "GARMIN_PLAN_SYNC_ENABLED=0" in prod, "生产模板默认关闭写入开关"
+        assert "/var/lib/fitness/garmin-workout" in prod
+        assert "Asia/Shanghai" in prod
         dev = (ROOT_DIR / ".env.example").read_text(encoding="utf-8")
         assert "sqlite" in dev, "开发模板默认 SQLite"
 
     def test_deploy_doc_and_preflight_script_exist(self):
         doc = (ROOT_DIR / "docs" / "DEPLOY.md").read_text(encoding="utf-8")
-        for keyword in ("docker compose", "佳明", "preflight"):
-            assert keyword in doc
+        for keyword in (
+            "docker compose",
+            "佳明",
+            "preflight",
+            "Garmin Plan Sync",
+            "GARMIN_PLAN_SYNC_ENABLED",
+            "garmin_workout_tokens",
+            "分阶段开放",
+            "单副本",
+        ):
+            assert keyword in doc, f"DEPLOY.md 缺少 {keyword}"
         preflight = (ROOT_DIR / "scripts" / "preflight.sh").read_text(encoding="utf-8")
-        for keyword in ("APP_PASSWORD", "80", "443", "alembic"):
-            assert keyword in preflight
+        for keyword in (
+            "APP_PASSWORD",
+            "80",
+            "443",
+            "alembic",
+            "garminconnect",
+            "0.3.20",
+            "GARMIN_WORKOUT_TOKENSTORE",
+            "单副本",
+            "%Z",
+        ):
+            assert keyword in preflight, f"preflight.sh 缺少 {keyword}"
+        assert "3.12" in preflight or ">=3.12" in preflight
+        assert "printenv" not in preflight
+        # 开关为 0 不得导致失败语义（检查逻辑注释/默认）
+        assert 'GARMIN_PLAN_SYNC_ENABLED:-0' in preflight

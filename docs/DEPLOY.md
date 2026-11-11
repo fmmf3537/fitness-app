@@ -98,6 +98,67 @@ print('garmin login ok')
 - token 失效时应用会自动用缓存凭据重登一次，仍失败则走 V2-4 告警通道推送，并可用
   前端「FIT/TCX 导入」降级入口手动补数据。
 
+## 5A. Garmin Plan Sync（训记计划写入 Garmin）
+
+训记计划 → Garmin 写入是**可选能力**，与 §5 旧 garth **读取**路径完全隔离。生产默认关闭；服务器**不会**自动批量写入、自动改期或删除 Garmin 对象。
+
+### 双 token 路径与卷（不可混用）
+
+| 用途 | 容器路径 | Compose 卷 | 库 |
+|---|---|---|---|
+| 旧读取（garth / 活动拉取） | `/root/.garminconnect` | `garmin_tokens` | 既有 GarminClient |
+| 新写入（garminconnect 0.3.20） | `/var/lib/fitness/garmin-workout`（`GARMIN_WORKOUT_TOKENSTORE` 默认 `.../tokens`） | `garmin_workout_tokens` | GarminWorkoutAdapter |
+
+**禁止**把旧卷内容复制到新卷，也禁止反向复制；两套 token 格式与会话模型不同。
+
+相关环境变量（见 `.env.production.example`）：
+
+- `GARMIN_PLAN_SYNC_ENABLED`：默认 `0`
+- `GARMIN_PLAN_SYNC_STALE_SECONDS`：默认 `900`（仅本地 `syncing` 状态恢复为 `failed`，**不**触发 Garmin 写入）
+- `GARMIN_WORKOUT_TOKENSTORE`：默认容器内 `/var/lib/fitness/garmin-workout/tokens`
+- `TZ`：默认 `Asia/Shanghai`（允许覆盖）
+
+### 分阶段开放（首次必须关）
+
+1. **首次部署保持 `GARMIN_PLAN_SYNC_ENABLED=0`**，执行 `docker compose up -d --build`。
+2. 确认健康检查、`alembic current == head`、§5 只读登录通过后，才允许改为 `1`。
+3. 开关变化后需 **重建 backend** 使环境生效：`docker compose up -d --build backend`。  
+   **禁止**反复重启试探 Garmin（易触发 IP 级 429）。
+4. 开启后仍须由用户在前端显式触发预览 / 同步 / 顺延确认；**服务器不会自动批量写入**。
+
+### 只读认证核验（不打印敏感信息）
+
+新版适配器只做只读认证/回读时，命令**不得**打印密码、token、Cookie 或完整环境（禁止 `env` / `printenv` / `set` dump）：
+
+```bash
+# 仅确认适配器可构造且依赖版本正确（不输出凭据）
+docker compose exec backend python -c "
+from importlib.metadata import version
+from app.config import get_settings
+from app.adapters.garmin_workout_adapter import GarminWorkoutAdapter
+assert version('garminconnect') == '0.3.20'
+a = GarminWorkoutAdapter.from_settings(get_settings())
+print('adapter ok; tokenstore parent ready')
+"
+```
+
+容器重建后验证新版 token **持久化**（仍不读文件内容）：
+
+```bash
+docker compose exec backend sh -c 'test -d /var/lib/fitness/garmin-workout && test -w /var/lib/fitness/garmin-workout && echo workout_vol_ok'
+docker compose exec backend sh -c 'test -e /root/.garminconnect && echo garth_vol_ok'
+bash scripts/preflight.sh --post   # 含 Python>=3.12、garminconnect 0.3.20、单副本、时区
+```
+
+### 安全语义与运维约束
+
+- **预览**：只生成映射预览，不写 Garmin。
+- **普通同步**：仅在用户确认后写入；失败落本地状态，不自动重试轰炸。
+- **顺延确认**：用户确认后才改期；无自动批量顺延。
+- **单副本**：backend 必须 1 副本（内存 token + 调度器）；禁止 `docker compose up --scale backend=2`。
+- **备份 / 回滚**：改开关或升级前先跑 backup；回滚用既有镜像 tag / 上一 commit + `docker compose up -d --build backend`，勿删卷。
+- **429 冷却**：遇 429 至少等待 30 分钟再试；切勿循环重启。
+
 ## 6. 无域名/内网模式（可选）
 
 `.env` 中 `SITE_ADDRESS=:80`，然后 `docker compose up -d --build`，

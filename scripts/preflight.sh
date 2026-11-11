@@ -34,6 +34,29 @@ done
 if [ "${APP_ENV:-}" = "production" ]; then ok "APP_ENV=production"; else warn "APP_ENV 非 production（当前：${APP_ENV:-未设置}）"; fi
 if [ "${GARMIN_DOMAIN:-garmin.cn}" = "garmin.cn" ]; then ok "GARMIN_DOMAIN=garmin.cn（中国区）"; else bad "GARMIN_DOMAIN=${GARMIN_DOMAIN}，中国区账号必须为 garmin.cn"; fi
 
+# Garmin Plan Sync：未设置视为默认 0；开关为 0 不失败；不打印凭据/token
+_gps_enabled="${GARMIN_PLAN_SYNC_ENABLED:-0}"
+if [ "$_gps_enabled" = "0" ] || [ "$_gps_enabled" = "1" ]; then
+  ok "GARMIN_PLAN_SYNC_ENABLED=${_gps_enabled}（未设置视为默认 0；0 为安全默认）"
+else
+  bad "GARMIN_PLAN_SYNC_ENABLED 必须为 0 或 1（当前：${_gps_enabled}）"
+fi
+_gps_stale="${GARMIN_PLAN_SYNC_STALE_SECONDS:-900}"
+if [[ "$_gps_stale" =~ ^[1-9][0-9]*$ ]]; then
+  ok "GARMIN_PLAN_SYNC_STALE_SECONDS=${_gps_stale}（正整数）"
+else
+  bad "GARMIN_PLAN_SYNC_STALE_SECONDS 必须为正整数（当前：${_gps_stale}）"
+fi
+# 若显式设置 tokenstore，必须是容器内绝对路径（不以 ~ 或相对路径开头）
+if [ -n "${GARMIN_WORKOUT_TOKENSTORE:-}" ]; then
+  case "${GARMIN_WORKOUT_TOKENSTORE}" in
+    /*) ok "GARMIN_WORKOUT_TOKENSTORE 为绝对容器路径" ;;
+    *) bad "GARMIN_WORKOUT_TOKENSTORE 必须是绝对容器路径（当前非绝对）" ;;
+  esac
+else
+  ok "GARMIN_WORKOUT_TOKENSTORE 未显式设置（Compose 默认 /var/lib/fitness/garmin-workout/tokens）"
+fi
+
 echo "== 3. 端口占用（80/443 需空闲）=="
 port_busy() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null && { exec 3>&- 3<&-; return 0; } || return 1; }
 for p in 80 443; do
@@ -94,6 +117,63 @@ if [ "${1:-}" = "--post" ]; then
     else
       warn "https://${SITE_ADDRESS} 暂不可达（DNS 生效/证书签发可能需要几分钟）"
     fi
+  fi
+
+  echo "== 7. Garmin Plan Sync 运行时（Python / 库 / 卷 / 单副本 / 时区）=="
+  # 不 dump 环境、不读取 token 文件内容；仅检查键是否存在与路径元数据
+  py_ver=$(docker compose exec -T backend python -c 'import sys; print("%d.%d"%sys.version_info[:2])' 2>/dev/null || true)
+  if [ -n "$py_ver" ]; then
+    major=${py_ver%%.*}
+    minor=${py_ver#*.}
+    if [ "$major" -gt 3 ] 2>/dev/null || { [ "$major" -eq 3 ] && [ "$minor" -ge 12 ]; }; then
+      ok "backend Python ${py_ver}（>=3.12）"
+    else
+      bad "backend Python ${py_ver}（需要 >=3.12）"
+    fi
+  else
+    bad "无法读取 backend Python 版本"
+  fi
+  gc_ver=$(docker compose exec -T backend python -c 'from importlib.metadata import version; print(version("garminconnect"))' 2>/dev/null || true)
+  if [ "$gc_ver" = "0.3.20" ]; then
+    ok "garminconnect==0.3.20"
+  else
+    bad "garminconnect 版本应为 0.3.20（当前：${gc_ver:-缺失}）"
+  fi
+  # 三项 Garmin 环境键存在（仅查键名，不打印值）
+  for key in GARMIN_PLAN_SYNC_ENABLED GARMIN_PLAN_SYNC_STALE_SECONDS GARMIN_WORKOUT_TOKENSTORE; do
+    if docker compose exec -T backend python -c "import os,sys; sys.exit(0 if os.environ.get('$key') is not None else 1)" 2>/dev/null; then
+      ok "容器内存在环境键 $key"
+    else
+      bad "容器内缺少环境键 $key"
+    fi
+  done
+  # tokenstore 父目录存在且可写；旧 garth 挂载仍在；不 cat token
+  tokenstore_check=$(docker compose exec -T backend python -c '
+import os
+from pathlib import Path
+ts = os.environ.get("GARMIN_WORKOUT_TOKENSTORE", "/var/lib/fitness/garmin-workout/tokens")
+parent = Path(ts).parent
+ok_parent = parent.is_dir() and os.access(parent, os.W_OK)
+old = Path("/root/.garminconnect")
+ok_old = old.exists()
+print("PARENT_OK" if ok_parent else "PARENT_BAD")
+print("OLD_OK" if ok_old else "OLD_BAD")
+' 2>/dev/null || true)
+  echo "$tokenstore_check" | grep -q PARENT_OK && ok "GARMIN_WORKOUT_TOKENSTORE 父目录存在且可写" || bad "GARMIN_WORKOUT_TOKENSTORE 父目录不存在或不可写"
+  echo "$tokenstore_check" | grep -q OLD_OK && ok "旧 /root/.garminconnect 挂载仍存在" || bad "旧 /root/.garminconnect 挂载缺失"
+  # backend 仅 1 个副本（内存 token + 调度器）
+  backend_n=$(docker compose ps --status running backend 2>/dev/null | grep -c backend || true)
+  if [ "${backend_n:-0}" -eq 1 ]; then
+    ok "backend 单副本（n=1）"
+  else
+    bad "backend 必须单副本（当前 running 计数：${backend_n:-0}）"
+  fi
+  # 时区核验：输出 date 与 %Z（不 dump 环境）
+  tz_out=$(docker compose exec -T backend sh -c 'date; date +%Z' 2>/dev/null || true)
+  if [ -n "$tz_out" ]; then
+    ok "backend 时区核验：$(echo "$tz_out" | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+  else
+    bad "无法读取 backend date/%Z"
   fi
 fi
 

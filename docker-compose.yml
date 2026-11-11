@@ -41,6 +41,11 @@ services:
       GARMIN_EMAIL: ${GARMIN_EMAIL:-}
       GARMIN_PASSWORD: ${GARMIN_PASSWORD:-}
       GARMIN_DOMAIN: ${GARMIN_DOMAIN:-garmin.cn}
+      # 训记计划写入 Garmin：默认关闭；不引入任何自动批量写入任务
+      GARMIN_PLAN_SYNC_ENABLED: ${GARMIN_PLAN_SYNC_ENABLED:-0}
+      GARMIN_PLAN_SYNC_STALE_SECONDS: ${GARMIN_PLAN_SYNC_STALE_SECONDS:-900}
+      GARMIN_WORKOUT_TOKENSTORE: ${GARMIN_WORKOUT_TOKENSTORE:-/var/lib/fitness/garmin-workout/tokens}
+      TZ: ${TZ:-Asia/Shanghai}
       KIMI_API_KEY: ${KIMI_API_KEY:-}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       MINIMAX_API_KEY: ${MINIMAX_API_KEY:-}
@@ -53,8 +58,10 @@ services:
       SMTP_PASS: ${SMTP_PASS:-}
       ALERT_EMAIL: ${ALERT_EMAIL:-}
     volumes:
-      # 佳明 token 缓存（~/.garminconnect），避免容器重建后重新登录触发 IP 级 429
+      # 旧 garth 读取 token（~/.garminconnect），避免容器重建后重新登录触发 IP 级 429
       - garmin_tokens:/root/.garminconnect
+      # 新版 garminconnect 写入 token（与旧卷隔离，禁止互相复制）
+      - garmin_workout_tokens:/var/lib/fitness/garmin-workout
     networks: [internal]
     # 不对外暴露端口，仅经 frontend(nginx) → caddy 访问
 
@@ -101,6 +108,7 @@ volumes:
   caddy_data:
   caddy_config:
   garmin_tokens:
+  garmin_workout_tokens:
 
 networks:
   internal:
