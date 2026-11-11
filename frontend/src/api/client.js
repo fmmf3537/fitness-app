@@ -21,11 +21,14 @@ export class ApiError extends Error {
   }
 }
 
-/** 从错误响应体中提取 FastAPI detail 文案（非 JSON / 无 detail 时返回 null）。 */
+/** 提取 FastAPI detail 文案或结构化错误（非 JSON / 无 detail 时返回 null）。 */
 async function extractDetail(res) {
   try {
     const data = await res.json()
-    return typeof data?.detail === 'string' && data.detail ? data.detail : null
+    const detail = data?.detail
+    if (typeof detail === 'string' && detail) return detail
+    if (detail && typeof detail === 'object') return detail
+    return null
   } catch {
     return null
   }
@@ -47,10 +50,10 @@ export async function api(path, options = {}) {
     throw new ApiError(401, 'unauthorized')
   }
   if (res.status === 404) {
-    throw new ApiError(404, 'not found')
+    throw new ApiError(404, 'not found', await extractDetail(res))
   }
   if (res.status === 409) {
-    throw new ApiError(409, 'conflict')
+    throw new ApiError(409, 'conflict', await extractDetail(res))
   }
   if (!res.ok) {
     throw new ApiError(

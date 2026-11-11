@@ -125,6 +125,15 @@ describe('api()', () => {
     })
   })
 
+  it('保留 FastAPI 结构化 detail 供页面展示完整错误', async () => {
+    const detail = {
+      code: 'PLAN_MAPPING_UNSUPPORTED',
+      issues: [{ code: 'UNKNOWN_EXERCISE', movement: '未知动作' }],
+    }
+    vi.stubGlobal('fetch', mockFetch(422, { detail }))
+    await expect(api('/api/x')).rejects.toMatchObject({ status: 422, detail })
+  })
+
   it('ApiError 是 Error 子类', () => {
     const err = new ApiError(400, 'bad')
     expect(err).toBeInstanceOf(Error)

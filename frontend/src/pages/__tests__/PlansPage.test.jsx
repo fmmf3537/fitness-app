@@ -62,6 +62,63 @@ const REVIEW = {
   created_at: '2026-08-11T10:00:00',
 }
 
+const GARMIN_SYNC = {
+  status: 'synced',
+  phase: 'verify',
+  source_hash: 'a'.repeat(64),
+  synced_hash: 'a'.repeat(64),
+  workout_id: 'workout-1',
+  workout_schedule_id: 'schedule-1',
+  attempt_count: 1,
+}
+
+const GARMIN_PREVIEW = {
+  source_key: 'xunji-plan:v1:universal:1:2026-08-12',
+  source_hash: 'a'.repeat(64),
+  preview_only: true,
+  remote_write_eligible: false,
+  sync: GARMIN_SYNC,
+  stats: {
+    movements: 2,
+    sets: 3,
+    warmup_sets: 0,
+    working_sets: 3,
+    repeat_groups: 1,
+    rest_seconds: 240,
+  },
+  movements: [
+    {
+      name: '杠铃卧推',
+      garmin_display_name: 'Barbell Bench Press',
+      support_level: 'p0_verified',
+      groups: [
+        { source_sets: '1-2', count: 2, set_type: 'working', weight_kg: 32.5, reps: 8, rest_seconds: 90 },
+        { source_sets: '3', count: 1, set_type: 'working', weight_kg: 35, reps: 6, rest_seconds: 60 },
+      ],
+    },
+    {
+      name: '卷腹',
+      garmin_display_name: 'Crunch',
+      support_level: 'user_confirmed_catalog_pending_end_to_end',
+      groups: [
+        { source_sets: '1', count: 1, set_type: 'working', weight_kg: null, reps: 15, rest_seconds: 0 },
+      ],
+    },
+  ],
+}
+
+function upcomingWithGarmin(firstStatus = 'update_available', secondStatus = 'synced') {
+  return {
+    ...UPCOMING,
+    days: UPCOMING.days.map((day, index) => ({
+      ...day,
+      garmin_sync: day.is_rest
+        ? null
+        : { ...GARMIN_SYNC, status: index === 0 ? firstStatus : secondStatus },
+    })),
+  }
+}
+
 function routeFetch(routes) {
   return vi.fn((url, options = {}) => {
     for (const [match, handler] of routes) {
@@ -197,5 +254,100 @@ describe('PlansPage', () => {
     expect(await screen.findByTestId('rest-day-2026-08-13')).toHaveTextContent('休息日')
     expect(screen.queryByTestId('review-button-2026-08-13')).not.toBeInTheDocument()
     expect(screen.queryByTestId('modifications-2026-08-13')).not.toBeInTheDocument()
+  })
+
+  it('训练日显示 Garmin 状态与预览入口，休息日不显示', async () => {
+    globalThis.fetch = routeFetch([
+      ['/api/plans/upcoming', upcomingWithGarmin()],
+      ['/api/plans/review/', mockResponse({}, 404)],
+    ])
+    renderPage()
+
+    expect(await screen.findByText('Garmin · 有更新')).toBeInTheDocument()
+    expect(screen.getByText('Garmin · 已同步')).toBeInTheDocument()
+    expect(screen.getByTestId('garmin-preview-button-2026-08-11')).toHaveTextContent('预览更新')
+    expect(screen.getByTestId('garmin-preview-button-2026-08-12')).toHaveTextContent('查看预览')
+    expect(screen.queryByTestId('garmin-preview-button-2026-08-13')).not.toBeInTheDocument()
+  })
+
+  it('Garmin 预览展示全部组次和远端关联，只发 GET，Escape 关闭并恢复焦点', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    globalThis.fetch = routeFetch([
+      ['/api/plans/upcoming', upcomingWithGarmin()],
+      ['/api/plans/2026-08-12/garmin/preview', GARMIN_PREVIEW],
+      ['/api/plans/review/', mockResponse({}, 404)],
+    ])
+    renderPage()
+    const trigger = await screen.findByTestId('garmin-preview-button-2026-08-12')
+
+    await user.click(trigger)
+    expect(await screen.findByTestId('garmin-preview-modal')).toBeInTheDocument()
+    expect(screen.getByTestId('garmin-preview-stats')).toHaveTextContent('总组数')
+    expect(screen.getByTestId('garmin-preview-stats')).toHaveTextContent('3')
+    expect(screen.getByText('源组 1-2 · 2 组 × 8 次')).toBeInTheDocument()
+    expect(screen.getByText('源组 3 · 1 组 × 6 次')).toBeInTheDocument()
+    expect(screen.getByText(/32.5 kg/)).toHaveTextContent('休息 90 秒')
+    expect(screen.getByText(/35 kg/)).toHaveTextContent('休息 60 秒')
+    expect(screen.getByText(/自重/)).toHaveTextContent('无休息')
+    expect(screen.getByText(/已关联 Workout workout-1/)).toHaveTextContent('日程 schedule-1')
+    expect(screen.getByText(/此版本已同步到 Garmin/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /确认同步|同步训练/ })).not.toBeInTheDocument()
+    const garminCalls = globalThis.fetch.mock.calls.filter(([url]) => url.includes('/garmin/'))
+    expect(garminCalls).toHaveLength(1)
+    expect(garminCalls[0][1]?.method || 'GET').toBe('GET')
+
+    await user.keyboard('{Escape}')
+    expect(screen.queryByTestId('garmin-preview-modal')).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+  })
+
+  it('422 时完整展示所有不支持动作，不显示跳过或上传入口', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    globalThis.fetch = routeFetch([
+      ['/api/plans/upcoming', upcomingWithGarmin()],
+      ['/api/plans/2026-08-11/garmin/preview', () => mockResponse({
+        detail: {
+          code: 'PLAN_MAPPING_UNSUPPORTED',
+          issues: [
+            { code: 'UNKNOWN_EXERCISE', movement: '未知动作甲', message: '未映射动作：未知动作甲' },
+            { code: 'UNKNOWN_EXERCISE', movement: '未知动作乙', message: '未映射动作：未知动作乙' },
+          ],
+        },
+      }, 422)],
+      ['/api/plans/review/', mockResponse({}, 404)],
+    ])
+    renderPage()
+
+    await user.click(await screen.findByTestId('garmin-preview-button-2026-08-11'))
+    const issues = await screen.findByTestId('garmin-preview-issues')
+    expect(issues).toHaveTextContent('未知动作甲')
+    expect(issues).toHaveTextContent('未映射动作：未知动作甲')
+    expect(issues).toHaveTextContent('未知动作乙')
+    expect(issues).toHaveTextContent('未映射动作：未知动作乙')
+    expect(screen.getByText('暂不支持同步此计划')).toBeInTheDocument()
+    expect(screen.queryByTestId('garmin-preview-stats')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /跳过|确认同步|同步训练/ })).not.toBeInTheDocument()
+  })
+
+  it('预览失败可重试，重试仍为 GET', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    let previewCalls = 0
+    globalThis.fetch = routeFetch([
+      ['/api/plans/upcoming', upcomingWithGarmin()],
+      ['/api/plans/2026-08-12/garmin/preview', () => {
+        previewCalls += 1
+        return previewCalls === 1 ? mockResponse({}, 500) : mockResponse(GARMIN_PREVIEW)
+      }],
+      ['/api/plans/review/', mockResponse({}, 404)],
+    ])
+    renderPage()
+
+    await user.click(await screen.findByTestId('garmin-preview-button-2026-08-12'))
+    expect(await screen.findByText('预览生成失败')).toBeInTheDocument()
+    await user.click(screen.getByTestId('garmin-preview-retry'))
+    expect(await screen.findByTestId('garmin-preview-stats')).toBeInTheDocument()
+    expect(previewCalls).toBe(2)
+    const garminCalls = globalThis.fetch.mock.calls.filter(([url]) => url.includes('/garmin/'))
+    expect(garminCalls.every(([, options]) => (options?.method || 'GET') === 'GET')).toBe(true)
   })
 })

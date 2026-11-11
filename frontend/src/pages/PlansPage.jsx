@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, ApiError } from '../api/client'
 import PageHeader from '../components/PageHeader'
 import ReviewContent from '../components/ReviewContent'
+import GarminPlanPreviewModal, { GarminSyncBadge } from '../components/GarminPlanPreviewModal'
 import Button from '../components/ui/Button'
 import Icon from '../components/ui/Icon'
 import EmptyState from '../components/ui/EmptyState'
@@ -86,6 +87,7 @@ export default function PlansPage() {
   const [generating, setGenerating] = useState({}) // date -> bool
   const [genErrors, setGenErrors] = useState({}) // date -> string
   const timerRef = useRef(null)
+  const [garminPreviewDay, setGarminPreviewDay] = useState(null)
 
   useEffect(() => () => clearTimeout(timerRef.current), [])
 
@@ -200,6 +202,12 @@ export default function PlansPage() {
     }
   }
 
+  const handleGarminSyncChange = useCallback((dayDate, sync) => {
+    setDays((current) => (current || []).map((item) => (
+      item.date === dayDate ? { ...item, garmin_sync: sync } : item
+    )))
+  }, [])
+
   return (
     <div className="space-y-4">
       <PageHeader title="训练计划" subtitle="未来两周安排" />
@@ -297,11 +305,37 @@ export default function PlansPage() {
                   {genErrors[day.date]}
                 </p>
               )}
+              <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3 dark:border-gray-800">
+                <GarminSyncBadge sync={day.garmin_sync} />
+                <Button
+                  variant="secondary"
+                  size="compact"
+                  testId={`garmin-preview-button-${day.date}`}
+                  onClick={() => setGarminPreviewDay(day)}
+                >
+                  {day.garmin_sync?.phase === 'reschedule'
+                    ? day.garmin_sync?.status === 'failed'
+                      ? '恢复顺延'
+                      : day.garmin_sync?.status === 'reschedule_pending'
+                        ? '确认顺延'
+                        : '查看顺延'
+                    : day.garmin_sync?.status === 'synced'
+                    ? '查看预览'
+                    : day.garmin_sync?.status === 'update_available'
+                      ? '预览更新'
+                      : 'Garmin 预览'}
+                </Button>
+              </div>
               {reviews[day.date] && <PlanReviewBlock report={reviews[day.date]} />}
             </li>
           )
         })}
       </ul>
+      <GarminPlanPreviewModal
+        day={garminPreviewDay}
+        onClose={() => setGarminPreviewDay(null)}
+        onSyncChange={handleGarminSyncChange}
+      />
     </div>
   )
 }
