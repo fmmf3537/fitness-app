@@ -222,6 +222,8 @@ class GarminPlanSync(Base):
     error_code: Mapped[str | None] = mapped_column(String(64))
     last_error: Mapped[str | None] = mapped_column(Text)
     attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    # 该次同步所用映射的快照哈希；映射变更后用于判定 stale
+    mapping_hash: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
@@ -462,4 +464,69 @@ class CoachChatMessage(Base):
     cost_estimate: Mapped[float | None] = mapped_column(Float)
     context_refs_json: Mapped[str | None] = mapped_column(Text)
     client_request_id: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class ExerciseMapping(Base):
+    """训记动作 → Garmin 动作映射（全量 1091 行，分级激活）。"""
+
+    __tablename__ = "exercise_mapping"
+    __table_args__ = (
+        UniqueConstraint("xunji_name", name="uq_exercise_mapping_xunji_name"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    xunji_name: Mapped[str] = mapped_column(String(200))
+    garmin_category: Mapped[str | None] = mapped_column(String(64))
+    garmin_exercise_name: Mapped[str | None] = mapped_column(String(128))
+    garmin_display_name: Mapped[str | None] = mapped_column(String(200))
+    # total / per_hand / bodyweight / assisted；仅作语义声明，本切片不做换算
+    weight_strategy: Mapped[str | None] = mapped_column(String(32))
+    # draft / active / disabled / not_applicable
+    status: Mapped[str] = mapped_column(String(20), default="draft")
+    not_applicable_reason: Mapped[str | None] = mapped_column(String(100))
+    confidence: Mapped[str | None] = mapped_column(String(10))
+    source: Mapped[str | None] = mapped_column(String(20))
+    # none / catalog / created / displayed
+    verified_level: Mapped[str | None] = mapped_column(String(20))
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime)
+    mapping_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    note: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ExerciseMappingCandidate(Base):
+    """待复核映射候选（V6-2/V6-3 写入，本切片只建表）。"""
+
+    __tablename__ = "exercise_mapping_candidate"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    xunji_name: Mapped[str] = mapped_column(String(200))
+    garmin_category: Mapped[str] = mapped_column(String(64))
+    garmin_exercise_name: Mapped[str | None] = mapped_column(String(128))
+    garmin_display_name: Mapped[str | None] = mapped_column(String(200))
+    confidence: Mapped[str | None] = mapped_column(String(10))
+    reason: Mapped[str | None] = mapped_column(Text)
+    rank: Mapped[int | None] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class ExerciseMappingAudit(Base):
+    """映射变更审计（纠错留痕）。"""
+
+    __tablename__ = "exercise_mapping_audit"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    mapping_id: Mapped[int] = mapped_column(Integer)
+    xunji_name: Mapped[str] = mapped_column(String(200))
+    action: Mapped[str] = mapped_column(String(20))  # create/update/activate/disable/reactivate
+    before_json: Mapped[str | None] = mapped_column(Text)
+    after_json: Mapped[str | None] = mapped_column(Text)
+    reason: Mapped[str | None] = mapped_column(Text)
+    actor: Mapped[str | None] = mapped_column(String(50))
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

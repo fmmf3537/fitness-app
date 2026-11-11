@@ -281,8 +281,16 @@ def _repeat_step(order: int, count: int, children: list[dict[str, Any]]) -> dict
     }
 
 
-def map_plan_day(plan_day: dict[str, Any], *, plan_ref: str | None = None) -> dict[str, Any]:
-    """返回完整本地预览与 Workout payload；有任何问题则抛出全部 issues。"""
+def map_plan_day(
+    plan_day: dict[str, Any],
+    *,
+    plan_ref: str | None = None,
+    mappings: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """返回完整本地预览与 Workout payload；有任何问题则抛出全部 issues。
+
+    `mappings` 为 None 时回退 `EXERCISE_WHITELIST`（保持既有调用与测试完全不变）。
+    """
     issues: list[dict[str, Any]] = []
     day = plan_day.get("date")
     try:
@@ -297,17 +305,29 @@ def map_plan_day(plan_day: dict[str, Any], *, plan_ref: str | None = None) -> di
     if not source_movements:
         issues.append({"code": "EMPTY_WORKOUT", "message": "训练日没有动作"})
 
+    active_mappings = mappings if mappings is not None else EXERCISE_WHITELIST
+
     # 每项是 {name, mapping, groups:[{count, set_type, weight, reps, rest, source_start/end}]}
     mapped_movements: list[dict[str, Any]] = []
     for movement_index, movement in enumerate(source_movements, 1):
         name = (movement.get("name") or "").strip()
-        mapping = EXERCISE_WHITELIST.get(name)
+        mapping = active_mappings.get(name)
         if mapping is None:
             issues.append(
                 {
                     "code": "UNKNOWN_EXERCISE",
                     "movement": name or f"第 {movement_index} 个动作",
                     "message": f"未映射动作：{name or movement_index}",
+                }
+            )
+            continue
+        status = mapping.get("status")
+        if status not in (None, "active"):
+            issues.append(
+                {
+                    "code": "MAPPING_NOT_APPROVED",
+                    "movement": name,
+                    "message": f"{name}：映射尚未复核确认（当前 {status}）",
                 }
             )
             continue
@@ -429,7 +449,9 @@ def map_plan_day(plan_day: dict[str, Any], *, plan_ref: str | None = None) -> di
                 "garmin_display_name": movement["mapping"]["display_name"],
                 "category": movement["mapping"]["category"],
                 "exerciseName": movement["mapping"]["exerciseName"],
-                "support_level": movement["mapping"]["support_level"],
+                # support_level 仅用于前端展示「已端到端验证 / 待远端验收」，
+                # 注入的映射可以不带该键（DB 侧由 verified_level 派生后提供）。
+                "support_level": movement["mapping"].get("support_level"),
                 "groups": group_previews,
             }
         )
@@ -501,10 +523,16 @@ def _walk_work_steps(steps: list[dict[str, Any]]) -> Iterator[tuple[dict[str, An
         raise ValueError(f"无法反向展开的步骤：{step_type}")
 
 
-def expand_workout(payload: dict[str, Any]) -> list[dict[str, Any]]:
+def expand_workout(
+    payload: dict[str, Any],
+    *,
+    mappings: dict[str, dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     """反向展开为动作和逐组序列，用于与 source_set_projection 对账。"""
+    active_mappings = mappings if mappings is not None else EXERCISE_WHITELIST
     reverse = {
-        (item["category"], item["exerciseName"]): name for name, item in EXERCISE_WHITELIST.items()
+        (item["category"], item["exerciseName"]): name
+        for name, item in active_mappings.items()
     }
     # P2/P3 实测：Garmin 创建后会把通用 Bench Press 和 Lateral Raise 的
     # exerciseName 规范化为空串，category 保持不变；只接受已观测的精确别名。

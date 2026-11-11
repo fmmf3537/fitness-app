@@ -28,6 +28,9 @@ EXPECTED_TABLES = {
     "coach_memory",
     "coach_chat_message",
     "garmin_plan_sync",
+    "exercise_mapping",
+    "exercise_mapping_candidate",
+    "exercise_mapping_audit",
 }
 
 
@@ -301,6 +304,7 @@ def test_garmin_plan_sync_table_roundtrip(tmp_path):
         "error_code",
         "last_error",
         "attempt_count",
+        "mapping_hash",
         "created_at",
         "updated_at",
         "synced_at",
@@ -345,3 +349,64 @@ def test_garmin_reschedule_audit_columns_roundtrip(tmp_path):
     insp = inspect(create_engine(db_url))
     cols = {c["name"] for c in insp.get_columns("garmin_plan_sync")}
     assert {"reschedule_from_date", "reschedule_source_key"} <= cols
+
+
+def test_exercise_mapping_tables_and_mapping_hash_roundtrip(tmp_path):
+    """V6-1：3 张映射表 + garmin_plan_sync.mapping_hash，显式回退 c5d6e7f8a9b0。"""
+    db_url = f"sqlite:///{tmp_path}/mig.db"
+    cfg = _make_config(db_url)
+    command.upgrade(cfg, "head")
+    insp = inspect(create_engine(db_url))
+    tables = set(insp.get_table_names())
+    for name in (
+        "exercise_mapping",
+        "exercise_mapping_candidate",
+        "exercise_mapping_audit",
+    ):
+        assert name in tables
+
+    mapping_cols = {c["name"] for c in insp.get_columns("exercise_mapping")}
+    assert mapping_cols == {
+        "id",
+        "xunji_name",
+        "garmin_category",
+        "garmin_exercise_name",
+        "garmin_display_name",
+        "weight_strategy",
+        "status",
+        "not_applicable_reason",
+        "confidence",
+        "source",
+        "verified_level",
+        "verified_at",
+        "mapping_version",
+        "note",
+        "created_at",
+        "updated_at",
+    }
+    sync_cols = {c["name"] for c in insp.get_columns("garmin_plan_sync")}
+    assert "mapping_hash" in sync_cols
+
+    command.downgrade(cfg, "c5d6e7f8a9b0")
+    insp = inspect(create_engine(db_url))
+    tables = set(insp.get_table_names())
+    for name in (
+        "exercise_mapping",
+        "exercise_mapping_candidate",
+        "exercise_mapping_audit",
+    ):
+        assert name not in tables
+    sync_cols = {c["name"] for c in insp.get_columns("garmin_plan_sync")}
+    assert "mapping_hash" not in sync_cols
+
+    command.upgrade(cfg, "head")
+    insp = inspect(create_engine(db_url))
+    tables = set(insp.get_table_names())
+    for name in (
+        "exercise_mapping",
+        "exercise_mapping_candidate",
+        "exercise_mapping_audit",
+    ):
+        assert name in tables
+    sync_cols = {c["name"] for c in insp.get_columns("garmin_plan_sync")}
+    assert "mapping_hash" in sync_cols
