@@ -111,6 +111,29 @@ print('garmin login ok')
 
 **禁止**把旧卷内容复制到新卷，也禁止反向复制；两套 token 格式与会话模型不同。
 
+### 中国区认证兜底（garminconnect 0.3.20 的已知限制）
+
+`garminconnect` 0.3.20 的 SSO 认证 URL 硬编码在 `garmin.com`
+（上游 [issue #365](https://github.com/cyberjunky/python-garminconnect/issues/365)，
+PR #366 尚未合并）。`is_cn=True` 只切换数据 API 的 domain，**不影响登录链路**，
+因此中国区账号用密码登录**必然 401**（`Invalid Username or Password`）。
+
+适配器内置兜底（`garmin_workout_adapter._bootstrap_tokenstore_from_garth`）：
+密码登录认证失败且 `GARMIN_DOMAIN=garmin.cn` 时，**只兜底一次**——
+
+1. `garth.configure(domain='garmin.cn')`；
+2. `garth.resume(/root/.garminconnect)` 复用旧读取会话；缓存缺失才凭据登录；
+3. 把 `garth.client.oauth2_token` 转成 garminconnect tokenstore 格式
+   （`di_token` / `di_refresh_token` / `di_client_id`），原子写入新卷（0600）；
+4. garminconnect 用新 tokenstore 重试一次。
+
+因此**首次部署要求旧 `garmin_tokens` 卷里有一份可用的 garth 会话**。
+按 §5 先完成一次旧 garth 登录即可满足；之后新卷自带 token，不再依赖旧卷。
+
+> 排查要点：若 §5 只读认证报 401，先确认 `docker compose exec backend sh -c 'ls /root/.garminconnect'`
+> 有 `oauth2_token.json`，且旧 garth 登录成功（§5）。**不要**反复重启或用密码试探——
+> 佳明有 IP 级 429 风控。
+
 相关环境变量（见 `.env.production.example`）：
 
 - `GARMIN_PLAN_SYNC_ENABLED`：默认 `0`
