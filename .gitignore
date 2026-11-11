@@ -78,3 +78,4 @@ _uix*_delivery_report.txt
 scripts/p[0-9]_garmin_*.py
 scripts/inspect_garmin_*.py
 scripts/validate_garmin_*_browser.mjs
+scripts/validate_garmin_real_ui.mjs
