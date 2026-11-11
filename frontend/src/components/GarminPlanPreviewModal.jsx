@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { Link } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
 import useModalAccessibility from '../hooks/useModalAccessibility'
 import Button from './ui/Button'
@@ -47,7 +48,242 @@ function errorMessage(error) {
   return error?.message || '未知错误'
 }
 
-function PreviewContent({ preview, isReschedule = false }) {
+function seedCatalogQuery(displayName) {
+  if (!displayName || typeof displayName !== 'string') return ''
+  const parts = displayName.trim().split(/\s+/).filter(Boolean)
+  return parts.slice(0, 2).join(' ')
+}
+
+function MappingEditor({ movement, onClose, onSaved }) {
+  const dialogRef = useRef(null)
+  const cancelRef = useRef(null)
+  const titleId = useId()
+  const [mappingId, setMappingId] = useState(null)
+  const [notFound, setNotFound] = useState(false)
+  const [lookupDone, setLookupDone] = useState(false)
+  const [searchQuery, setSearchQuery] = useState(() => seedCatalogQuery(movement.garmin_display_name))
+  const [catalogResults, setCatalogResults] = useState([])
+  const [selected, setSelected] = useState(null)
+  const [weightStrategy, setWeightStrategy] = useState(movement.weight_strategy || 'total')
+  const [reason, setReason] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
+
+  useModalAccessibility({
+    open: true,
+    containerRef: dialogRef,
+    initialFocusRef: cancelRef,
+    onClose: () => {
+      if (!saving) onClose()
+    },
+  })
+
+  useEffect(() => {
+    let active = true
+    api(`/api/exercise-mappings?keyword=${encodeURIComponent(movement.name)}&page_size=50`)
+      .then((data) => {
+        if (!active) return
+        const item = (data.items || []).find((row) => row.xunji_name === movement.name)
+        if (!item) {
+          setNotFound(true)
+          setMappingId(null)
+        } else {
+          setNotFound(false)
+          setMappingId(item.id)
+        }
+      })
+      .catch((reason) => {
+        if (active) setError(errorMessage(reason))
+      })
+      .finally(() => {
+        if (active) setLookupDone(true)
+      })
+    return () => {
+      active = false
+    }
+  }, [movement.name])
+
+  useEffect(() => {
+    let active = true
+    const timer = setTimeout(() => {
+      api(`/api/exercise-mappings/catalog?q=${encodeURIComponent(searchQuery)}&limit=20`)
+        .then((data) => {
+          if (active) setCatalogResults(Array.isArray(data) ? data : [])
+        })
+        .catch(() => {
+          if (active) setCatalogResults([])
+        })
+    }, 300)
+    return () => {
+      active = false
+      clearTimeout(timer)
+    }
+  }, [searchQuery])
+
+  const handleSave = async () => {
+    if (!mappingId || !selected || notFound || saving) return
+    setSaving(true)
+    setError(null)
+    const body = {
+      garmin_category: selected.category,
+      garmin_exercise_name: selected.exercise ?? '',
+      garmin_display_name: selected.name ?? '',
+      weight_strategy: weightStrategy || 'total',
+    }
+    if (reason.trim()) body.reason = reason.trim()
+    try {
+      await api(`/api/exercise-mappings/${mappingId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      })
+      onSaved()
+    } catch (reason) {
+      if (reason instanceof ApiError && reason.status === 422) {
+        setError(reason.detail?.message || errorMessage(reason))
+      } else {
+        setError(errorMessage(reason) || '保存失败，请稍后重试')
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const saveDisabled = !lookupDone || notFound || !mappingId || !selected || saving
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-4">
+      <div
+        className="absolute inset-0 bg-black/55"
+        onClick={() => {
+          if (!saving) onClose()
+        }}
+      />
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        data-testid="garmin-mapping-editor"
+        className="relative flex max-h-[90dvh] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-gray-900"
+      >
+        <div className="border-b border-line px-4 py-3 dark:border-gray-800">
+          <h2 id={titleId} className="text-base font-bold text-ink-900 dark:text-white">
+            修正「{movement.name}」的映射
+          </h2>
+          <p data-testid="edit-current-mapping" className="mt-1 text-xs text-ink-500 dark:text-gray-400">
+            {movement.category} / {movement.exerciseName || '（空）'}
+          </p>
+          {selected && (
+            <p data-testid="edit-selected" className="mt-1 text-xs font-medium text-indigo-600 dark:text-indigo-300">
+              已选：{selected.name}
+            </p>
+          )}
+        </div>
+
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
+          {notFound && (
+            <div className="rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+              <p>该动作尚无映射记录，请先在动作映射页处理</p>
+              <Link
+                to="/exercise-mappings"
+                className="mt-1 inline-block font-semibold text-amber-900 underline dark:text-amber-100"
+              >
+                去处理
+              </Link>
+            </div>
+          )}
+
+          <label className="block">
+            <span className="text-[11px] font-medium text-ink-500 dark:text-gray-400">搜索目录</span>
+            <input
+              data-testid="edit-catalog-search"
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              className="mt-1 w-full rounded-lg border border-line bg-white px-3 py-2 text-sm text-ink-900 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+              placeholder="输入 Garmin 动作名"
+            />
+          </label>
+
+          <ul className="max-h-40 space-y-1 overflow-y-auto">
+            {catalogResults.map((item, index) => (
+              <li key={`${item.category}-${item.exercise}-${index}`}>
+                <button
+                  type="button"
+                  data-testid={`edit-catalog-result-${index}`}
+                  onClick={() => setSelected(item)}
+                  className="w-full rounded-lg border border-transparent px-3 py-2 text-left text-xs hover:border-line hover:bg-line/40 dark:hover:border-gray-700 dark:hover:bg-gray-800"
+                >
+                  <span className="font-semibold text-ink-900 dark:text-gray-100">{item.name}</span>
+                  <code className="mt-0.5 block text-[10px] text-ink-500 dark:text-gray-400">
+                    {item.category} / {item.exercise}
+                  </code>
+                </button>
+              </li>
+            ))}
+          </ul>
+
+          <label className="block">
+            <span className="text-[11px] font-medium text-ink-500 dark:text-gray-400">重量语义</span>
+            <select
+              data-testid="edit-weight-strategy"
+              value={weightStrategy}
+              onChange={(event) => setWeightStrategy(event.target.value)}
+              className="mt-1 w-full rounded-lg border border-line bg-white px-3 py-2 text-sm text-ink-900 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+            >
+              <option value="total">总重</option>
+              <option value="per_hand">单只</option>
+              <option value="bodyweight">自重</option>
+              <option value="assisted">辅助</option>
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="text-[11px] font-medium text-ink-500 dark:text-gray-400">修改原因（可选）</span>
+            <input
+              data-testid="edit-reason"
+              type="text"
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              className="mt-1 w-full rounded-lg border border-line bg-white px-3 py-2 text-sm text-ink-900 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+            />
+          </label>
+
+          {error && (
+            <p role="alert" data-testid="edit-error" className="rounded-lg bg-red-50 p-2 text-xs text-red-700 dark:bg-red-950/50 dark:text-red-300">
+              {error}
+            </p>
+          )}
+        </div>
+
+        <div className="flex gap-2 border-t border-line px-4 py-3 dark:border-gray-800">
+          <Button
+            ref={cancelRef}
+            variant="secondary"
+            className="flex-1"
+            testId="edit-cancel"
+            disabled={saving}
+            onClick={onClose}
+          >
+            取消
+          </Button>
+          <Button
+            variant="primary"
+            className="flex-1"
+            testId="edit-save"
+            disabled={saveDisabled}
+            onClick={() => { void handleSave() }}
+          >
+            {saving ? '保存中…' : '保存'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function PreviewContent({ preview, isReschedule = false, onEditMapping }) {
   const { stats = {}, movements = [], sync } = preview
   return (
     <div className="space-y-4">
@@ -120,9 +356,22 @@ function PreviewContent({ preview, isReschedule = false }) {
                 <h3 className="text-sm font-bold text-ink-900 dark:text-gray-100">{movement.name}</h3>
                 <p className="mt-0.5 text-xs text-ink-500 dark:text-gray-400">{movement.garmin_display_name}</p>
               </div>
-              <span className="text-[10px] text-ink-400 dark:text-gray-500">
-                {['p0_verified', 'p2_verified', 'p3_verified'].includes(movement.support_level) ? '已端到端验证' : '目录映射已确认 · 待远端验收'}
-              </span>
+              <div className="flex flex-col items-end gap-1">
+                <span className="text-[10px] text-ink-400 dark:text-gray-500">
+                  {['p0_verified', 'p2_verified', 'p3_verified'].includes(movement.support_level) ? '已端到端验证' : '目录映射已确认 · 待远端验收'}
+                </span>
+                {onEditMapping && (
+                  <Button
+                    variant="ghost"
+                    size="compact"
+                    onClick={() => onEditMapping(movement)}
+                    testId={`garmin-edit-mapping-${movementIndex}`}
+                    className="!min-h-0 px-2 py-1 text-[11px]"
+                  >
+                    映射不对？
+                  </Button>
+                )}
+              </div>
             </div>
             <ul className="mt-3 space-y-2">
               {(movement.groups || []).map((group, groupIndex) => (
@@ -187,13 +436,17 @@ export default function GarminPlanPreviewModal({ day, onClose, onSyncChange }) {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [retryToken, setRetryToken] = useState(0)
   const [pollRetryToken, setPollRetryToken] = useState(0)
+  const [editingMovement, setEditingMovement] = useState(null)
   const dialogRef = useRef(null)
   const closeRef = useRef(null)
   const titleId = useId()
   useModalAccessibility({ open, containerRef: dialogRef, initialFocusRef: closeRef, onClose })
 
   useEffect(() => {
-    if (!open) setConfirmOpen(false)
+    if (!open) {
+      setConfirmOpen(false)
+      setEditingMovement(null)
+    }
   }, [open])
 
   useEffect(() => {
@@ -246,6 +499,7 @@ export default function GarminPlanPreviewModal({ day, onClose, onSyncChange }) {
   const issues = error instanceof ApiError && error.status === 422
     ? error.detail?.issues || []
     : []
+  const hasMappingNotApproved = issues.some((issue) => issue.code === 'MAPPING_NOT_APPROVED')
   const status = sync?.status
   const canWrite = Boolean(
     preview?.remote_write_eligible
@@ -365,6 +619,20 @@ export default function GarminPlanPreviewModal({ day, onClose, onSyncChange }) {
               ) : (
                 <p className="mt-2 text-xs text-red-700 dark:text-red-300">{errorMessage(error)}</p>
               )}
+              {hasMappingNotApproved && (
+                <div
+                  data-testid="mapping-not-approved-hint"
+                  className="mt-3 rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-800 dark:bg-amber-950/50 dark:text-amber-200"
+                >
+                  <p>有动作的映射尚未复核确认，请先去复核</p>
+                  <Link
+                    to="/exercise-mappings"
+                    className="mt-1 inline-block font-semibold text-amber-900 underline dark:text-amber-100"
+                  >
+                    去复核
+                  </Link>
+                </div>
+              )}
               {issues.length === 0 && (
                 <Button
                   variant="secondary"
@@ -379,12 +647,37 @@ export default function GarminPlanPreviewModal({ day, onClose, onSyncChange }) {
             </div>
           )}
           {!loading && !error && preview && (
-            <PreviewContent preview={preview} isReschedule={isReschedule} />
+            <PreviewContent
+              preview={preview}
+              isReschedule={isReschedule}
+              onEditMapping={setEditingMovement}
+            />
           )}
           {!loading && !error && preview && !preview.remote_write_eligible && status !== 'synced' && (
             <p role="status" className="mt-4 rounded-xl bg-gray-100 p-3 text-xs leading-5 text-gray-600 dark:bg-gray-800 dark:text-gray-300">
               Garmin 写入当前未启用；预览和状态查询仍可使用。
             </p>
+          )}
+          {!loading && !error && preview?.pending_review?.length > 0 && (
+            <div
+              data-testid="pending-review-alert"
+              className="mt-4 rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-800 dark:bg-amber-950/50 dark:text-amber-200"
+            >
+              <p>本训练日有 {preview.pending_review.length} 个动作尚未复核映射：</p>
+              <ul className="mt-2 list-disc space-y-1 pl-4">
+                {preview.pending_review.map((item) => (
+                  <li key={item.xunji_name}>
+                    {item.xunji_name}（建议 {item.suggested_category} / {item.suggested_exercise || '—'}）
+                  </li>
+                ))}
+              </ul>
+              <Link
+                to="/exercise-mappings"
+                className="mt-2 inline-block font-semibold text-amber-900 underline dark:text-amber-100"
+              >
+                去复核
+              </Link>
+            </div>
           )}
           {actionError && (
             <div role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-xs leading-5 text-red-700 dark:bg-red-950/50 dark:text-red-300">
@@ -449,6 +742,16 @@ export default function GarminPlanPreviewModal({ day, onClose, onSyncChange }) {
         onConfirm={handleDialogConfirm}
         onCancel={() => setConfirmOpen(false)}
       />
+      {editingMovement && (
+        <MappingEditor
+          movement={editingMovement}
+          onClose={() => setEditingMovement(null)}
+          onSaved={() => {
+            setEditingMovement(null)
+            setRetryToken((value) => value + 1)
+          }}
+        />
+      )}
     </div>,
     document.body,
   )
