@@ -14,6 +14,7 @@ from garminconnect import exercises as garmin_exercises
 
 from app.services.exercise_tokens import (
     CARDIO_KEYWORDS,
+    EQUIPMENT_TO_GARMIN_CATEGORY,
     EQUIPMENT_TOKENS,
     FLEXIBILITY_KEYWORDS,
     MOVEMENT_TOKENS,
@@ -87,6 +88,10 @@ def _norm(text: str) -> str:
     统一去掉所有非字母数字后，"Lat Pull-down" → "latpulldown"，可命中 "pulldown"。
     """
     return re.sub(r"[^a-z0-9]+", "", text.lower())
+
+
+# 命中器械专属分类时的额外加分：确保它排在「仅部位命中」的候选之前
+EQUIPMENT_CATEGORY_BONUS = 20
 
 
 def _score_to_confidence(score: int) -> str:
@@ -249,19 +254,32 @@ def generate_candidates(
 
     tokens = extract_tokens(name)
     part = str(tokens["part"])
-    categories = list(PART_TO_GARMIN_CATEGORIES.get(part) or [])
+    part_categories = list(PART_TO_GARMIN_CATEGORIES.get(part) or [])
     equipment = list(tokens["equipment"])  # type: ignore[arg-type]
     postures = list(tokens["postures"])  # type: ignore[arg-type]
     movements = list(tokens["movements"])  # type: ignore[arg-type]
 
-    if categories:
+    # 器械专属分类优先排在前面（既进池，也用于加分判定）
+    eq_categories = [
+        EQUIPMENT_TO_GARMIN_CATEGORY[e]
+        for e in equipment
+        if e in EQUIPMENT_TO_GARMIN_CATEGORY
+    ]
+    # 去重保序：器械分类在前，部位分类在后
+    categories = list(dict.fromkeys([*eq_categories, *part_categories]))
+
+    if part_categories:
         cat_set = set(categories)
         pool = [e for e in catalog_rows if e.get("category") in cat_set]
     else:
+        # 部位未知（classify_part 返回"其他"）时**不缩窄**：器械分类只用于加分，
+        # 候选池保持全目录。否则会漏掉挂在其它分类下的器械动作——例如
+        # 「弹力带-面拉」的正确答案 Banded Face Pulls 并不在 BANDED_EXERCISES 里，
+        # 一旦按器械分类缩池就会从「有候选」退化成「无候选」。
         pool = catalog_rows
 
     if not movements:
-        return _fallback_candidates(name, part, categories, catalog_rows, limit)
+        return _fallback_candidates(name, part, part_categories, catalog_rows, limit)
 
     best: dict[tuple[str, str], tuple[int, dict[str, str], str, str]] = {}
     for mv in movements:
@@ -282,6 +300,8 @@ def generate_candidates(
             if not exact_equip and equipment:
                 exact_equip = next((e for e in equipment if e), "")
             score += _exact_bonus(exact_equip, mv, name_norm)
+            if eq_categories and entry.get("category") in eq_categories:
+                score += EQUIPMENT_CATEGORY_BONUS
 
             key = (entry.get("category", ""), entry.get("exercise", ""))
             prev = best.get(key)

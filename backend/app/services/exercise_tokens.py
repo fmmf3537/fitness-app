@@ -74,6 +74,24 @@ _UNKNOWN = {
 } - set(_garmin_exercises.CATEGORIES)
 assert not _UNKNOWN, f"PART_TO_GARMIN_CATEGORIES 含无效 category: {_UNKNOWN}"
 
+# 器械专属 Garmin 分类：不按部位归属，但器械词命中时必须进候选池。
+# 键是 EQUIPMENT_TOKENS 的**值**（英文词根），不是中文。
+EQUIPMENT_TO_GARMIN_CATEGORY: dict[str, str] = {
+    "suspension": "SUSPENSION",
+    "ring": "SUSPENSION",  # 吊环在 Garmin 归 SUSPENSION
+    "banded": "BANDED_EXERCISES",
+    "sled": "SLED",
+    "tire": "TIRE",
+    "sandbag": "SANDBAG",
+    "battle rope": "BATTLE_ROPE",
+    "kettlebell": "HIP_SWING",  # 壶铃摆荡
+}
+
+_UNKNOWN_EQ = set(EQUIPMENT_TO_GARMIN_CATEGORY.values()) - set(
+    _garmin_exercises.CATEGORIES
+)
+assert not _UNKNOWN_EQ, f"EQUIPMENT_TO_GARMIN_CATEGORY 含无效 category: {_UNKNOWN_EQ}"
+
 # 器械中文 → Garmin 英文词根（空串 = 无器械前缀 / 自重）。
 EQUIPMENT_TOKENS: dict[str, str] = {
     "史密斯机": "smith machine",

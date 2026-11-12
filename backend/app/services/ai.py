@@ -20,6 +20,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.adapters import llm
+from app import models as models_module
 from app.models import (
     AIReport,
     BodyMetric,
@@ -29,7 +30,6 @@ from app.models import (
     Workout,
     WorkoutSetHr,
     XunjiPlan,
-    local_now,
 )
 from app.movements import load_movement_names
 # V2-8：计划缓存解析原语提取到 services/plans.py 共享（禁止复制粘贴）
@@ -974,7 +974,10 @@ def _check_regen_limit(session: Session, workout_id: int, report_type: str) -> N
     即触发护栏。行数 >= REGEN_DAILY_LIMIT 时抛 RegenerateLimitError
     （消息含「每日重生成上限 5 次」）。
     """
-    today_start = datetime.combine(local_now().date(), time.min)
+    # 通过模块属性读取，使测试对 models.local_now 的单点 monkeypatch
+    # 同时影响 ORM 默认值与限流统计（直接 `from app.models import local_now`
+    # 会在导入期绑定函数对象，patch 模块属性对这里不生效）。
+    today_start = datetime.combine(models_module.local_now().date(), time.min)
     tomorrow_start = today_start + timedelta(days=1)
     purpose = f"{report_type}_regen:w{workout_id}"
     count = session.scalar(
