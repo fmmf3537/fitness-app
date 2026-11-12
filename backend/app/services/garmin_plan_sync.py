@@ -94,7 +94,12 @@ def recover_stale_syncing(
         observed_at = record.updated_at or record.created_at
         if observed_at is None:
             return False
-        if current_time - observed_at < timedelta(seconds=stale_after_seconds):
+        elapsed = current_time - observed_at
+        # 观测值比"现在"还新：说明该时间戳由另一个时钟写入（例如历史行由数据库
+        # server_default 的 UTC 生成），属于时钟错位而非超时，按活跃处理。
+        if elapsed < timedelta(0):
+            return False
+        if elapsed < timedelta(seconds=stale_after_seconds):
             return False
 
         expected_attempt = record.attempt_count

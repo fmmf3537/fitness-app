@@ -224,9 +224,19 @@ class GarminPlanSync(Base):
     attempt_count: Mapped[int] = mapped_column(Integer, default=0)
     # 该次同步所用映射的快照哈希；映射变更后用于判定 stale
     mapping_hash: Mapped[str | None] = mapped_column(String(64))
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    # 时间戳一律走本地 naive（Python 侧），与 recover_stale_syncing 里的
+    # datetime.now() 同口径。原先是 server_default/onupdate=func.now()（数据库
+    # 会话时区 UTC），导致同一行里 created_at 是 UTC、updated_at 是本地，
+    # 恢复判断做差时相差正好 8 小时，刚创建的 syncing 记录会被立刻误判超时。
+    # 用 lambda 而非直接引用 local_now，保证测试可用 monkeypatch(models.local_now) 注入。
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: local_now(), server_default=func.now()
+    )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), onupdate=func.now()
+        DateTime,
+        default=lambda: local_now(),
+        server_default=func.now(),
+        onupdate=lambda: local_now(),
     )
     synced_at: Mapped[datetime | None] = mapped_column(DateTime)
 
