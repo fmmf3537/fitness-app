@@ -82,10 +82,18 @@ def get_coverage(session: Session = Depends(get_session)) -> dict:
 @router.post("/generate")
 def post_generate(
     refresh_drafts: bool = Query(default=False),
+    force_refresh: bool = Query(default=False),
     session: Session = Depends(get_session),
 ) -> dict:
-    """触发全量批处理。幂等；refresh_drafts=True 时重算 draft 与 not_applicable。"""
-    return batch_svc.generate_all(session, refresh_drafts=refresh_drafts)
+    """触发全量批处理。
+
+    `refresh_drafts=True` 时重算 draft，但**默认跳过被人工修改
+    （mapping_version > 1）或由 LLM 填充（source='llm'）的行**；
+    传 `force_refresh=True` 才会连这些一起覆盖。
+    """
+    return batch_svc.generate_all(
+        session, refresh_drafts=refresh_drafts, force_refresh=force_refresh
+    )
 
 
 @router.get("/catalog")

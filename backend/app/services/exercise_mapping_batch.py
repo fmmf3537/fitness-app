@@ -31,6 +31,11 @@ _SKIP_STATUSES = frozenset({"active", "disabled"})
 _REFRESHABLE_STATUSES = frozenset({"draft", "not_applicable"})
 
 
+def _is_protected(row: ExerciseMapping) -> bool:
+    """该 draft 行是否应被刷新跳过（人工改过 或 由 LLM 填充）。"""
+    return bool(row.mapping_version and row.mapping_version > 1) or row.source == "llm"
+
+
 def _load_movement_names() -> list[str]:
     with open(_MOVEMENTS_PATH, encoding="utf-8") as f:
         names = json.load(f)
@@ -105,18 +110,22 @@ def generate_all(
     session: Session,
     *,
     refresh_drafts: bool = False,
+    force_refresh: bool = False,
 ) -> dict[str, int]:
     """对全部 1091 个训记动作批量生成映射并落库。幂等。
 
     返回统计字典，至少包含这些键：
-        total          处理过的动作总数（== 1091）
-        inserted       新建的 exercise_mapping 行数
-        refreshed      被重算的 draft 行数（仅 refresh_drafts=True）
-        skipped_active 因已是 active/disabled 而跳过的行数
-        not_applicable 标为 not_applicable 的行数
-        with_candidate 至少写入 1 个候选的动作数
-        no_candidate   无任何候选的动作数
-        candidates     写入 exercise_mapping_candidate 的行数
+        total             处理过的动作总数（== 1091）
+        inserted          新建的 exercise_mapping 行数
+        refreshed         被重算的 draft 行数（仅 refresh_drafts=True）
+        skipped_active    因已是 active/disabled 而跳过的行数
+        skipped_protected 因手改/LLM 受保护而跳过的 draft 行数
+                          （仅 refresh_drafts=True 且非 force_refresh）
+        not_applicable    标为 not_applicable 的行数
+        with_candidate    至少写入 1 个候选的动作数
+        no_candidate      无任何候选的动作数
+        candidates        写入 exercise_mapping_candidate 的行数
+        seeded            本次新写入的 seed 行数
     """
     names = _load_movement_names()
 
@@ -136,6 +145,7 @@ def generate_all(
         "inserted": 0,
         "refreshed": 0,
         "skipped_active": 0,
+        "skipped_protected": 0,
         "not_applicable": 0,
         "with_candidate": 0,
         "no_candidate": 0,
@@ -178,6 +188,15 @@ def generate_all(
             continue
 
         if row.status in _REFRESHABLE_STATUSES and not refresh_drafts:
+            continue
+
+        if (
+            row.status in _REFRESHABLE_STATUSES
+            and refresh_drafts
+            and not force_refresh
+            and _is_protected(row)
+        ):
+            stats["skipped_protected"] += 1
             continue
 
         if row.status in _REFRESHABLE_STATUSES and refresh_drafts:

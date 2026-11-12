@@ -386,7 +386,10 @@ def suggest_candidates_with_llm(
             row.garmin_exercise_name = exercise_name
             row.garmin_display_name = display_name
             row.confidence = "low"
-            # status 保持 draft（或现有非 not_applicable 状态），绝不自动激活
+            # 标记来源便于批处理刷新保护；seed 行保留原语义
+            if row.source != "seed":
+                row.source = "llm"
+            # status / verified_level / mapping_version 一律不动，绝不自动激活
             stats["accepted"] += 1
 
         for name in batch:
