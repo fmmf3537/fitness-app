@@ -467,3 +467,33 @@ V4-10 为本切片（文档同步：TECH_DEBT.md 本节 + 开发提示词手册 
 5. SQLite 删行后 id 复用：断言旧 id 为 None 会误判；消息断言防子串碰撞（"消息1" vs "消息11"）（V4-5-fix3 教训）。
 
 **评审结论**：V4 十个切片全部完成，验收基线（后端 918+6 / 93.21%，前端 312 / 37 文件 / `vite build` 通过）逐项一致无回归，覆盖率门禁维持；新增技术债 T32 / T33 已登记，保留项 T23 / T24 / T25 / T30 维持原判。**建议打 tag `sprint-10`（留待人工执行，流水线不代打 tag）**。
+
+## 十三、GARMIN 计划同步（V6 系列）技术债补充 · 2026-11-12
+
+> 来源：V6-1~V6-9e 动作映射体系落地 + 2026-11-12 生产「同步失败」事故复盘。
+
+### 13.1 新增技术债
+
+| # | 事项 | 来源 | 影响 | 建议处理 |
+|---|------|------|------|----------|
+| T34 | **`onupdate=func.now()` 与本地时间混用**：`models.py` 另有 7 个模型（`GarminActivity`、`XunjiPlan`、`Workout`、`AIReport`、`CoachMemory`、`AdviceAction`、`TrainingGoal` 等）的 `updated_at` 仍是 `server_default=func.now()` + `onupdate=func.now()`，即**数据库会话时区**（生产 PG=UTC）；而应用显式写入用 `datetime.now()`（容器 TZ=Asia/Shanghai）。同一列混存两种时钟 | 2026-11-12 生产事故 | 任何「拿 DB 的 updated_at 与 `datetime.now()` 做差」的代码都会得到 **±8 小时**偏差。本次 `GarminPlanSync.recover_stale_syncing` 就是因此把刚抢占 2 秒的 `syncing` 误判超时，把已成功写入远端的同步标成 failed（UI 显示「Garmin 同步失败」） | `GarminPlanSync` 已修（改 `default/onupdate=lambda: local_now()`）。其余 7 个模型目前无跨时钟运算，**暂无实际风险**；一旦新增此类逻辑必须先统一时钟，否则会复现同样问题。可选：统一改为 `onupdate=lambda: local_now()`（需回归验证各自的 `updated_at` 断言） |
+| T35 | **`exercise_mapping` 初始化依赖人工调用接口**：`e7f8a9b0c1d2` 等数据迁移只做 `UPDATE`，不 `INSERT`；`seed_mappings` / `generate_all` 只能在代码里被调用，部署流程没有自动执行。全新部署或表被清空后，表会一直是 0 行，映射功能（管理页/覆盖率/LLM 兜底）全部显示为空 | 2026-11-12 事故诊断 | 表空时 `load_all_mappings` 回退到硬编码白名单（16 条），同步功能不会挂，但**运维会误以为映射已生效**，且管理页显示 0 条 | 部署清单里补一步 `POST /api/exercise-mappings/generate`（幂等，不传 `refresh_drafts`）。更彻底的做法：应用启动时若表为空则自动 `seed_mappings` + `generate_all`，或在数据迁移里 `INSERT` 这 16 条 seed（注意迁移不应 import 应用代码，需内联字面量） |
+
+### 13.2 本阶段已闭环的问题（留档备查）
+
+1. **时区混用导致同步误判失败**（T34 的首次爆发）：`GarminPlanSync` 时间列改为 Python 侧 `local_now()`；`recover_stale_syncing` 增加「观测值在未来 → 视为活跃」防御。修复提交 `4197a55`，回归测试 `tests/test_garmin_sync_clock.py`（6 例，含「刚抢占 3 秒不判超时」与「真正超时 1200 秒仍判失败」双向断言）。
+2. **`is_cn=True` 对中国区登录无效**：`garminconnect 0.3.20` 的 SSO URL 硬编码 `.com`（上游 issue #365，PR #366 未合并），中国区密码登录必然 401。适配器已加 garth 会话引导兜底（`5d81446`、`4523b4e`），两阶段：先复用/刷新 garth 缓存，仍被 API 拒绝则强制凭据重登一次。
+3. **动作映射覆盖率过低**：V6-9a 补器械专属分类（SUSPENSION/BANDED_EXERCISES 等）、V6-9c 词表 74→148 条并清理 5 条死词（`neck curl`/`farmer carry` 等永 0 命中）+ 窄化无果回退全目录。力量类覆盖 76.4% → **92.6%**，无候选 219 → **69**。
+4. **批处理会覆盖人工修改与 LLM 结果**：V6-9b 增加 `_is_protected`（`mapping_version > 1` 或 `source == 'llm'`），刷新默认跳过受保护行，需 `force_refresh=true` 才覆盖。
+
+### 13.3 校准数字（候选生成，1091 个训记动作）
+
+| 档位 | 数量 | 说明 |
+|---|---:|---|
+| high | 289 | 器械+动作词根都命中，可批量采纳 |
+| medium | 285 | 仅动作词根命中，建议抽查 |
+| low | 268 | 兜底路径，器械多半不对，需人工复核 |
+| 无候选 | 69 | 词表扩到 148 条仍无匹配，多为 Garmin 确实没有的动作 |
+| not_applicable | 164 | 拉伸/有氧，不参与写入 |
+
+> 与「全量 1091 全覆盖」的差距主要来自 low/无候选两档。V6-3 的 LLM 兜底代码已就绪但**从未实际运行**（一次 10 条试跑因抽到 10 个最难的颈部动作而 accepted=0，且分批会卡在同一批失败项上，需先做断点推进改造）。
