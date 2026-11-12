@@ -49,7 +49,7 @@ def _infer_weight_strategy(xunji_name: str, display_name: str) -> str:
 # 因为白名单条目结构只有 display_name/category/exerciseName/support_level）。
 SEED_NOTES: dict[str, str] = {
     "器械推胸": "Garmin 无坐姿推胸机条目，用通用 Bench Press 表达（显示为分类名）",
-    "侧平举": "2026-11-12 复核改为哑铃专用项，待真机目视复验",
+    "侧平举": "2026-11-12 复核改为哑铃专用项；同日真机目视确认 Connect 显示「哑铃侧平举」",
 }
 
 # 视为「已端到端验收」的 support_level；其余只算目录级验证

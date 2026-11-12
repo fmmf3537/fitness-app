@@ -63,11 +63,11 @@ def assert_roundtrip(day, result):
 def test_current_whitelist_tracks_p0_p2_and_p3_verified():
     p2_verified = {name for name, item in EXERCISE_WHITELIST.items() if item["support_level"] == "p2_verified"}
     p3_verified = {name for name, item in EXERCISE_WHITELIST.items() if item["support_level"] == "p3_verified"}
-    # 2026-11-12 复核：侧平举改为 DUMBBELL_LATERAL_RAISE（待真机复验），
-    # support_level 降为 catalog_verified，不再计入 p3 集合。
+    # 2026-11-12 复核：侧平举改为 DUMBBELL_LATERAL_RAISE，同日真机目视确认
+    # （Connect 显示「哑铃侧平举」），仍计入 p3 集合。
     assert p3_verified == {
         "腿举", "杠铃深蹲", "杠铃罗马尼亚硬拉", "史密斯机推举",
-        "哑铃推肩", "哑铃上斜俯身侧平举",
+        "哑铃推肩", "侧平举", "哑铃上斜俯身侧平举",
     }
     assert p2_verified == {
         "哑铃卧推", "器械推胸", "上斜哑铃飞鸟", "哑铃臂屈伸",
@@ -79,7 +79,7 @@ def test_current_whitelist_tracks_p0_p2_and_p3_verified():
     assert EXERCISE_WHITELIST["绳索Pallof推"]["exerciseName"] == "CABLE_CORE_PRESS"
     assert EXERCISE_WHITELIST["哑铃上斜俯身侧平举"]["exerciseName"] == "INCLINE_REVERSE_FLYE"
     assert EXERCISE_WHITELIST["侧平举"]["exerciseName"] == "DUMBBELL_LATERAL_RAISE"
-    assert EXERCISE_WHITELIST["侧平举"]["support_level"] == "catalog_verified"
+    assert EXERCISE_WHITELIST["侧平举"]["support_level"] == "p3_verified"
 
 
 def test_contiguous_identical_sets_merge_but_weight_drop_does_not():

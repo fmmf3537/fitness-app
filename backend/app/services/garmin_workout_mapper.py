@@ -100,12 +100,11 @@ EXERCISE_WHITELIST: dict[str, dict[str, str]] = {
     "侧平举": {
         # 2026-11-12 复核：原先用通用 LATERAL_RAISE（Garmin 会规范化成空串，
         # 只显示分类名 "Lateral Raise"）；用户确认为站姿哑铃侧平举，改为哑铃专用项。
-        # 新值尚未在真机目视复验，故 support_level 降为 catalog_verified，
-        # 端到端复验后应升回 p3_verified。
+        # 同日真机目视确认：Connect 显示「哑铃侧平举」，故升回 p3_verified。
         "display_name": "Dumbbell Lateral Raise",
         "category": "LATERAL_RAISE",
         "exerciseName": "DUMBBELL_LATERAL_RAISE",
-        "support_level": "catalog_verified",
+        "support_level": "p3_verified",
     },
     "哑铃上斜俯身侧平举": {
         "display_name": "Incline Reverse Fly",
