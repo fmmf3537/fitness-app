@@ -282,11 +282,18 @@ def generate_candidates(
         return _fallback_candidates(name, part, part_categories, catalog_rows, limit)
 
     best: dict[tuple[str, str], tuple[int, dict[str, str], str, str]] = {}
-    for mv in movements:
+    # 先按窄化池扫描；若完全没命中且确实做过窄化，再回退全目录扫一遍。
+    # 原因：classify_part 会按关键词误判部位——例如「上斜负重颈弯举」含"弯举"
+    # 被判成「臂」，而 Garmin 把颈部动作放在 WARM_UP，窄化后必然扫不到。
+    scan_pools = [pool]
+    if part_categories:
+        scan_pools.append(catalog_rows)
+    for scan_pool in scan_pools:
+      for mv in movements:
         mv_norm = _norm(mv)
         if not mv_norm:
             continue
-        for entry in pool:
+        for entry in scan_pool:
             display = entry.get("name", "")
             name_norm = _norm(display)
             if mv_norm not in name_norm:
@@ -307,6 +314,8 @@ def generate_candidates(
             prev = best.get(key)
             if prev is None or score > prev[0]:
                 best[key] = (score, entry, eq_label, mv)
+      if best:
+          break
 
     if not best:
         return _fallback_candidates(name, part, categories, catalog_rows, limit)
