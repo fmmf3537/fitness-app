@@ -98,10 +98,14 @@ EXERCISE_WHITELIST: dict[str, dict[str, str]] = {
         "support_level": "p3_verified",
     },
     "侧平举": {
-        "display_name": "Lateral Raise",
+        # 2026-11-12 复核：原先用通用 LATERAL_RAISE（Garmin 会规范化成空串，
+        # 只显示分类名 "Lateral Raise"）；用户确认为站姿哑铃侧平举，改为哑铃专用项。
+        # 新值尚未在真机目视复验，故 support_level 降为 catalog_verified，
+        # 端到端复验后应升回 p3_verified。
+        "display_name": "Dumbbell Lateral Raise",
         "category": "LATERAL_RAISE",
-        "exerciseName": "LATERAL_RAISE",
-        "support_level": "p3_verified",
+        "exerciseName": "DUMBBELL_LATERAL_RAISE",
+        "support_level": "catalog_verified",
     },
     "哑铃上斜俯身侧平举": {
         "display_name": "Incline Reverse Fly",
@@ -537,6 +541,9 @@ def expand_workout(
     # P2/P3 实测：Garmin 创建后会把通用 Bench Press 和 Lateral Raise 的
     # exerciseName 规范化为空串，category 保持不变；只接受已观测的精确别名。
     reverse[("BENCH_PRESS", "")] = "器械推胸"
+    # 2026-11-12 起「侧平举」已改用 DUMBBELL_LATERAL_RAISE，但此前同步过的
+    # Workout 在 Garmin 侧仍是 ("LATERAL_RAISE", "")；保留该别名，
+    # 使旧 Workout 仍能反向展开用于 stale 对账。
     reverse[("LATERAL_RAISE", "")] = "侧平举"
     segments = payload.get("workoutSegments") or []
     if len(segments) != 1:

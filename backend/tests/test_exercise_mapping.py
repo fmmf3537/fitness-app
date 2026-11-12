@@ -56,7 +56,11 @@ def test_build_seed_rows_count():
     assert len(rows) == 16
     assert len(SEED_MAPPINGS) == 16
     assert all(row["status"] == "active" for row in rows)
-    assert all(row["verified_level"] == "displayed" for row in rows)
+    # 15 条已端到端验收（displayed）；侧平举 2026-11-12 改为哑铃专用项，
+    # 尚未真机复验，故为 catalog。
+    by_name = {row["xunji_name"]: row for row in rows}
+    assert by_name["侧平举"]["verified_level"] == "catalog"
+    assert sum(1 for row in rows if row["verified_level"] == "displayed") == 15
 
 
 def test_build_seed_rows_preserves_whitelist_values():

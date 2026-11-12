@@ -63,9 +63,11 @@ def assert_roundtrip(day, result):
 def test_current_whitelist_tracks_p0_p2_and_p3_verified():
     p2_verified = {name for name, item in EXERCISE_WHITELIST.items() if item["support_level"] == "p2_verified"}
     p3_verified = {name for name, item in EXERCISE_WHITELIST.items() if item["support_level"] == "p3_verified"}
+    # 2026-11-12 复核：侧平举改为 DUMBBELL_LATERAL_RAISE（待真机复验），
+    # support_level 降为 catalog_verified，不再计入 p3 集合。
     assert p3_verified == {
         "腿举", "杠铃深蹲", "杠铃罗马尼亚硬拉", "史密斯机推举",
-        "哑铃推肩", "侧平举", "哑铃上斜俯身侧平举",
+        "哑铃推肩", "哑铃上斜俯身侧平举",
     }
     assert p2_verified == {
         "哑铃卧推", "器械推胸", "上斜哑铃飞鸟", "哑铃臂屈伸",
@@ -76,6 +78,8 @@ def test_current_whitelist_tracks_p0_p2_and_p3_verified():
     assert EXERCISE_WHITELIST["器械推胸"]["exerciseName"] == "BENCH_PRESS"
     assert EXERCISE_WHITELIST["绳索Pallof推"]["exerciseName"] == "CABLE_CORE_PRESS"
     assert EXERCISE_WHITELIST["哑铃上斜俯身侧平举"]["exerciseName"] == "INCLINE_REVERSE_FLYE"
+    assert EXERCISE_WHITELIST["侧平举"]["exerciseName"] == "DUMBBELL_LATERAL_RAISE"
+    assert EXERCISE_WHITELIST["侧平举"]["support_level"] == "catalog_verified"
 
 
 def test_contiguous_identical_sets_merge_but_weight_drop_does_not():
@@ -302,7 +306,10 @@ def test_expand_accepts_garmin_normalized_generic_bench_press():
     )
 
 
-def test_expand_accepts_garmin_normalized_lateral_raise():
+def test_expand_accepts_legacy_normalized_lateral_raise():
+    """2026-11-12 起「侧平举」改用 DUMBBELL_LATERAL_RAISE，但**历史上同步过**的
+    Workout 在 Garmin 侧是通用项且被规范化为空串；stale 对账仍须能反向展开它们。
+    """
     day = make_day([
         make_movement("侧平举", sets=[make_set(7.5, reps=15), make_set(7.5, reps=15)])
     ])
@@ -310,9 +317,9 @@ def test_expand_accepts_garmin_normalized_lateral_raise():
     repeat = payload["workoutSegments"][0]["workoutSteps"][0]
     work = repeat["workoutSteps"][0]
     assert work["category"] == "LATERAL_RAISE"
-    assert work["exerciseName"] == "LATERAL_RAISE"
+    assert work["exerciseName"] == "DUMBBELL_LATERAL_RAISE"
 
-    # Garmin P3 创建后的真实回读会将 Lateral Raise 规范化为空串。
+    # 还原成旧 Workout 的形态：通用项 + Garmin 规范化后的空串。
     work["exerciseName"] = ""
 
     assert source_set_projection(expand_workout(payload)) == source_set_projection(

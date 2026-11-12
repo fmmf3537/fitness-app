@@ -45,12 +45,32 @@ def _infer_weight_strategy(xunji_name: str, display_name: str) -> str:
     return "total"
 
 
+# 2026-11-12 人工复核 16 条 seed 时的结论备注（不进 EXERCISE_WHITELIST，
+# 因为白名单条目结构只有 display_name/category/exerciseName/support_level）。
+SEED_NOTES: dict[str, str] = {
+    "器械推胸": "Garmin 无坐姿推胸机条目，用通用 Bench Press 表达（显示为分类名）",
+    "侧平举": "2026-11-12 复核改为哑铃专用项，待真机目视复验",
+}
+
+# 视为「已端到端验收」的 support_level；其余只算目录级验证
+_END_TO_END_SUPPORT_LEVELS = frozenset({"p0_verified", "p2_verified", "p3_verified"})
+
+
 def build_seed_rows() -> list[dict[str, Any]]:
-    """把 EXERCISE_WHITELIST 转成 exercise_mapping 行。"""
+    """把 EXERCISE_WHITELIST 转成 exercise_mapping 行。
+
+    `verified_level` 按 support_level 派生：
+    - p0/p2/p3_verified → displayed（已端到端验收并目视确认）
+    - 其它（如 catalog_verified）→ catalog（仅目录核对，待真机复验）
+    """
     rows: list[dict[str, Any]] = []
     for xunji_name, item in EXERCISE_WHITELIST.items():
         display_name = item["display_name"]
         support_level = item["support_level"]
+        note = f"seed from EXERCISE_WHITELIST, support_level={support_level}"
+        extra = SEED_NOTES.get(xunji_name)
+        if extra:
+            note = f"{note}；{extra}"
         rows.append(
             {
                 "xunji_name": xunji_name,
@@ -60,11 +80,13 @@ def build_seed_rows() -> list[dict[str, Any]]:
                 "weight_strategy": _infer_weight_strategy(xunji_name, display_name),
                 "status": "active",
                 "source": "seed",
-                "verified_level": "displayed",
-                "mapping_version": 1,
-                "note": (
-                    f"seed from EXERCISE_WHITELIST, support_level={support_level}"
+                "verified_level": (
+                    "displayed"
+                    if support_level in _END_TO_END_SUPPORT_LEVELS
+                    else "catalog"
                 ),
+                "mapping_version": 1,
+                "note": note,
             }
         )
     return rows
