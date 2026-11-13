@@ -165,7 +165,11 @@ def generate_all(
             mapping = ExerciseMapping(
                 xunji_name=name,
                 source="auto",
-                verified_level="none",
+                # 目录生成的行，其 (category, exercise_name) 组合**本来就取自 Garmin 目录**，
+                # 因此验证等级至少是 catalog。原先把这里写成 "none" 会让「未验证」与
+                # 「目录里不存在」混为一谈，ADR-P0-5 的存量迁移据此误判目标无效
+                # 把 292 条合法映射踢出了 active（2026-11-13 生产事故）。
+                verified_level="catalog",
                 mapping_version=1,
             )
             if not applicable:

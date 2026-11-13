@@ -117,21 +117,24 @@ def test_exact_active_untouched(session):
 # ---- 退出 active（3）----
 
 
-def test_unverified_target_exits_active(session):
+def test_unverified_target_stays_active(session):
+    """2026-11-13 生产事故回归：`verified_level='none'` **不等于**目标无效。
+
+    `none` 的语义是「连目录都没查过」，可能对应一个合法的目录组合
+    （旧 `generate_all` 就把目录生成的映射统一写成 `none`）。
+    按 `none` 判无效会把大批合法映射踢出 active —— 线上因此误退了 292 条。
+    """
     row = _add_mapping(
         session,
-        xunji_name="P05-unverified",
-        relation="EXACT",
+        xunji_name="迁移-未验证但合法",
         verified_level="none",
+        garmin_exercise_name="DUMBBELL_BENCH_PRESS",
     )
     report = migrate_existing_active(session)
     session.refresh(row)
-    assert row.status == "draft"
-    assert report["exited_active"] >= 1
-    detail = next(
-        d for d in report["exited_details"] if d["xunji_name"] == "P05-unverified"
-    )
-    assert detail["reason"] == "target_unverified"
+    assert row.status == "active", "目标在目录里存在就不该因『未验证』退出"
+    assert report["exited_active"] == 0
+
 
 
 def test_catalog_missing_exits_active(session):
@@ -159,8 +162,9 @@ def test_exit_writes_audit(session):
     row = _add_mapping(
         session,
         xunji_name="P05-exit-audit",
+        garmin_exercise_name="NOT_A_REAL_EXERCISE",
         relation="EXACT",
-        verified_level="none",
+        verified_level="catalog",
     )
     migrate_existing_active(session)
     audits = list(
@@ -273,7 +277,8 @@ def test_second_run_is_noop(session):
         session,
         xunji_name="P05-idem-exit",
         relation="EXACT",
-        verified_level="none",
+        verified_level="catalog",
+        garmin_exercise_name="NOT_A_REAL_EXERCISE",
     )
     first = migrate_existing_active(session)
     assert first["updated"] >= 1
@@ -288,7 +293,8 @@ def test_second_run_does_not_add_audit(session):
         session,
         xunji_name="P05-idem-audit",
         relation="EXACT",
-        verified_level="none",
+        verified_level="catalog",
+        garmin_exercise_name="NOT_A_REAL_EXERCISE",
     )
     migrate_existing_active(session)
     count_after_first = session.scalar(
@@ -357,7 +363,8 @@ def test_report_exited_details_capped(session):
             session,
             xunji_name=f"P05-exit-cap-{i:03d}",
             relation="EXACT",
-            verified_level="none",
+            verified_level="catalog",
+            garmin_exercise_name="NOT_A_REAL_EXERCISE",
         )
     report = migrate_existing_active(session)
     assert report["exited_active"] == 105

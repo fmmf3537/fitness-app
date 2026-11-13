@@ -4,9 +4,12 @@
 迫使人工确认改名 / 新动作 / 删除（不得只生成无人处理的报告）。
 
 用法：
-    # 在仓库根目录执行（需已配置 DATABASE_URL / 可连库）
-    python scripts/check_xunji_catalog.py
-    python scripts/check_xunji_catalog.py --json
+    容器内执行（推荐，镜像里已有依赖与 .env）：
+        docker compose exec backend python scripts/check_xunji_catalog.py
+        docker compose exec backend python scripts/check_xunji_catalog.py --json
+
+    本机执行（需自行装好 backend 依赖并配置 DATABASE_URL）：
+        backend/.venv/Scripts/python.exe backend/scripts/check_xunji_catalog.py
 
 退出码：
     0  无差异（added/removed 皆空）
@@ -19,7 +22,7 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.db import SessionLocal  # noqa: E402
 from app.services.exercise_mapping_catalog import catalog_diff  # noqa: E402

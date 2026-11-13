@@ -213,6 +213,23 @@ def post_backfill_relations(session: Session = Depends(get_session)) -> dict:
     return relation_svc.backfill_relations(session)
 
 
+@router.post("/repair-p0-5")
+def post_repair_p0_5(session: Session = Depends(get_session)) -> dict:
+    """修复 ADR-P0-5 的两处误判（2026-11-13 生产事故）。
+
+    ① `generate_all` 曾把目录生成的映射写成 verified_level='none'，
+       导致「未验证」与「目录里不存在」混淆 → 修正为 catalog（仅当组合确实在目录里）。
+    ② 存量迁移曾把「未验证」当成「目标无效」，把合法映射踢出 active
+       → 依据审计 action='migrate_exit_active' 恢复。
+
+    顺序有依赖：先修 verified_level，再恢复 active。幂等。
+    """
+    return {
+        "verified_levels": relation_svc.repair_verified_levels(session),
+        "restores": relation_svc.restore_migration_exits(session),
+    }
+
+
 @router.post("/migrate-existing")
 def post_migrate_existing(session: Session = Depends(get_session)) -> dict:
     """ADR §10：把 B 策略应用到存量 active 映射并输出迁移报告（幂等）。"""

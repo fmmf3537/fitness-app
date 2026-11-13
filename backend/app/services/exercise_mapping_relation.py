@@ -11,7 +11,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import ExerciseMapping
+from app.models import ExerciseMapping, ExerciseMappingAudit
 from app.services.exercise_mapping import (
     _TARGET_VALID_LEVELS,
     _catalog_pair_exists,
@@ -216,9 +216,16 @@ def _append_b_policy_note(note: str | None) -> str:
 
 
 def _invalid_target_reason(row: ExerciseMapping) -> str | None:
-    """目标无效时返回 reason；有效则返回 None。优先 target_unverified。"""
-    if row.verified_level not in _TARGET_VALID_LEVELS:
-        return "target_unverified"
+    """Garmin 目标**无效**时返回 reason；有效则返回 None。
+
+    判据只有一条：`(category, exercise_name)` 是否存在于 Garmin 目录。
+
+    **不能把 `verified_level` 低当成目标无效**（2026-11-13 生产事故）：
+    `verified_level` 的语义是「验证到什么程度」——
+    `none` = 连目录都没查过，`catalog` = 目录里存在，`created`/`displayed` = 真机验证过。
+    `none` 完全可能对应一个**合法**的目录组合（历史数据里 `generate_all` 就把目录生成的
+    映射统一写成 `none`）。按 `none` 判无效会把大批合法映射踢出 active。
+    """
     if not _catalog_pair_exists(
         row.garmin_category or "", row.garmin_exercise_name or ""
     ):
@@ -348,4 +355,84 @@ def migrate_existing_active(session: Session) -> dict:
         "human_policy": human_policy,
         "exited_details": exited_details,
         "high_risk": high_risk,
+    }
+
+
+def repair_verified_levels(session: Session) -> dict:
+    """修正 ADR-P0-5 之前的验证等级误标（2026-11-13 生产事故的根因修复）。
+
+    `generate_all` 曾把目录生成的映射统一写成 `verified_level="none"`。
+    但 `none` 的语义是「连目录都没查过」，而这些行的 `(category, exercise_name)`
+    **本来就取自 Garmin 目录**，至少应是 `catalog`。
+
+    本函数只处理：`verified_level` 为 None 或 'none'、且目录里**确实存在**该组合的行。
+    目标不在目录里的行保持 'none'（那是正确的 `none`）。幂等。
+    """
+    rows = session.scalars(
+        select(ExerciseMapping).where(
+            (ExerciseMapping.verified_level.is_(None))
+            | (ExerciseMapping.verified_level == "none")
+        )
+    ).all()
+    repaired = 0
+    skipped = 0
+    for row in rows:
+        if not row.garmin_exercise_name:
+            skipped += 1
+            continue
+        if not _catalog_pair_exists(
+            row.garmin_category or "", row.garmin_exercise_name or ""
+        ):
+            skipped += 1
+            continue
+        row.verified_level = "catalog"
+        repaired += 1
+    session.commit()
+    return {"scanned": len(rows), "repaired": repaired, "skipped": skipped}
+
+
+def restore_migration_exits(session: Session) -> dict:
+    """撤销 ADR-P0-5 因「目标未验证」而错误退出的 active 记录。
+
+    依据审计表定位：迁移对每条退出的行写了 `action='migrate_exit_active'`。
+    只恢复**当前仍是 draft 且目标在目录里确实存在**的行；
+    目标真不在目录里的（`catalog_missing`）保持 draft。幂等。
+
+    恢复时写 `action='migrate_restore'` 审计，因此第二次执行不会重复处理。
+    """
+    audit_rows = session.scalars(
+        select(ExerciseMappingAudit).where(
+            ExerciseMappingAudit.action == "migrate_exit_active"
+        )
+    ).all()
+    mapping_ids = {
+        a.mapping_id for a in audit_rows if a.mapping_id is not None
+    }
+    restored = 0
+    skipped = 0
+    for mapping_id in sorted(mapping_ids):
+        row = session.get(ExerciseMapping, mapping_id)
+        if row is None or row.status != "draft":
+            skipped += 1
+            continue
+        if _invalid_target_reason(row) is not None:
+            skipped += 1
+            continue
+        row.status = "active"
+        row.mapping_version = int(row.mapping_version or 0) + 1
+        _write_audit(
+            session,
+            row,
+            action="migrate_restore",
+            before={"status": "draft"},
+            after={"status": "active"},
+            reason="undo_p0_5_target_unverified",
+            actor="system",
+        )
+        restored += 1
+    session.commit()
+    return {
+        "scanned_audits": len(audit_rows),
+        "restored": restored,
+        "skipped": skipped,
     }
