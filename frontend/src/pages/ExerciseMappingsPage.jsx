@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, ApiError } from '../api/client'
 import PageHeader from '../components/PageHeader'
 import Badge from '../components/ui/Badge'
@@ -23,6 +23,56 @@ const CONFIDENCE_OPTIONS = [
   { value: 'medium', label: 'medium' },
   { value: 'low', label: 'low' },
 ]
+
+const RELATION_OPTIONS = [
+  { value: '', label: '全部' },
+  { value: 'EXACT', label: '精确' },
+  { value: 'SIMILAR', label: '近似' },
+  { value: 'CATEGORY', label: '大类' },
+  { value: 'UNMAPPED', label: '无对应' },
+  { value: '__unset__', label: '未回填' },
+]
+
+const RELATION_BADGE = {
+  EXACT: { label: '精确', className: 'bg-emerald-100 text-emerald-700' },
+  SIMILAR: { label: '近似（有损）', className: 'bg-amber-100 text-amber-800' },
+  CATEGORY: { label: '大类（有损）', className: 'bg-orange-100 text-orange-800' },
+  UNMAPPED: { label: '无对应', className: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400' },
+}
+
+const SKIPPED_REASON_LABELS = {
+  relation_not_exact: '关系非精确',
+  relation_missing: '未回填关系',
+  target_unverified: '目标未验证',
+  equipment_mismatch: '器械不符',
+  catalog_missing: '目录无此组合',
+}
+
+function RelationBadge({ relation }) {
+  if (relation == null || relation === '') {
+    return (
+      <span
+        data-testid="relation-badge"
+        title="relation 尚未回填，可调用 backfill-relations"
+        className="inline-flex items-center rounded-full bg-gray-50 px-2.5 py-1 text-xs font-medium text-gray-400 dark:bg-gray-900 dark:text-gray-500"
+      >
+        未回填
+      </span>
+    )
+  }
+  const meta = RELATION_BADGE[relation] || {
+    label: relation,
+    className: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
+  }
+  return (
+    <span
+      data-testid="relation-badge"
+      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${meta.className}`}
+    >
+      {meta.label}
+    </span>
+  )
+}
 
 const WEIGHT_LABELS = {
   total: '总重',
@@ -94,6 +144,7 @@ export default function ExerciseMappingsPage() {
 
   const [status, setStatus] = useState('')
   const [confidence, setConfidence] = useState('')
+  const [relation, setRelation] = useState('')
   const [keywordInput, setKeywordInput] = useState('')
   const [keyword, setKeyword] = useState('')
 
@@ -102,6 +153,7 @@ export default function ExerciseMappingsPage() {
 
   const [rowBusy, setRowBusy] = useState({})
   const [batchBusy, setBatchBusy] = useState(false)
+  const [batchResult, setBatchResult] = useState(null)
 
   const [editingId, setEditingId] = useState(null)
   const [editForm, setEditForm] = useState(null)
@@ -260,6 +312,7 @@ export default function ExerciseMappingsPage() {
         method: 'POST',
         body: JSON.stringify({ confidence: 'high' }),
       })
+      setBatchResult(result)
       toast(`已采纳 ${result.activated ?? 0} 条`)
       await Promise.all([loadCoverage(), loadList()])
     } catch (err) {
@@ -268,6 +321,15 @@ export default function ExerciseMappingsPage() {
       setBatchBusy(false)
     }
   }
+
+  // 后端 list_mappings 不支持 relation 查询参数 → 仅过滤当前页
+  const filteredItems = useMemo(() => {
+    if (!relation) return items
+    if (relation === '__unset__') {
+      return items.filter((row) => row.relation == null || row.relation === '')
+    }
+    return items.filter((row) => row.relation === relation)
+  }, [items, relation])
 
   const openEdit = async (row) => {
     setEditError('')
@@ -412,6 +474,42 @@ export default function ExerciseMappingsPage() {
         </Button>
       </div>
 
+      {batchResult && (
+        <div
+          data-testid="batch-activate-result"
+          className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink-700 shadow-card dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200"
+        >
+          <p>
+            已采纳 <span className="font-semibold">{batchResult.activated ?? 0}</span> 条
+            {batchResult.skipped != null && (
+              <>
+                ，跳过 <span className="font-semibold">{batchResult.skipped}</span> 条
+              </>
+            )}
+          </p>
+          {batchResult.skipped_reasons && Object.keys(batchResult.skipped_reasons).length > 0 && (
+            <ul data-testid="batch-skipped-reasons" className="mt-2 flex flex-wrap gap-1.5 text-xs">
+              {Object.entries(batchResult.skipped_reasons).map(([code, count]) => (
+                <li
+                  key={code}
+                  className="rounded-full bg-amber-50 px-2.5 py-1 text-amber-900 dark:bg-amber-950/40 dark:text-amber-100"
+                >
+                  {SKIPPED_REASON_LABELS[code] || code}: {count}
+                </li>
+              ))}
+            </ul>
+          )}
+          {batchResult.relation_breakdown && Object.keys(batchResult.relation_breakdown).length > 0 && (
+            <p data-testid="batch-relation-breakdown" className="mt-2 text-xs text-ink-500 dark:text-gray-400">
+              关系分布：
+              {Object.entries(batchResult.relation_breakdown)
+                .map(([key, count]) => `${RELATION_BADGE[key]?.label || key} ${count}`)
+                .join(' · ')}
+            </p>
+          )}
+        </div>
+      )}
+
       {/* A. 覆盖率看板 */}
       {coverageError && (
         <ErrorState message={coverageError} onRetry={loadCoverage} testId="coverage-error" />
@@ -497,6 +595,25 @@ export default function ExerciseMappingsPage() {
             ))}
           </select>
         </label>
+        <label className="text-xs text-ink-500 dark:text-gray-400">
+          关系
+          <select
+            data-testid="filter-relation"
+            value={relation}
+            onChange={(e) => setRelation(e.target.value)}
+            className="mt-1 block h-10 min-w-36 rounded-xl border border-line bg-white px-3 text-sm text-ink-900 focus:outline-none focus:ring-2 focus:ring-brand-200 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+          >
+            {RELATION_OPTIONS.map((o) => (
+              <option key={o.value || 'all'} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </label>
+        <span
+          data-testid="relation-filter-scope-hint"
+          className="pb-2.5 text-[11px] text-ink-400 dark:text-gray-500"
+        >
+          仅筛选当前页
+        </span>
         <label className="min-w-[12rem] flex-1 text-xs text-ink-500 dark:text-gray-400">
           关键词
           <input
@@ -521,11 +638,11 @@ export default function ExerciseMappingsPage() {
             <Skeleton className="h-16" />
             <Skeleton className="h-16" />
           </div>
-        ) : !listError && items.length === 0 ? (
+        ) : !listError && filteredItems.length === 0 ? (
           <EmptyState title="没有匹配的映射" description="试试调整筛选条件或关键词" />
-        ) : items.length > 0 ? (
+        ) : filteredItems.length > 0 ? (
           <ul className="space-y-2.5">
-            {items.map((row) => {
+            {filteredItems.map((row) => {
               const busy = Boolean(rowBusy[row.id])
               const showActivate = row.status === 'draft' && Boolean(row.garmin_category)
               const showDisable = row.status === 'active'
@@ -549,6 +666,16 @@ export default function ExerciseMappingsPage() {
                         <Badge variant={CONFIDENCE_BADGE[row.confidence] || 'gray'}>
                           {row.confidence || 'none'}
                         </Badge>
+                        <RelationBadge relation={row.relation} />
+                        {row.decision_source === 'human_policy' && (
+                          <span
+                            data-testid="decision-source-badge"
+                            title="继承旧规则的批量使用政策，非逐条人工语义确认（ADR §10.1）"
+                            className="inline-flex items-center rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-200"
+                          >
+                            沿用旧政策
+                          </span>
+                        )}
                         <span className="text-[11px] text-ink-400 dark:text-gray-400">
                           {weightLabel(row.weight_strategy)}
                         </span>
