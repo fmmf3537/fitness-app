@@ -18,6 +18,9 @@
 | R5 | §2 | 标注 82 与 97 两个数字的口径差异 | 82 为 `generate_batch` 口径；数据库 `confidence IS NULL` 为 97（含 16 条 seed 未填值） |
 | R6 | §7.2 | 明确「全不可写」判定必须发生在**任何远端写操作之前** | 避免先建空 Workout 再删除；删除不可逆且消耗写入配额 |
 | R7 | §9 | 补充仅改 `weight_strategy` 等非目标字段时**不重置** `verified_level` | 防止实现时把非目标变更误归入"映射变更" |
+| R8 | §10.1 | **修正 R4 判据的两处实现错误**（对方复核指出，已逐条实测确认）：① 不能以「`_posture_bonus` 未触发 +40」反推姿态不符——无姿态词时该函数返回 0，会把「哑铃卧推」这类动作全部误判为 SIMILAR，改为 `bool(postures) and any(...)`；② `_qualifier_penalty()` 第二个参数是 `name_norm`，传原始显示名会因大小写/连字符**使整个限定词检查静默失效**（同一行传原文得 0、传 `_norm()` 得 -20）。另补充输入范围、CATEGORY 断言与"可复现基线≠语义真值"的效力边界 | 实测复现两处 |
+| R9 | §2 | **修正 R5 的数字解释**：`82 + 16 ≠ 97` 的解释不成立。实测构成是「16 条 seed + 81 条 draft 无候选 = 97」，而 `generate_batch` 的 82 = 81 + `绳索Pallof推`；该动作同时是 seed 之一（算法无候选但已人工映射），两组集合**重叠 1 条** | 实测：`generate_batch empty - DB draft无候选 = ['绳索Pallof推']`，反向差集为空 |
+| R10 | §5.1 | 按对方建议调整措辞：「不在激活层重复推断这些风险」而非「这些错误不可能存在」，并说明生成期过滤是保障、不是语义正确的绝对证明 | 措辞严谨性 |
 
 以下内容经代码核对确认**准确无误**，未作修改：§2 全部 9 条现状描述（含两个现存缺陷）、§7.3 四项既有机制、§4.1 维度与现有列的对应关系。
 
@@ -49,7 +52,14 @@
 以下现状来自本轮评审对现有代码、文档和真实链路的核对；本 ADR 将其作为设计输入，不把“目标行为”误写成“已经完成”。
 
 - 训记标准动作共 1091 个，已有 `exercise_mapping` 全量主表；同步路径当前不调用 AI。
-- 当前规则结果口径为 high 299、medium 174、low 372、无候选 82、`not_applicable` 164（**均为候选生成器 `generate_batch` 口径**；数据库中 `confidence IS NULL` 为 97，等于 82 条无候选 + 16 条 seed 的未填值，两者不要混用）。置信度目前同时承担“算法把握”和“能否批量启用”两种职责。
+- 当前规则结果口径为 high 299、medium 174、low 372、无候选 82、`not_applicable` 164（**均为候选生成器 `generate_batch` 口径**）。
+
+  > **两个口径不要混用、也不能相加**：数据库当前 `confidence IS NULL`（排除 `not_applicable`）实测为 **97**，构成为
+  > **16 条 seed（未填 confidence）+ 81 条 draft 无候选**。
+  > 而 `generate_batch` 的「无候选 82」= 上述 81 条 **+ `绳索Pallof推`**。
+  > `绳索Pallof推` 同时属于 16 条 seed 之一（算法给不出候选，但已人工映射为 `CORE/CABLE_CORE_PRESS`），因此两组集合**重叠 1 条**，`82 + 16 ≠ 97` 是正常的。最终数量以 SQL 分组结果为准。
+
+  置信度目前同时承担“算法把握”和“能否批量启用”两种职责。
 - 器械不符标注共 159 条，其中 high 47 条；这些动作可能只是同动作家族或不同器械的近似映射，不能因 high 就被视为语义等价。
 - 旧规则下已有 292 条 active 映射。评审估算其中约 245 条将回填为 `EXACT`、约 47 条为 `SIMILAR`；最终数量以迁移回填结果为准。
 - 训记动作全集是仓库中的 `backend/app/data/xunji_movements.json`，动作载荷没有外部稳定模板 ID；当前以 `xunji_name` 为唯一外部键。
@@ -135,7 +145,9 @@
 - 没有器械不符标记，即 `note` 不以「器械不符」开头；
 - 不属于已知需要人工判断的动作或回归黑名单。
 
-> **风险标记只需检查器械不符一项。** 方向相反、部位冲突、跨有氧/力量三类**不需要在这里检查**——它们在候选生成期已被硬过滤（`_is_inconsistent()` 的「后束/后三角 + chest」规则、`PART_ANCHORED_MOVEMENTS` 部位锚词、`CARDIO_ONLY_CATEGORIES` 池过滤），这类候选根本不会落库，表里没有对应标记字段可查。开发时不要去找不存在的字段。
+> **风险标记只需检查器械不符一项。** 方向相反、部位冲突、跨有氧/力量三类**不需要在激活层重复推断**——生成期的硬过滤（`_is_inconsistent()` 的「后束/后三角 + chest」规则、`PART_ANCHORED_MOVEMENTS` 部位锚词、`CARDIO_ONLY_CATEGORIES` 池过滤）与 golden regression（§11）已保证这类候选不会落库，表里也没有对应标记字段可查，开发时不要去找不存在的字段。
+>
+> 措辞注意：这是「不在激活层重复推断」，而不是「这些错误不可能存在」。生成期过滤是保障，不是语义正确的绝对证明——新增错例一旦确认，应先补进回归清单，再评估是否需要新增标记。
 
 该条件只定义“自动确认提议”，不定义所有映射的可用性。
 
@@ -264,18 +276,32 @@ Garmin 分类存在通用条目，只提供技术降级能力，不提供动作�
 
 **`relation` 回填必须使用确定性判据**（否则「约 245 / 约 47」无法复现，§15 也无从用实测值替换估算）。判据复用候选生成器已有的判定函数，保证可复现、可回归：
 
-```text
-relation = SIMILAR，若满足任一条件：
-  · equipment_mismatch_note(name, garmin_display_name) 非空   # 器械不符
-  · _qualifier_penalty(name, garmin_display_name) < 0         # 含中文未要求的限定词
-  · 姿态未全部命中（_posture_bonus 未触发“全命中 +40”）
-否则 relation = EXACT
+**输入范围**：仅本次存量迁移的 292 条 active 行（全部已有具体 Garmin 目标）。该判据**不**用于判定 `UNMAPPED` 与 `CATEGORY`；执行前应断言这批记录中不存在需要判为 `CATEGORY` 的行（存在则单列并人工处理，不得落入 `EXACT`）。
+
+```python
+tokens = extract_tokens(name)
+postures = [p for p in tokens["postures"] if p]
+display_norm = _norm(garmin_display_name or "")
+
+posture_mismatch = bool(postures) and any(
+    _norm(posture) not in display_norm
+    for posture in postures
+)
+
+is_similar = (
+    equipment_mismatch_note(name, garmin_display_name) is not None  # 内部自行归一化，传原始名
+    or _qualifier_penalty(name, display_norm) < 0                   # 必须传归一化串
+    or posture_mismatch
+)
+relation = "SIMILAR" if is_similar else "EXACT"
 ```
 
-补充约定：
+> **两个必须避开的实现陷阱（均已实测）**：
+>
+> 1. `_qualifier_penalty()` 的第二个参数是 `name_norm` 而不是原始显示名。传入原始串时，因大小写与连字符差异，**全部限定词都会漏判**——同一行「Behind-the-Back Smith Machine Shrug」传原文得 `0`、传 `_norm()` 得 `-20`。整个限定词检查会静默失效。
+> 2. **不能用「`_posture_bonus()` 是否触发 +40」反推姿态不符**。该函数在 `postures` 为空时直接返回 `0` 且不触发 +40，而「哑铃卧推」「杠铃卧推」「深蹲」这类动作本来就没有姿态词——按此反推会把它们全部误判为 `SIMILAR`。必须先用 `bool(postures)` 作前提。
 
-- 目标不存在于 Garmin 目录时不得回填为 `EXACT`/`SIMILAR`，按 §9 置 `verified_level='none'` 并退出 active。
-- 回填脚本必须幂等：重复执行不改变已有 `relation`。
+**该判据的效力边界**：它给出的是**可复现的存量初始回填基线**，不代表语义真值。已知误配（§11 的回归清单）与人工复核结论优先于脚本结果；脚本应固定输入范围并输出异常清单；后续规则函数发生变化时，**不得静默重写历史迁移结论**，只能生成待复核差异。
 
 - 对旧规则下 292 条 active 映射回填 `relation`。
 - 回填为 `EXACT` 且目标有效的记录保持 active，保留原有来源和验证信息。
@@ -285,6 +311,7 @@ relation = SIMILAR，若满足任一条件：
 - Garmin 目标无效的记录不得继续保持 active。
 - 迁移后 AI 审核可以提出更优候选，但不得自动覆盖这些记录。
 - 后续新增的 SIMILAR 提议不得援引 B 批量自动激活；B 仅适用于本次存量迁移。
+- 回填脚本必须幂等：重复执行不改变已有 `relation`；且只处理 `relation IS NULL` 的行，不得覆盖人工调整过的值。
 
 ### 10.2 迁移报告
 
