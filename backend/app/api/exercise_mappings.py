@@ -1,7 +1,7 @@
 """动作映射批处理、覆盖率看板与复核/纠错 API（V6-7 / V6-4 / V6-8）。
 
 固定路径（/coverage /generate /catalog /stale-syncs /batch-activate /batch-reset
-/llm-suggest /probe /backfill-relations）必须注册在 /{mapping_id} 之前，避免被路径参数吞掉。
+/llm-suggest /probe /backfill-relations /migrate-existing）必须注册在 /{mapping_id} 之前，避免被路径参数吞掉。
 """
 from __future__ import annotations
 
@@ -201,6 +201,12 @@ def post_probe(body: ProbeRequest, session: Session = Depends(get_session)) -> d
 def post_backfill_relations(session: Session = Depends(get_session)) -> dict:
     """按 ADR §10.1 回填 relation/match_basis/unmapped_reason（幂等，只处理空值）。"""
     return relation_svc.backfill_relations(session)
+
+
+@router.post("/migrate-existing")
+def post_migrate_existing(session: Session = Depends(get_session)) -> dict:
+    """ADR §10：把 B 策略应用到存量 active 映射并输出迁移报告（幂等）。"""
+    return relation_svc.migrate_existing_active(session)
 
 
 @router.get("")
