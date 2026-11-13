@@ -157,7 +157,9 @@ def test_batch_activate_endpoint(client, auth_headers, session):
         status="draft",
         confidence="high",
         source="test",
-        verified_level="none",
+        # ADR §5.1：批量自动确认要求 relation=EXACT 且目标已验证（至少 catalog）
+        relation="EXACT",
+        verified_level="catalog",
         mapping_version=1,
     )
     session.add(row)

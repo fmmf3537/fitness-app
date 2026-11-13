@@ -121,7 +121,10 @@ def post_batch_activate(
     body: BatchActivateBody | None = None,
     session: Session = Depends(get_session),
 ) -> dict:
-    """批量把符合条件的 draft 转 active。"""
+    """批量把符合 ADR §5.1 条件的 draft 转 active。
+
+    透传 service 返回：activated / skipped / skipped_reasons / relation_breakdown。
+    """
     payload = body or BatchActivateBody()
     return mapping_svc.batch_activate(
         session,

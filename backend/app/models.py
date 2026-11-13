@@ -511,6 +511,9 @@ class ExerciseMapping(Base):
     relation: Mapped[str | None] = mapped_column(String(16))
     match_basis: Mapped[str | None] = mapped_column(String(32))
     unmapped_reason: Mapped[str | None] = mapped_column(String(32))
+    # ADR §4.1：谁提出/接受了这个决策（rule / ai / human / human_policy）。
+    # 与 source（谁生成的候选：seed/auto/llm/manual）是两件事，不可混用。
+    decision_source: Mapped[str | None] = mapped_column(String(16))
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()

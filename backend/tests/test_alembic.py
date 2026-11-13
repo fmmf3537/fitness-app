@@ -387,6 +387,8 @@ def test_exercise_mapping_tables_and_mapping_hash_roundtrip(tmp_path):
         "relation",
         "match_basis",
         "unmapped_reason",
+        # ADR §4.1（迁移 c1d2e3f4a5b6）：谁提出/接受了这个决策
+        "decision_source",
         "created_at",
         "updated_at",
     }

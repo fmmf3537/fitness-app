@@ -45,6 +45,10 @@ def _add_draft(
     display: str | None = "Dumbbell Bench Press",
     confidence: str | None = "high",
     weight_strategy: str = "per_hand",
+    # ADR §5.1 起，批量自动确认要求 relation=EXACT 且 verified_level 至少 catalog。
+    # helper 默认给出「可自动确认」的组合，需要测试被筛掉的场景时显式覆盖。
+    relation: str | None = "EXACT",
+    verified_level: str | None = "catalog",
 ) -> ExerciseMapping:
     row = ExerciseMapping(
         xunji_name=name,
@@ -55,7 +59,8 @@ def _add_draft(
         status="draft",
         confidence=confidence,
         source="test",
-        verified_level="none",
+        relation=relation,
+        verified_level=verified_level,
         mapping_version=1,
     )
     session.add(row)

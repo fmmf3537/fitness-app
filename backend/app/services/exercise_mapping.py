@@ -27,6 +27,12 @@ _VALID_WEIGHT_STRATEGIES = frozenset(
     {"total", "per_hand", "bodyweight", "assisted"}
 )
 
+# ADR §5.1：批量自动确认只接受语义精确的关系。
+AUTO_CONFIRM_RELATIONS: frozenset[str] = frozenset({"EXACT"})
+# ADR §5.1：目标有效性检查——verified_level 至少到达 catalog
+_TARGET_VALID_LEVELS: frozenset[str] = frozenset({"catalog", "created", "displayed"})
+NOTE_EQUIPMENT_MISMATCH_PREFIX = "器械不符"
+
 
 class MappingValueError(ValueError):
     """带机器可读 code 的校验错误。"""
@@ -554,6 +560,7 @@ def activate_mapping(
     before = {"status": row.status}
     row.status = "active"
     row.mapping_version = int(row.mapping_version or 0) + 1
+    row.decision_source = "human"
     after = {"status": row.status}
     _write_audit(
         session,
@@ -690,7 +697,11 @@ def batch_activate(
     only_confirmed_catalog: bool = True,
     actor: str = "user",
 ) -> dict:
-    """把满足条件的 draft 批量转 active。返回 {"activated": n, "skipped": m}。"""
+    """按 ADR §5.1 批量启用：仅 EXACT + high + 目标有效 + 无器械不符。
+
+    返回 activated / skipped / skipped_reasons / relation_breakdown。
+    不修改 relation / match_basis / confidence / verified_level。
+    """
     rows = session.scalars(
         select(ExerciseMapping).where(
             ExerciseMapping.status == "draft",
@@ -700,17 +711,49 @@ def batch_activate(
     ).all()
 
     activated = 0
-    skipped = 0
+    skipped_reasons = {
+        "relation_not_exact": 0,
+        "relation_missing": 0,
+        "target_unverified": 0,
+        "equipment_mismatch": 0,
+        "catalog_missing": 0,
+    }
+    relation_breakdown: dict[str, int] = {}
+
     for row in rows:
-        exercise_name = row.garmin_exercise_name or ""
+        rel_key = row.relation if row.relation is not None else "null"
+        relation_breakdown[rel_key] = relation_breakdown.get(rel_key, 0) + 1
+
+        exercise_name = row.garmin_exercise_name
+        if not exercise_name:
+            skipped_reasons["catalog_missing"] += 1
+            continue
+
+        if row.relation is None:
+            skipped_reasons["relation_missing"] += 1
+            continue
+        if row.relation not in AUTO_CONFIRM_RELATIONS:
+            skipped_reasons["relation_not_exact"] += 1
+            continue
+
+        if row.verified_level not in _TARGET_VALID_LEVELS:
+            skipped_reasons["target_unverified"] += 1
+            continue
+
+        if (row.note or "").startswith(NOTE_EQUIPMENT_MISMATCH_PREFIX):
+            skipped_reasons["equipment_mismatch"] += 1
+            continue
+
         if only_confirmed_catalog and not _catalog_pair_exists(
             row.garmin_category or "", exercise_name
         ):
-            skipped += 1
+            skipped_reasons["catalog_missing"] += 1
             continue
+
         before = {"status": row.status}
         row.status = "active"
         row.mapping_version = int(row.mapping_version or 0) + 1
+        row.decision_source = "rule"
         after = {"status": row.status}
         _write_audit(
             session,
@@ -724,7 +767,13 @@ def batch_activate(
         activated += 1
 
     session.commit()
-    return {"activated": activated, "skipped": skipped}
+    skipped = sum(skipped_reasons.values())
+    return {
+        "activated": activated,
+        "skipped": skipped,
+        "skipped_reasons": skipped_reasons,
+        "relation_breakdown": relation_breakdown,
+    }
 
 
 def batch_reset_to_draft(
