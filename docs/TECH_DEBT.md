@@ -533,3 +533,57 @@ V6-9h 定稿：
 |---|------|------|----------|
 | T36 | **159 条「器械不符」标注缺管理页筛选**：V6-9h 把 `器械不符：Garmin 条目为 X…` 写进 `exercise_mapping.note`，但前端管理页只能按 status/confidence/keyword 筛选，看不到 note 内容 | 47 条 high 器械不符的映射已在用（能同步、动作家族正确、但名字的器械词不准），用户无法快速筛出来集中处理 | 管理页加一个「器械不符」快捷筛选（按 `note LIKE '器械不符%'`）或给行加个徽标；也可在列表接口加 `has_note` 过滤参数 |
 | T37 | **82 条无候选无法收敛**：词表扩到 154 条 + 四轮规则收紧后仍无匹配，多为 Garmin 目录确实没有的动作（颈部专项、`扩胸开合`、`火箭推`、`下犬式` 等） | 这些动作出现在训练日时预览会报 `UNKNOWN_EXERCISE`，整日无法同步 | 属客观限制，不建议继续卷算法。若某动作实际常用，在管理页手工指定；否则接受"该动作不写 Garmin"。V6-3 LLM 兜底代码虽就绪但受 `_select_targets` 排序限制（失败批次不会标记，分批会卡在同一批），若要启用需先做断点推进改造 |
+
+## 十四、事故记录：ADR-P0-5 误退 292 条映射 · 2026-11-13
+
+> 来源：ADR-EXERCISE-MAPPING 实施过程中由**审核方（AI agent）的设计错误**直接导致的
+> 生产事故。记录在此不是追责，是因为这个错误类型（**把「未验证」读成「无效」**）
+> 在任何涉及"校验状态"的迁移里都会重演。
+
+### 14.1 事故经过
+
+`POST /api/exercise-mappings/migrate-existing` 执行后：
+
+```
+active 308 → 16，exited_active=292，全部 reason=target_unverified
+```
+
+292 条合法映射被踢出 active，用户当天起大面积动作无法同步。
+
+### 14.2 两个叠加根因
+
+| # | 根因 | 性质 |
+|---|---|---|
+| ① | `generate_all` 把目录生成的映射一律写成 `verified_level="none"` | **存量代码缺陷**：`none` 的语义是"连目录都没查过"，而这些组合**本来就取自 Garmin 目录**，至少应是 `catalog` |
+| ② | 迁移的退出判据写成 `verified_level not in {catalog,created,displayed}` | **审核方的设计错误**：ADR §10.1 说的是「Garmin 目标**无效**」（目录里不存在），被读成了「目标**未验证**」 |
+
+两个问题叠加才致命：如果只有 ②，`verified_level` 分布正常时不会误退；
+如果只有 ①，`verified_level` 偏低但不参与判定也不会出事。
+
+### 14.3 为什么 ADR 没能拦住
+
+ADR §15 明确要求「**逐项核对 ADR 对现有代码的事实描述**」。写 P0-5 提示词时，
+审核方核对过 `_catalog_pair_exists`、`_TARGET_VALID_LEVELS` 的签名，
+但**没有核对 `generate_all` 到底给 `verified_level` 赋什么值**——
+如果当时查一次 `grep verified_level exercise_mapping_batch.py`，第 168 行的
+`verified_level="none"` 会立刻暴露这个前提错误。
+
+**教训**：涉及状态语义的迁移，必须先把**该字段在生产数据里的实际分布**查出来
+（`SELECT verified_level, count(*) ... GROUP BY 1`），而不是只读代码默认值。
+
+### 14.4 修复
+
+- `generate_all` → `verified_level="catalog"`（组合来自目录）
+- `_invalid_target_reason` → 只按 `_catalog_pair_exists` 判定
+- `repair_verified_levels` / `restore_migration_exits`：幂等修复与精确恢复
+  （依据审计 `action='migrate_exit_active'` 定位，只恢复目标合法的行）
+- 端点 `POST /api/exercise-mappings/repair-p0-5`
+- 回归测试 `backend/tests/test_p0_5_repair.py`（9 例）锁住三条不变式
+
+### 14.5 遗留隐患
+
+`verified_level` 的写入点分散在三处（`generate_all`、`build_seed_rows`、
+`exercise_catalog_probe`、`update_mapping`），语义都靠注释维护，**没有集中定义**。
+建议后续把「什么情况下应该是什么等级」写成单一函数（如
+`derive_verified_level(source, pair_exists, device_verified)`），
+避免再有地方各写各的。
