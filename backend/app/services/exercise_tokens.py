@@ -301,11 +301,51 @@ MOVEMENT_TOKENS: dict[str, str] = {
     "颈部": "neck",
     "风车": "windmill",
     "髋推": "hip thrust",
+    # —— V6-9f：错配修复词（每条已在 Garmin 目录验证有命中；坐姿划船/seated row 因
+    # 目录均为 seated+中间词+row，_norm 后无连续 seatedrow，0 命中故不收录）——
+    "手腕弯举": "wrist curl",
+    "环抱弯举": "hammer curl",
+    "俯身划船": "bent over row",
+    "髋外展": "hip abduction",
+    "髋内收": "hip adduction",
 }
 
 # 按键长降序，供 extract_tokens / 测试断言长键优先。
 MOVEMENT_KEYS_BY_LENGTH: list[str] = sorted(
     MOVEMENT_TOKENS.keys(), key=len, reverse=True
+)
+
+# 有氧/非力量分类：力量动作的候选池必须排除。
+# 注意：Garmin 的 Rowing Machine 挂在 category=ROW、exercise=INDOOR_ROW，
+# INDOOR_ROW 不是 CATEGORIES 成员，故不进本集合；候选池另行按 exercise 排除。
+CARDIO_ONLY_CATEGORIES: frozenset[str] = frozenset({
+    "RUN",
+    "RUN_INDOOR",
+    "BIKE_OUTDOOR",
+    "ELLIPTICAL",
+    "STAIR_STEPPER",
+    "CARDIO",
+    "LADDER",
+    "FLOOR_CLIMB",
+})
+
+_UNKNOWN_CARDIO = CARDIO_ONLY_CATEGORIES - set(_garmin_exercises.CATEGORIES)
+assert not _UNKNOWN_CARDIO, (
+    f"CARDIO_ONLY_CATEGORIES 含无效 category: {_UNKNOWN_CARDIO}"
+)
+
+# 同名词根在不同部位含义不同：候选名必须含该部位的锚词，否则视为错配
+PART_ANCHORED_MOVEMENTS: dict[str, dict[str, tuple[str, ...]]] = {
+    # 动作中文关键词 -> {部位: 候选名必须包含的任一英文锚词}
+    "外展": {"腿": ("leg", "hip"), "肩": ("shoulder",), "臂": ("shoulder", "arm")},
+    "内收": {"腿": ("leg", "hip"), "肩": ("shoulder",), "臂": ("shoulder", "arm")},
+}
+
+# 中文名里没有限定词时，候选名里出现这些词就判为错配
+MOVEMENT_NAME_EXCLUDES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    # (中文必须含, 中文必须"不含"才生效, 候选名禁止出现的词)
+    ("弯举", "腿", ("hamstring",)),
+    ("弯举", "手腕", ("wrist",)),
 )
 
 CARDIO_KEYWORDS: tuple[str, ...] = (

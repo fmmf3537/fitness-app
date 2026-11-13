@@ -722,6 +722,48 @@ def batch_activate(
     return {"activated": activated, "skipped": skipped}
 
 
+def batch_reset_to_draft(
+    session: Session, *, actor: str = "user"
+) -> dict:
+    """把「算法批量激活」的行退回 draft，便于用修复后的算法重算。
+
+    只处理：status='active' 且 source != 'seed' 且 mapping_version > 1
+    （即 V6-4 batch_activate 激活过的行；16 条人工验收的 seed 永不回退）。
+    不改 garmin_category / garmin_exercise_name / configured 字段，只改 status 并写审计
+    （action='reset'、reason='batch_reset'、before/after 含 status，
+    `mapping_version` **不再增加**——回退不改变映射内容）。
+
+    返回 {"reset": n, "skipped": m}；skipped 统计被排除的 active 行数
+    （seed 或 version==1 的人工行）。
+    """
+    rows = session.scalars(
+        select(ExerciseMapping).where(ExerciseMapping.status == "active")
+    ).all()
+
+    reset = 0
+    skipped = 0
+    for row in rows:
+        if row.source == "seed" or int(row.mapping_version or 0) <= 1:
+            skipped += 1
+            continue
+        before = {"status": row.status}
+        row.status = "draft"
+        after = {"status": row.status}
+        _write_audit(
+            session,
+            row,
+            action="reset",
+            before=before,
+            after=after,
+            reason="batch_reset",
+            actor=actor,
+        )
+        reset += 1
+
+    session.commit()
+    return {"reset": reset, "skipped": skipped}
+
+
 def search_catalog(
     *,
     q: str = "",

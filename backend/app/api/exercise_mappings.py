@@ -1,7 +1,7 @@
 """动作映射批处理、覆盖率看板与复核/纠错 API（V6-7 / V6-4 / V6-8）。
 
-固定路径（/coverage /generate /catalog /stale-syncs /batch-activate /llm-suggest /probe）
-必须注册在 /{mapping_id} 之前，避免被路径参数吞掉。
+固定路径（/coverage /generate /catalog /stale-syncs /batch-activate /batch-reset
+/llm-suggest /probe）必须注册在 /{mapping_id} 之前，避免被路径参数吞掉。
 """
 from __future__ import annotations
 
@@ -127,6 +127,12 @@ def post_batch_activate(
         confidence=payload.confidence,
         only_confirmed_catalog=payload.only_confirmed_catalog,
     )
+
+
+@router.post("/batch-reset")
+def post_batch_reset(session: Session = Depends(get_session)) -> dict:
+    """把算法批量激活的映射退回 draft（seed 与人工行不受影响）。"""
+    return mapping_svc.batch_reset_to_draft(session)
 
 
 @router.post("/llm-suggest")

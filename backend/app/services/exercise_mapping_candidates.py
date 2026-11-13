@@ -14,10 +14,13 @@ from garminconnect import exercises as garmin_exercises
 
 from app.services.exercise_tokens import (
     CARDIO_KEYWORDS,
+    CARDIO_ONLY_CATEGORIES,
     EQUIPMENT_TO_GARMIN_CATEGORY,
     EQUIPMENT_TOKENS,
     FLEXIBILITY_KEYWORDS,
+    MOVEMENT_NAME_EXCLUDES,
     MOVEMENT_TOKENS,
+    PART_ANCHORED_MOVEMENTS,
     PART_TO_GARMIN_CATEGORIES,
     POSTURE_TOKENS,
 )
@@ -97,7 +100,7 @@ EQUIPMENT_CATEGORY_BONUS = 20
 def _score_to_confidence(score: int) -> str:
     """分数 → 置信度。
 
-    分数构成：基础 20 + 器械命中 40 + 每个姿态 20（上限 40）+ 完全相等 20。
+    分数构成：基础 20 + 器械命中 40 + 姿态命中 +20/缺失 −20（各上限 40）+ 完全相等 20。
     因此关键分界是 60 = 「动作词根命中（硬条件）+ 器械命中」——器械与动作都对上
     已是很强的信号，判 high；40 = 只有动作词根命中（器械可能不匹配）判 medium；
     20 = 兜底路径（无动作词）判 low（V6-2 实测：60 分有 109 条被判成 medium，
@@ -128,12 +131,69 @@ def _equipment_bonus(equip_list: list[str], name_norm: str) -> tuple[int, str]:
     return 0, "无"
 
 
+def _movement_alternatives(mv: str) -> tuple[str, ...]:
+    """同一语义的不同英文写法。Garmin 里单臂动作常写作 One-arm / Single-arm。"""
+    base = _norm(mv)
+    if not base:
+        return ()
+    alts = {base}
+    if "singlearm" in base:
+        alts.add(base.replace("singlearm", "onearm"))
+    if "onearm" in base:
+        alts.add(base.replace("onearm", "singlearm"))
+    return tuple(alts)
+
+
 def _posture_bonus(postures: list[str], name_norm: str) -> int:
-    hits = 0
-    for p in postures:
-        if p and _norm(p) in name_norm:
-            hits += 1
-    return min(40, hits * 20)
+    """姿态打分：匹配 +20/个、缺失 −20/个（各上限 40）；**全部命中再 +40**。
+
+    姿态词（上斜/下斜/坐姿/俯身/单臂…）是区分 Garmin 变体的关键。
+    - 只加分不扣分时，"Dumbbell Bench Press" 靠 _exact_bonus 的 +20 与
+      "Incline Dumbbell Bench Press" 的 +20 打平，字典序选中了不带 incline 的。
+    - 只扣分还不够：目录里没有 DECLINE_BARBELL 时，
+      "Barbell Bench Press"（20+器械40−姿态20+完全相等20=60）仍会压过
+      "Decline Dumbbell Bench Press"（20+0+20=40），下斜照样丢。
+    - 因此对「姿态全部命中」额外 +40 作强偏好：它能让真正对应的变体胜出，
+      同时**不做硬过滤**——目录里确实没有对应变体时，仍会降级到近似项
+      （置信度随之降低），而不是让动作变成「无候选」。
+    """
+    if not postures:
+        return 0
+    hits = sum(1 for p in postures if p and _norm(p) in name_norm)
+    misses = sum(1 for p in postures if p and _norm(p) not in name_norm)
+    score = min(40, hits * 20) - min(40, misses * 20)
+    if hits and not misses:
+        score += 40
+    return score
+
+
+def _is_inconsistent(xunji_name: str, part: str, name_norm: str) -> bool:
+    """候选与动作语义明显不符时返回 True（该候选直接跳过，不给分）。"""
+    # 1) 中文名排除：如"弯举"未限定"腿"时不得命中 hamstring
+    for must_have, must_not_have, banned in MOVEMENT_NAME_EXCLUDES:
+        if must_have in xunji_name and must_not_have not in xunji_name:
+            if any(term in name_norm for term in banned):
+                return True
+    # 2) 部位锚词：外展/内收 必须落在对应部位的英文词上
+    for keyword, anchors_by_part in PART_ANCHORED_MOVEMENTS.items():
+        if keyword not in xunji_name:
+            continue
+        anchors = anchors_by_part.get(part)
+        if not anchors:
+            continue
+        if not any(_norm(a) in name_norm for a in anchors):
+            return True
+    # 3) 单手/单臂/单边：候选须含 singlearm 或 onearm
+    # （否则「单手绳索臂屈伸」会因器械 +40 压过姿态 −20，仍落到非单臂项；
+    #  单手动作的重量是单侧口径，落到双臂项会把语义搞错，故用硬过滤）
+    if any(k in xunji_name for k in ("单手", "单臂", "单边")):
+        if "singlearm" not in name_norm and "onearm" not in name_norm:
+            return True
+    # 注意：**不要**对「上斜/下斜」加同类硬过滤。
+    # 姿态的 ±20 打分已经能让带 incline/decline 的变体胜出；若目录里根本没有
+    # 对应变体（如 DECLINE_BARBELL 不存在），硬过滤会让动作直接变成「无候选」，
+    # 而降到 flat 变体 + medium 置信度是有用得多的降级（实测误杀 28 条）。
+    return False
 
 
 def _exact_bonus(equip: str, mv: str, name_norm: str) -> int:
@@ -168,6 +228,13 @@ def _fallback_candidates(
     else:
         pool = list(catalog)
         order = {}
+
+    pool = [
+        e
+        for e in pool
+        if e.get("category") not in CARDIO_ONLY_CATEGORIES
+        and e.get("exercise") != "INDOOR_ROW"
+    ]
 
     empties = [e for e in pool if e.get("exercise", "") == ""]
     empties.sort(
@@ -278,6 +345,14 @@ def generate_candidates(
         # 一旦按器械分类缩池就会从「有候选」退化成「无候选」。
         pool = catalog_rows
 
+    # 排除有氧分类；INDOOR_ROW 是 ROW 下的划船机 exercise，不是 category
+    pool = [
+        e
+        for e in pool
+        if e.get("category") not in CARDIO_ONLY_CATEGORIES
+        and e.get("exercise") != "INDOOR_ROW"
+    ]
+
     if not movements:
         return _fallback_candidates(name, part, part_categories, catalog_rows, limit)
 
@@ -285,37 +360,45 @@ def generate_candidates(
     # 先按窄化池扫描；若完全没命中且确实做过窄化，再回退全目录扫一遍。
     # 原因：classify_part 会按关键词误判部位——例如「上斜负重颈弯举」含"弯举"
     # 被判成「臂」，而 Garmin 把颈部动作放在 WARM_UP，窄化后必然扫不到。
+    full_pool = [
+        e
+        for e in catalog_rows
+        if e.get("category") not in CARDIO_ONLY_CATEGORIES
+        and e.get("exercise") != "INDOOR_ROW"
+    ]
     scan_pools = [pool]
     if part_categories:
-        scan_pools.append(catalog_rows)
+        scan_pools.append(full_pool)
     for scan_pool in scan_pools:
-      for mv in movements:
-        mv_norm = _norm(mv)
-        if not mv_norm:
-            continue
-        for entry in scan_pool:
-            display = entry.get("name", "")
-            name_norm = _norm(display)
-            if mv_norm not in name_norm:
+        for mv in movements:
+            alts = _movement_alternatives(mv)
+            if not alts:
                 continue
-            score = 20
-            eq_bonus, eq_label = _equipment_bonus(equipment, name_norm)
-            score += eq_bonus
-            score += _posture_bonus(postures, name_norm)
-            # 精确加成：优先用已命中的非空器械词根
-            exact_equip = eq_label if eq_label != "无" else ""
-            if not exact_equip and equipment:
-                exact_equip = next((e for e in equipment if e), "")
-            score += _exact_bonus(exact_equip, mv, name_norm)
-            if eq_categories and entry.get("category") in eq_categories:
-                score += EQUIPMENT_CATEGORY_BONUS
+            for entry in scan_pool:
+                display = entry.get("name", "")
+                name_norm = _norm(display)
+                if not any(a in name_norm for a in alts):
+                    continue
+                if _is_inconsistent(name, part, name_norm):
+                    continue
+                score = 20
+                eq_bonus, eq_label = _equipment_bonus(equipment, name_norm)
+                score += eq_bonus
+                score += _posture_bonus(postures, name_norm)
+                # 精确加成：优先用已命中的非空器械词根
+                exact_equip = eq_label if eq_label != "无" else ""
+                if not exact_equip and equipment:
+                    exact_equip = next((e for e in equipment if e), "")
+                score += _exact_bonus(exact_equip, mv, name_norm)
+                if eq_categories and entry.get("category") in eq_categories:
+                    score += EQUIPMENT_CATEGORY_BONUS
 
-            key = (entry.get("category", ""), entry.get("exercise", ""))
-            prev = best.get(key)
-            if prev is None or score > prev[0]:
-                best[key] = (score, entry, eq_label, mv)
-      if best:
-          break
+                key = (entry.get("category", ""), entry.get("exercise", ""))
+                prev = best.get(key)
+                if prev is None or score > prev[0]:
+                    best[key] = (score, entry, eq_label, mv)
+        if best:
+            break
 
     if not best:
         return _fallback_candidates(name, part, categories, catalog_rows, limit)
