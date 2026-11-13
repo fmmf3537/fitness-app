@@ -366,10 +366,18 @@ export default function ExerciseMappingsPage() {
     const id = row.id
     setReviewBusy((prev) => ({ ...prev, [id]: true }))
     try {
+      // 必须带上该行的 status：后端默认只审 active 行，draft 行不传会被静默过滤成 0 条
+      const query = new URLSearchParams({ xunji_name: row.xunji_name })
+      if (row.status) query.set('status', row.status)
       const started = await api(
-        `/api/exercise-mappings/review?xunji_name=${encodeURIComponent(row.xunji_name)}`,
+        `/api/exercise-mappings/review?${query.toString()}`,
         { method: 'POST' },
       )
+      // requested === 0 说明后端没选中任何目标（根本没调 LLM），要说清是"没找到"而不是"没返回"
+      if (!started?.requested) {
+        toast(`未找到可审核的映射：${row.xunji_name}（状态 ${row.status || '未知'}）`, 'error')
+        return
+      }
       const batchId = started?.batch_id
       if (!batchId) {
         toast('审核未产生结果', 'error')
@@ -378,7 +386,7 @@ export default function ExerciseMappingsPage() {
       const payload = await api(`/api/exercise-mappings/reviews?batch_id=${batchId}`)
       const item = (payload?.items || []).find((it) => it.xunji_name === row.xunji_name)
       if (!item) {
-        toast('审核未返回该动作的结果', 'error')
+        toast('审核已执行，但未解析出该动作的结论；可稍后重试', 'error')
         return
       }
       setReviewsByRow((prev) => ({ ...prev, [id]: item }))

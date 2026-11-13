@@ -128,7 +128,7 @@ describe('ExerciseMappingsAiReview', () => {
   it('test_click_triggers_review_calls', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     globalThis.fetch = routeFetch(defaultRoutes({
-      review: { batch_id: 'batch-ai-1', processed: 1 },
+      review: { requested: 1, batch_id: 'batch-ai-1', processed: 1 },
       reviews: {
         items: [{
           id: 101,
@@ -164,7 +164,7 @@ describe('ExerciseMappingsAiReview', () => {
   it('test_result_panel_shown', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     globalThis.fetch = routeFetch(defaultRoutes({
-      review: { batch_id: 'batch-better', processed: 1 },
+      review: { requested: 1, batch_id: 'batch-better', processed: 1 },
       reviews: {
         items: [{
           id: 102,
@@ -193,7 +193,7 @@ describe('ExerciseMappingsAiReview', () => {
   it('test_current_ok_only_toasts', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     globalThis.fetch = routeFetch(defaultRoutes({
-      review: { batch_id: 'batch-ok', processed: 1 },
+      review: { requested: 1, batch_id: 'batch-ok', processed: 1 },
       reviews: {
         items: [{
           id: 103,
@@ -220,7 +220,7 @@ describe('ExerciseMappingsAiReview', () => {
   it('test_apply_prefills_edit_form', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     globalThis.fetch = routeFetch(defaultRoutes({
-      review: { batch_id: 'batch-apply', processed: 1 },
+      review: { requested: 1, batch_id: 'batch-apply', processed: 1 },
       reviews: {
         items: [{
           id: 104,
@@ -251,6 +251,30 @@ describe('ExerciseMappingsAiReview', () => {
     await waitFor(() => {
       expect(panel).toHaveTextContent('NEUTRAL_GRIP_DUMBBELL_BENCH_PRESS')
       expect(screen.getByTestId('edit-category')).toHaveValue('BENCH_PRESS')
+    })
+  })
+
+  it('test_requests_row_status_and_ignores_zero_requested', async () => {
+    // 回归 2026-11-13 线上缺陷：只传 xunji_name 时后端默认只审 active，
+    // draft 行会被过滤成 requested=0 且不调 LLM → 秒回"未返回结果"。
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    const calls = []
+    const inner = routeFetch(
+      defaultRoutes({ review: { requested: 0, batch_id: 'batch-empty' } }),
+    )
+    globalThis.fetch = vi.fn((url, options) => {
+      calls.push(String(url))
+      return inner(url, options)
+    })
+    renderPage()
+    await user.click(await screen.findByTestId('mapping-ai-review-1'))
+    await waitFor(() => {
+      const reviewCall = calls.find((u) => u.includes('/review?'))
+      expect(reviewCall).toBeTruthy()
+      // 必须带上该行的 status，否则 draft 行会被静默过滤
+      expect(reviewCall).toMatch(/status=/)
+      // requested=0 要给"未找到可审核的映射"这种能看懂的提示
+      expect(screen.getByText(/未找到可审核的映射/)).toBeInTheDocument()
     })
   })
 

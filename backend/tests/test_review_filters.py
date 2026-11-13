@@ -286,3 +286,63 @@ def test_review_endpoint_rejects_negative_offset(client, auth_headers):
         params={"offset": -1},
     )
     assert resp.status_code == 422
+
+
+class TestExplicitNameIgnoresActiveDefault:
+    """2026-11-13 线上缺陷回归：显式点名要审的动作不得被 only_active 默认值过滤。
+
+    现象：前端点某 draft 行的「AI 审核」只传 `xunji_name`，后端默认 `only_active=True`
+    把该行过滤掉 → `requested=0` → 一次都没调 LLM → 秒回"审核未返回该动作的结果"。
+    """
+
+    def test_draft_row_reviewed_when_named(self, session):
+        _add_mapping(session, "回归-草稿", status="draft")
+        got = _select_targets(
+            session, limit=10, only_active=True, xunji_name="回归-草稿"
+        )
+        assert [r.xunji_name for r in got] == ["回归-草稿"]
+
+    def test_active_row_still_reviewed_when_named(self, session):
+        _add_mapping(session, "回归-活跃", status="active")
+        got = _select_targets(
+            session, limit=10, only_active=True, xunji_name="回归-活跃"
+        )
+        assert [r.xunji_name for r in got] == ["回归-活跃"]
+
+    def test_explicit_status_still_wins_over_name(self, session):
+        """显式传了 status 时仍以 status 为准（点名 + 状态不符 → 0 条）。"""
+        _add_mapping(session, "回归-状态优先", status="draft")
+        got = _select_targets(
+            session, limit=10, only_active=True, status="active", xunji_name="回归-状态优先"
+        )
+        assert got == []
+
+    def test_review_mappings_calls_llm_for_named_draft(self, session):
+        """端到端：指定 draft 动作时必须真的调用 LLM（不能 requested=0）。"""
+        _add_mapping(session, "回归-端到端", status="draft")
+        calls = {"n": 0}
+
+        def fake_chat(messages, **kwargs):
+            calls["n"] += 1
+            return {
+                "content": json.dumps(
+                    [
+                        {
+                            "name": "回归-端到端",
+                            "verdict": "current_ok",
+                            "suggested": None,
+                            "reason": "提高",
+                        }
+                    ],
+                    ensure_ascii=False,
+                ),
+                "prompt_tokens": 1,
+                "completion_tokens": 1,
+                "model": "fake",
+            }
+
+        stats = review_mappings(
+            session, xunji_name="回归-端到端", chat_fn=fake_chat
+        )
+        assert stats["requested"] == 1
+        assert calls["n"] == 1

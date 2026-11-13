@@ -214,13 +214,19 @@ def _select_targets(
 
     ``status`` 优先于 ``only_active``：显式传入 ``status`` 时以其为准，
     两者不叠加；未传 ``status`` 且 ``only_active=True`` 时才筛 active。
+
+    **显式指定 ``xunji_name`` 时不套用 ``only_active`` 默认值**——
+    用户点名要审某一条，就不该因为它的状态是 draft 而被静默过滤掉。
+    （2026-11-13 线上缺陷：前端点 draft 行的「AI 审核」时只传 xunji_name，
+     被 only_active 默认值过滤成 0 条，秒回"审核未返回该动作的结果"。）
+
     ``xunji_name`` 为精确匹配；``offset`` 在 ``limit`` 之前应用。
     """
     stmt = select(ExerciseMapping).order_by(ExerciseMapping.id)
     if status is not None:
         # status 优先于 only_active（显式指定时以它为准）
         stmt = stmt.where(ExerciseMapping.status == status)
-    elif only_active:
+    elif only_active and xunji_name is None:
         stmt = stmt.where(ExerciseMapping.status == "active")
     if xunji_name is not None:
         stmt = stmt.where(ExerciseMapping.xunji_name == xunji_name)
