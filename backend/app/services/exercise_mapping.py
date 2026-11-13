@@ -887,6 +887,82 @@ def search_catalog(
     ]
 
 
+def search_by_xunji_name(
+    q: str,
+    *,
+    limit: int = 20,
+    candidates_per_movement: int = 2,
+) -> list[dict]:
+    """按中文（或任意）片段匹配训记动作名，再给出各自的 Garmin 候选。
+
+    做的是「子串匹配训记动作名 → 复用 generate_candidates」，
+    不新增任何打分逻辑。
+
+    返回（按匹配质量排序，长度越接近 q 越靠前）：
+    [
+      {"xunji_name": "上斜哑铃卧推", "match_rank": 0,
+       "category": "BENCH_PRESS", "exercise": "INCLINE_DUMBBELL_BENCH_PRESS",
+       "name": "Incline Dumbbell Bench Press",
+       "confidence": "high", "rank": 1, "reason": "..."},
+      ...
+    ]
+
+    规则：
+    - q 去空白后为空 → 返回 []
+    - 只在 `_load_movement_names()` 的全集里做**子串**匹配（大小写不敏感，
+      直接 str 包含即可；中文不需要 casefold）
+    - 匹配到的动作按「长度升序」排序（短名更可能是用户想精确找的那个），
+      再按名字排序保证稳定
+    - 每个动作最多取 `candidates_per_movement` 条候选（默认 2）
+    - 候选为空的动作**跳过**（不回空行）
+    - 总条数不超过 `limit`
+    - 没有任何匹配 → []
+    """
+    from app.services.exercise_mapping_batch import _load_movement_names
+    from app.services.exercise_mapping_candidates import generate_candidates
+
+    term = (q or "").strip()
+    if not term:
+        return []
+
+    capped = max(int(limit or 0), 0)
+    per_move = max(int(candidates_per_movement or 0), 0)
+    if capped == 0 or per_move == 0:
+        return []
+
+    needle = term.casefold()
+    matched = [
+        name
+        for name in _load_movement_names()
+        if needle in name.casefold()
+    ]
+    matched.sort(key=lambda n: (len(n), n))
+
+    items: list[dict] = []
+    for match_rank, xunji_name in enumerate(matched):
+        if len(items) >= capped:
+            break
+        cands = generate_candidates(xunji_name, limit=per_move)
+        if not cands:
+            continue
+        for cand in cands:
+            if len(items) >= capped:
+                break
+            items.append(
+                {
+                    "xunji_name": xunji_name,
+                    "match_rank": match_rank,
+                    "category": cand.garmin_category,
+                    "exercise": cand.garmin_exercise_name,
+                    "name": cand.garmin_display_name,
+                    "confidence": cand.confidence,
+                    "rank": cand.rank,
+                    "reason": cand.reason,
+                }
+            )
+    return items
+
+
 def _extract_xunji_names_from_payload(payload_json: str | None) -> list[str] | None:
     """从本地 Workout payload 的 step.description 提取训记动作名。
 

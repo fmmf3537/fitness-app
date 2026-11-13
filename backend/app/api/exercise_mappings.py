@@ -1,8 +1,8 @@
 """动作映射批处理、覆盖率看板与复核/纠错 API（V6-7 / V6-4 / V6-8）。
 
-固定路径（/coverage /generate /catalog /stale-syncs /batch-activate /batch-reset
-/llm-suggest /probe /backfill-relations /migrate-existing /catalog-diff /catalog-apply
-/review /reviews）
+固定路径（/coverage /generate /catalog /catalog-search-xunji /stale-syncs /batch-activate
+/batch-reset /llm-suggest /probe /backfill-relations /migrate-existing /catalog-diff
+/catalog-apply /review /reviews）
 必须注册在 /{mapping_id} 之前，避免被路径参数吞掉。
 """
 from __future__ import annotations
@@ -115,6 +115,15 @@ def get_catalog(
 ) -> list[dict]:
     """Garmin 离线目录搜索，供前端换候选。"""
     return mapping_svc.search_catalog(q=q, category=category, limit=limit)
+
+
+@router.get("/catalog-search-xunji")
+def get_catalog_search_xunji(
+    q: str = Query(min_length=1, max_length=50),
+    limit: int = Query(default=20, ge=1, le=100),
+) -> dict:
+    """中文搜索：按训记动作名匹配并给出各自的 Garmin 候选（只读）。"""
+    return {"items": mapping_svc.search_by_xunji_name(q, limit=limit)}
 
 
 @router.get("/stale-syncs")

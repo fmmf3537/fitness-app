@@ -248,11 +248,34 @@ export default function ExerciseMappingsPage() {
     }
   }, [editingId, editForm?.garmin_category])
 
-  // 动作列表：弹窗打开且分类非空时加载；q 空列出该分类全部，q 非空在分类内筛选
+  // 动作列表：中文 q → 训记名搜索；空/ASCII → 分类内列出或筛选（ADR-P2-7）
   useEffect(() => {
     if (editingId == null) {
       setExerciseSearching(false)
       return undefined
+    }
+    const q = exerciseQuery.trim()
+    const hasCJK = /[\u4e00-\u9fff]/.test(q)
+    if (hasCJK) {
+      let cancelled = false
+      setExerciseSearching(true)
+      const timer = setTimeout(() => {
+        const params = new URLSearchParams({ q, limit: '20' })
+        api(`/api/exercise-mappings/catalog-search-xunji?${params.toString()}`)
+          .then((data) => {
+            if (!cancelled) setExerciseResults(Array.isArray(data?.items) ? data.items : [])
+          })
+          .catch(() => {
+            if (!cancelled) setExerciseResults([])
+          })
+          .finally(() => {
+            if (!cancelled) setExerciseSearching(false)
+          })
+      }, 250)
+      return () => {
+        cancelled = true
+        clearTimeout(timer)
+      }
     }
     const category = editForm?.garmin_category || ''
     if (!category) {
@@ -260,7 +283,6 @@ export default function ExerciseMappingsPage() {
       setExerciseSearching(false)
       return undefined
     }
-    const q = exerciseQuery.trim()
     let cancelled = false
     setExerciseSearching(true)
     const timer = setTimeout(() => {
@@ -869,7 +891,7 @@ export default function ExerciseMappingsPage() {
                 type="search"
                 value={exerciseQuery}
                 onChange={(e) => setExerciseQuery(e.target.value)}
-                placeholder="可按英文名/枚举名筛选（留空则列出该分类全部）"
+                placeholder="可输入中文动作名（如「上斜哑铃卧推」）或英文关键词筛选"
                 className="mt-1 block h-11 w-full rounded-xl border border-line bg-canvas/50 px-3 text-sm text-ink-900 focus:outline-none focus:ring-2 focus:ring-brand-200 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
               />
             </label>
@@ -885,59 +907,121 @@ export default function ExerciseMappingsPage() {
                 </p>
               </div>
               <ul className="mt-1 max-h-40 overflow-y-auto rounded-xl border border-line dark:border-gray-700">
-                {!editForm.garmin_category ? (
-                  <li className="px-3 py-2 text-xs text-ink-400">
-                    请先选择 Garmin Category，下面会列出该分类下的全部动作
-                  </li>
-                ) : exerciseSearching && exerciseResults.length === 0 ? (
-                  <li className="px-3 py-2 text-xs text-ink-400">加载中…</li>
-                ) : exerciseResults.length === 0 ? (
-                  <li className="px-3 py-2 text-xs text-ink-400">
-                    该分类下没有匹配的动作，试试更短的关键词或清空搜索
-                  </li>
-                ) : (
-                  <>
-                    {exerciseSearching && (
+                {(() => {
+                  const qTrim = exerciseQuery.trim()
+                  const hasCJK = /[\u4e00-\u9fff]/.test(qTrim)
+                  if (!hasCJK && !editForm.garmin_category) {
+                    return (
+                      <li className="px-3 py-2 text-xs text-ink-400">
+                        请先选择 Garmin Category，下面会列出该分类下的全部动作
+                      </li>
+                    )
+                  }
+                  if (exerciseSearching && exerciseResults.length === 0) {
+                    return (
                       <li className="px-3 py-2 text-xs text-ink-400">加载中…</li>
-                    )}
-                    {exerciseResults.map((row, index) => {
-                      const isCurrent = row.exercise === editForm.garmin_exercise_name
-                      return (
-                        <li key={`${row.category}-${row.exercise}-${index}`}>
-                          <button
-                            type="button"
-                            data-testid={`edit-exercise-result-${index}`}
-                            className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm ${
-                              isCurrent
-                                ? 'bg-brand-50 dark:bg-brand-950/40'
-                                : 'hover:bg-canvas dark:hover:bg-gray-800'
-                            }`}
-                            onClick={() => pickExercise(row)}
-                          >
+                    )
+                  }
+                  if (exerciseResults.length === 0) {
+                    return (
+                      <li className="px-3 py-2 text-xs text-ink-400">
+                        {hasCJK
+                          ? '没有匹配到训记动作，换个关键词试试'
+                          : '该分类下没有匹配的动作，试试更短的关键词或清空搜索'}
+                      </li>
+                    )
+                  }
+                  const confidenceClass = {
+                    high: 'bg-emerald-100 text-emerald-700',
+                    medium: 'bg-amber-100 text-amber-800',
+                    low: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
+                  }
+                  return (
+                    <>
+                      {exerciseSearching && (
+                        <li className="px-3 py-2 text-xs text-ink-400">加载中…</li>
+                      )}
+                      {/* 中文搜索给的是**算法候选**，未必优于已确认的映射
+                          （例：侧平举的算法候选是 LATERAL_RAISE medium，
+                           而库里人工确认过的是 DUMBBELL_LATERAL_RAISE displayed）。
+                          把当前映射置顶，避免用户误以为"算法这条更好"而覆盖掉人工结论。 */}
+                      {hasCJK && editForm.garmin_exercise_name && (
+                        <li data-testid="edit-exercise-current-pinned">
+                          <div className="flex items-center gap-2 bg-brand-50/60 px-3 py-2 text-sm dark:bg-brand-950/30">
                             <span className="min-w-0 flex-1">
                               <span className="block font-medium text-ink-800 dark:text-gray-200">
-                                {row.name || row.exercise}
+                                {editForm.garmin_display_name || editForm.garmin_exercise_name}
                               </span>
-                              <span className="block font-mono text-xs text-ink-400">
-                                {row.exercise}
+                              <span className="block text-xs text-ink-400">
+                                当前映射
+                                {' → '}
+                                <span className="font-mono text-xs">{editForm.garmin_exercise_name}</span>
                               </span>
                             </span>
-                            {isCurrent && (
-                              <span className="shrink-0 text-[11px] text-brand-600 dark:text-brand-400">
-                                当前
-                              </span>
-                            )}
-                          </button>
+                            <span className="shrink-0 rounded-full bg-brand-100 px-2 py-0.5 text-[11px] font-medium text-brand-700 dark:bg-brand-900/50 dark:text-brand-200">
+                              当前
+                            </span>
+                          </div>
                         </li>
-                      )
-                    })}
-                    {exerciseResults.length >= 100 && (
-                      <li className="px-3 py-2 text-xs text-ink-400">
-                        已显示前 100 条，可用搜索缩小范围
-                      </li>
-                    )}
-                  </>
-                )}
+                      )}
+                      {exerciseResults.map((row, index) => {
+                        const isCurrent = row.exercise === editForm.garmin_exercise_name
+                        const showXunji = Boolean(row.xunji_name)
+                        return (
+                          <li key={`${row.category}-${row.exercise}-${row.xunji_name || ''}-${index}`}>
+                            <button
+                              type="button"
+                              data-testid={`edit-exercise-result-${index}`}
+                              className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm ${
+                                isCurrent
+                                  ? 'bg-brand-50 dark:bg-brand-950/40'
+                                  : 'hover:bg-canvas dark:hover:bg-gray-800'
+                              }`}
+                              onClick={() => pickExercise(row)}
+                            >
+                              <span className="min-w-0 flex-1">
+                                <span className="block font-medium text-ink-800 dark:text-gray-200">
+                                  {row.name || row.exercise}
+                                </span>
+                                {showXunji ? (
+                                  <span className="block text-xs text-ink-400">
+                                    {row.xunji_name}
+                                    {' → '}
+                                    <span className="font-mono text-xs">{row.exercise}</span>
+                                  </span>
+                                ) : (
+                                  <span className="block font-mono text-xs text-ink-400">
+                                    {row.exercise}
+                                  </span>
+                                )}
+                              </span>
+                              {showXunji && row.confidence && (
+                                <span
+                                  data-testid={`edit-exercise-confidence-${index}`}
+                                  className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                                    confidenceClass[row.confidence] || confidenceClass.low
+                                  }`}
+                                >
+                                  {row.confidence}
+                                </span>
+                              )}
+                              {isCurrent && (
+                                <span className="shrink-0 text-[11px] text-brand-600 dark:text-brand-400">
+                                  当前
+                                </span>
+                              )}
+                            </button>
+                          </li>
+                        )
+                      })}
+                      {!hasCJK && exerciseResults.length >= 100 && (
+                        <li className="px-3 py-2 text-xs text-ink-400">
+                          已显示前 100 条，可用搜索缩小范围
+                        </li>
+                      )}
+                    </>
+                  )
+                })()}
               </ul>
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink-500 dark:text-gray-400">
