@@ -225,7 +225,50 @@ def _is_inconsistent(xunji_name: str, part: str, name_norm: str) -> bool:
     # 中文没写「史密斯」时不应映射到史密斯机条目（实测误配 3 条）。
     if "smith" in name_norm and "史密斯" not in xunji_name:
         return True
+    # 「后束」练背侧（后三角/后束飞鸟），而 Chest Fly 打的是前侧胸肌，
+    # 是方向相反的两个动作；中文明确写「后束」时不得命中含 chest 的条目。
+    if ("后束" in xunji_name or "后三角" in xunji_name) and "chest" in name_norm:
+        return True
     return False
+
+
+def equipment_mismatch_note(
+    xunji_name: str, display_name: str | None
+) -> str | None:
+    """中文指定了器械、但 Garmin 条目的器械与之不同时，返回可读标注；否则 None。
+
+    背景（2026-11-13 决策）：有些动作 Garmin 目录里**确实没有**同器械版本
+    （如无「杠铃下斜卧推」「哑铃窄距卧推」）。此时映射到同动作家族的近似条目
+    比让动作变成「无候选」更有用，但需要在 note 里如实标注，便于人工筛出。
+
+    判定：
+    - expected = 训记名里出现的器械中文对应的英文词根集合（忽略空串）
+    - found    = display_name 里出现的所有器械英文词根集合
+    - expected 非空且 found - expected 非空 → 判定器械不符
+    """
+    if not display_name:
+        return None
+    expected: set[str] = set()
+    for zh, en in EQUIPMENT_TOKENS.items():
+        if not en:
+            continue
+        if zh in xunji_name:
+            expected.add(en)
+    if not expected:
+        return None
+    display_norm = _norm(display_name)
+    found: set[str] = set()
+    for en in EQUIPMENT_TOKENS.values():
+        if not en:
+            continue
+        if _norm(en) in display_norm:
+            found.add(en)
+    wrong = found - expected
+    if not wrong:
+        return None
+    return (
+        f"器械不符：Garmin 条目为 {','.join(sorted(wrong))}，按动作家族近似映射"
+    )
 
 
 def _exact_bonus(equip: str, mv: str, name_norm: str) -> int:

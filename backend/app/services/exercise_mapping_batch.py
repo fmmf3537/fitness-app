@@ -17,6 +17,7 @@ from app.services.exercise_mapping import seed_mappings
 from app.services.exercise_mapping_candidates import (
     Candidate,
     classify_applicability,
+    equipment_mismatch_note,
     generate_candidates,
 )
 
@@ -80,7 +81,7 @@ def _apply_candidates(row: ExerciseMapping, name: str, cands: list[Candidate]) -
         row.garmin_display_name = top.garmin_display_name
         row.confidence = top.confidence
         row.weight_strategy = _infer_weight_strategy(name)
-        row.note = None
+        row.note = equipment_mismatch_note(name, top.garmin_display_name)
     else:
         row.garmin_category = None
         row.garmin_exercise_name = None
