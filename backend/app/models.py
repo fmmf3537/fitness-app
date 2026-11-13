@@ -552,3 +552,25 @@ class ExerciseMappingAudit(Base):
     reason: Mapped[str | None] = mapped_column(Text)
     actor: Mapped[str | None] = mapped_column(String(50))
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class ExerciseMappingReview(Base):
+    """ADR §11：AI 只读审核结果。绝不直接改变映射，只产出待确认清单。"""
+
+    __tablename__ = "exercise_mapping_review"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    mapping_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    xunji_name: Mapped[str] = mapped_column(String(200), index=True)
+    # current_ok / better_candidate / suspected_error / likely_unmapped / needs_human
+    verdict: Mapped[str] = mapped_column(String(32))
+    suggested_category: Mapped[str | None] = mapped_column(String(64))
+    suggested_exercise_name: Mapped[str | None] = mapped_column(String(128))
+    suggested_display_name: Mapped[str | None] = mapped_column(String(200))
+    reason: Mapped[str | None] = mapped_column(Text)
+    model: Mapped[str | None] = mapped_column(String(64))
+    batch_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    resolved: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: local_now(), server_default=func.now()
+    )

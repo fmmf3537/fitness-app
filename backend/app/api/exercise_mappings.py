@@ -1,7 +1,8 @@
 """动作映射批处理、覆盖率看板与复核/纠错 API（V6-7 / V6-4 / V6-8）。
 
 固定路径（/coverage /generate /catalog /stale-syncs /batch-activate /batch-reset
-/llm-suggest /probe /backfill-relations /migrate-existing /catalog-diff /catalog-apply）
+/llm-suggest /probe /backfill-relations /migrate-existing /catalog-diff /catalog-apply
+/review /reviews）
 必须注册在 /{mapping_id} 之前，避免被路径参数吞掉。
 """
 from __future__ import annotations
@@ -19,6 +20,7 @@ from app.services import exercise_mapping_batch as batch_svc
 from app.services import exercise_mapping_catalog as catalog_svc
 from app.services import exercise_mapping_llm as llm_svc
 from app.services import exercise_mapping_relation as relation_svc
+from app.services import exercise_mapping_review as review_svc
 from app.services.exercise_mapping import MappingValueError
 
 router = APIRouter(
@@ -240,6 +242,31 @@ def post_catalog_apply(
             status_code=422,
             detail={"code": "INVALID_CATALOG_CHANGE", "message": str(exc)},
         ) from exc
+
+
+@router.post("/review")
+def post_review(
+    limit: int = Query(default=200, ge=1, le=400),
+    max_batches: int = Query(default=10, ge=1, le=30),
+    session: Session = Depends(get_session),
+) -> dict:
+    """ADR §11：对既有映射做 AI 只读审核（绝不修改映射）。"""
+    return review_svc.review_mappings(session, limit=limit, max_batches=max_batches)
+
+
+@router.get("/reviews")
+def get_reviews(
+    batch_id: str | None = Query(default=None),
+    verdict: str | None = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=500),
+    session: Session = Depends(get_session),
+) -> dict:
+    """查询 AI 审核结果（只读）。"""
+    return {
+        "items": review_svc.list_reviews(
+            session, batch_id=batch_id, verdict=verdict, limit=limit
+        )
+    }
 
 
 @router.get("")
