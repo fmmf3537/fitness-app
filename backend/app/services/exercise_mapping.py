@@ -169,24 +169,29 @@ def load_active_mappings(session: Session) -> dict[str, dict[str, Any]]:
     return {row.xunji_name: _row_to_mapping_dict(row) for row in rows}
 
 
-def load_all_mappings(session: Session) -> dict[str, dict[str, Any]]:
-    """返回**全部**映射（含 draft/disabled），形状同 load_active_mappings。
+def load_all_mappings(
+    session: Session, *, include_excluded: bool = False
+) -> dict[str, dict[str, Any]]:
+    """返回映射字典，形状同 load_active_mappings。
 
-    与 load_active_mappings 的区别：不过滤 status，让 mapper 的 status 判定生效——
+    参数：
+    - include_excluded=False（默认，同步路径用）：不返回 status='not_applicable' 的行。
+      同步路径在 ADR-P0-3 之前仍以「未知动作」处理它们，避免静默丢动作。
+    - include_excluded=True（预览路径用）：**包含** not_applicable 行，
+      由 mapper 显式判定为「正常排除」并进入 excluded 列表（ADR §4.2）。
+
+    与 load_active_mappings 的区别：不过滤 draft/disabled，让 mapper 的 status 判定生效——
     draft 的行会产出 MAPPING_NOT_APPROVED（而不是 UNKNOWN_EXERCISE），
     前端据此显示「此动作映射尚未复核」的引导。
-    not_applicable 的行 **不返回**（这些动作本就不该进力量训练 payload，
-    返回只会变成 MAPPING_NOT_APPROVED 噪音）。
-    空表时回退 EXERCISE_WHITELIST 等价字典（同 load_active_mappings）。
+    空表时回退 EXERCISE_WHITELIST 等价字典（两种模式相同）。
     """
     total = session.scalar(select(func.count()).select_from(ExerciseMapping)) or 0
     if total == 0:
         return _whitelist_as_mappings()
-    rows = session.scalars(
-        select(ExerciseMapping).where(
-            ExerciseMapping.status != "not_applicable"
-        )
-    ).all()
+    stmt = select(ExerciseMapping)
+    if not include_excluded:
+        stmt = stmt.where(ExerciseMapping.status != "not_applicable")
+    rows = session.scalars(stmt).all()
     return {row.xunji_name: _row_to_mapping_dict(row) for row in rows}
 
 

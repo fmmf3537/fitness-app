@@ -238,14 +238,18 @@ def preview_garmin_plan(
 ) -> dict:
     """生成完整本地 Workout 预览；不落同步记录，不访问 Garmin。"""
     plan_day = _require_plan_day(session, day)
-    mappings = mapping_service.load_all_mappings(session)
+    mappings = mapping_service.load_all_mappings(session, include_excluded=True)
     pending_review = _pending_review_for_plan_day(session, plan_day)
     try:
         preview = map_plan_day(plan_day, mappings=_preview_mappings(mappings))
     except WorkoutMappingError as exc:
         raise HTTPException(
             status_code=422,
-            detail={"code": "PLAN_MAPPING_UNSUPPORTED", "issues": exc.issues},
+            detail={
+                "code": "PLAN_MAPPING_UNSUPPORTED",
+                "issues": exc.issues,
+                "excluded": exc.excluded,
+            },
         ) from exc
     from app.config import get_settings
 

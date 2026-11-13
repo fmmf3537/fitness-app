@@ -152,8 +152,13 @@ MAX_WORKOUT_NAME_LENGTH = 100
 class WorkoutMappingError(ValueError):
     """计划不能完整映射；issues 包含所有已发现问题，不静默跳过。"""
 
-    def __init__(self, issues: list[dict[str, Any]]):
+    def __init__(
+        self,
+        issues: list[dict[str, Any]],
+        excluded: list[dict[str, Any]] | None = None,
+    ):
         self.issues = issues
+        self.excluded = excluded or []
         message = "；".join(issue["message"] for issue in issues) or "计划无法映射"
         super().__init__(message)
 
@@ -312,9 +317,18 @@ def map_plan_day(
 
     # 每项是 {name, mapping, groups:[{count, set_type, weight, reps, rest, source_start/end}]}
     mapped_movements: list[dict[str, Any]] = []
+    excluded_movements: list[dict[str, Any]] = []
     for movement_index, movement in enumerate(source_movements, 1):
         name = (movement.get("name") or "").strip()
         mapping = active_mappings.get(name)
+        if mapping is not None and mapping.get("status") == "not_applicable":
+            # ADR §4.2：拉伸/有氧等按产品定义不写入力量 Workout，属正常排除。
+            # 必须在这里显式跳过，不能落到下面的 status 检查（那会产出
+            # MAPPING_NOT_APPROVED 并触发 partial）。
+            excluded_movements.append(
+                {"name": name, "reason": "not_applicable"}
+            )
+            continue
         if mapping is None:
             issues.append(
                 {
@@ -394,7 +408,7 @@ def map_plan_day(
         mapped_movements.append({"name": name, "mapping": mapping, "groups": groups})
 
     if issues:
-        raise WorkoutMappingError(issues)
+        raise WorkoutMappingError(issues, excluded=excluded_movements)
 
     hash_value = source_hash(plan_day, plan_ref=plan_ref)
     source_key = f"xunji-plan:v1:{plan_ref}:{day}"
@@ -482,6 +496,7 @@ def map_plan_day(
         "remote_write_eligible": False,
         "workout": payload,
         "movements": preview_movements,
+        "excluded": excluded_movements,
         "stats": {
             "movements": len(mapped_movements),
             "sets": total_sets,
