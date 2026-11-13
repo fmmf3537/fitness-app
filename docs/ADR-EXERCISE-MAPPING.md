@@ -1,13 +1,13 @@
 # ADR：训记与 Garmin 动作映射治理、降级与恢复
 
-> 状态：**Proposed（待 owner 接受；接受前不代表代码已实现）**  
-> 日期：2026-11-13  
-> 适用范围：训记训练计划 → Garmin Connect Strength Workout 写入链路  
-> 相关文档：`docs/EXERCISE-MAPPING-PLAN.md`、`docs/GARMIN-PLAN-SYNC-MIGRATION.md`
+> - 状态：**Accepted（架构决策已定稿；实现与验收仍以 §12 为准）**
+> - 日期：2026-11-13
+> - 适用范围：训记训练计划 → Garmin Connect Strength Workout 写入链路
+> - 相关文档：`docs/EXERCISE-MAPPING-PLAN.md`、`docs/GARMIN-PLAN-SYNC-MIGRATION.md`
 
 ## 0. 评审修订记录（2026-11-13，reviewer 直接修订）
 
-> 状态保持 **Proposed**。以下修订均基于对现有代码的逐条核对，非架构分歧；目的是避免文档里的一句话引导出错误实现。
+> 本 ADR 已在 R1–R10 修订后通过交叉复核并定为 **Accepted**。以下修订均基于对现有代码的逐条核对，非架构分歧；目的是避免文档里的一句话引导出错误实现。
 
 | # | 位置 | 修订内容 | 依据 |
 |---|---|---|---|
