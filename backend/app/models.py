@@ -211,6 +211,10 @@ class GarminPlanSync(Base):
     content_hash: Mapped[str | None] = mapped_column(String(64))
     synced_hash: Mapped[str | None] = mapped_column(String(64))
     payload_json: Mapped[str | None] = mapped_column(Text)
+    # ADR §7.2：同步结果的结构化记录（written / skipped / excluded 三类分开）。
+    # 必须与 payload_json 分开：后者是「期望 Workout payload」，被回读比对与
+    # stale 判定消费，混入结果会破坏 _extract_xunji_names_from_payload()。
+    sync_result_json: Mapped[str | None] = mapped_column(Text)
     workout_id: Mapped[str | None] = mapped_column(String(64))
     workout_schedule_id: Mapped[str | None] = mapped_column(String(64))
     reschedule_to_date: Mapped[date | None] = mapped_column(Date)

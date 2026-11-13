@@ -211,6 +211,62 @@ def _isoformat(value: datetime | None) -> str | None:
     return value.isoformat() if value else None
 
 
+def _sync_result(preview: dict[str, Any]) -> dict[str, Any]:
+    """ADR §7.2：三类动作不得混成一个警告列表。"""
+    return {
+        "written_movements": [
+            m.get("name") for m in (preview.get("movements") or []) if m.get("name")
+        ],
+        "skipped_movements": list(preview.get("skipped") or []),
+        "excluded_movements": list(preview.get("excluded") or []),
+    }
+
+
+def _has_skipped(record: GarminPlanSync) -> bool:
+    """读取 claim 阶段落库的缺口记录（解析失败按无缺口处理，不阻断同步）。"""
+    try:
+        data = json.loads(record.sync_result_json or "{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return False
+    if not isinstance(data, dict):
+        return False
+    skipped = data.get("skipped_movements")
+    return bool(skipped)
+
+
+def _sync_result_for_view(record: GarminPlanSync | None) -> dict[str, Any]:
+    """状态视图用：计数 + skipped 明细；不返回完整 written 列表。"""
+    empty = {
+        "written": 0,
+        "skipped": 0,
+        "excluded": 0,
+        "skipped_movements": [],
+    }
+    if record is None:
+        return empty
+    try:
+        data = json.loads(record.sync_result_json or "{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return empty
+    if not isinstance(data, dict):
+        return empty
+    written = data.get("written_movements") or []
+    skipped = data.get("skipped_movements") or []
+    excluded = data.get("excluded_movements") or []
+    if not isinstance(written, list):
+        written = []
+    if not isinstance(skipped, list):
+        skipped = []
+    if not isinstance(excluded, list):
+        excluded = []
+    return {
+        "written": len(written),
+        "skipped": len(skipped),
+        "excluded": len(excluded),
+        "skipped_movements": list(skipped),
+    }
+
+
 def sync_status_view(
     record: GarminPlanSync | None,
     *,
@@ -225,6 +281,9 @@ def sync_status_view(
         and record.status in ACTIVE_RESCHEDULE_STATUSES
     ):
         status = record.status
+    elif record.status == "partial":
+        # partial 即使 synced_hash == source_hash 也不得被覆盖成 synced
+        status = "partial"
     elif (
         record.synced_hash
         and record.synced_hash == source_hash
@@ -270,6 +329,7 @@ def sync_status_view(
         ),
         "error_code": record.error_code if record else None,
         "last_error": record.last_error if record else None,
+        "sync_result": _sync_result_for_view(record),
         "attempt_count": record.attempt_count if record else 0,
         "synced_at": _isoformat(record.synced_at) if record else None,
     }
@@ -308,6 +368,7 @@ def _claim_existing(
     current_content_hash: str,
     payload: dict[str, Any],
     mapping_hash: str | None = None,
+    sync_result_json: str | None = None,
 ) -> GarminPlanSync:
     updated = (
         session.query(GarminPlanSync)
@@ -320,6 +381,7 @@ def _claim_existing(
                 GarminPlanSync.source_hash: current_hash,
                 GarminPlanSync.content_hash: current_content_hash,
                 GarminPlanSync.payload_json: json.dumps(payload, ensure_ascii=False),
+                GarminPlanSync.sync_result_json: sync_result_json,
                 GarminPlanSync.mapping_hash: mapping_hash,
                 GarminPlanSync.status: "syncing",
                 GarminPlanSync.phase: "update" if record.workout_id else "create",
@@ -363,8 +425,9 @@ def claim_plan_sync(
         raise PlanSyncError(
             409, "PLAN_CHANGED", "训记计划已变化，请重新生成预览后再确认"
         )
-    mappings = mapping_service.load_all_mappings(session)
-    preview = map_plan_day(plan_day, mappings=mappings)
+    mappings = mapping_service.load_all_mappings(session, include_excluded=True)
+    preview = map_plan_day(plan_day, mappings=mappings, allow_partial=True)
+    result_json = json.dumps(_sync_result(preview), ensure_ascii=False)
     movement_names = [
         str(m.get("name") or "").strip() for m in (plan_day.get("movements") or [])
     ]
@@ -386,8 +449,10 @@ def claim_plan_sync(
         _raise_record_busy_or_conflict(record)
     if record is not None and record.status == "syncing":
         _raise_record_busy_or_conflict(record)
+    # partial 即使 hash 相同也必须允许重新 claim（补齐映射后清除缺口）。
     if (
         record is not None
+        and record.status != "partial"
         and record.synced_hash == current_hash
         and record.workout_id
         and record.workout_schedule_id
@@ -403,6 +468,7 @@ def claim_plan_sync(
             current_content_hash=current_content_hash,
             payload=preview["workout"],
             mapping_hash=mapping_hash,
+            sync_result_json=result_json,
         ), True
 
     record = GarminPlanSync(
@@ -412,6 +478,7 @@ def claim_plan_sync(
         source_hash=current_hash,
         content_hash=current_content_hash,
         payload_json=json.dumps(preview["workout"], ensure_ascii=False),
+        sync_result_json=result_json,
         mapping_hash=mapping_hash,
         status="syncing",
         phase="create",
@@ -518,7 +585,7 @@ def _finish(
         GarminPlanSync.last_error: message,
         GarminPlanSync.updated_at: finished_at,
     }
-    if status == "synced":
+    if status in ("synced", "partial"):
         values.update(
             {
                 GarminPlanSync.phase: "verify",
@@ -650,12 +717,13 @@ def run_plan_sync(
 
         schedule = adapter.get_schedule(record.workout_schedule_id)
         _verify_schedule(record, schedule)
+        finite_status = "partial" if _has_skipped(record) else "synced"
         _finish(
             session,
             record,
             started_at=started_at,
             expected_attempt=expected_attempt,
-            status="synced",
+            status=finite_status,
         )
     except PlanSyncConflict as exc:
         _finish(

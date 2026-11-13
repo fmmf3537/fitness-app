@@ -179,7 +179,12 @@ def _reschedule_http_error(exc: Exception) -> HTTPException:
     if isinstance(exc, WorkoutMappingError):
         return HTTPException(
             status_code=422,
-            detail={"code": "PLAN_MAPPING_UNSUPPORTED", "issues": exc.issues},
+            detail={
+                "code": "PLAN_MAPPING_UNSUPPORTED",
+                "issues": exc.issues,
+                "excluded": exc.excluded,
+                "skipped": exc.skipped,
+            },
         )
     if isinstance(exc, garmin_sync_service.PlanSyncError):
         detail = {"code": exc.error_code, "message": exc.public_message}
@@ -249,6 +254,7 @@ def preview_garmin_plan(
                 "code": "PLAN_MAPPING_UNSUPPORTED",
                 "issues": exc.issues,
                 "excluded": exc.excluded,
+                "skipped": exc.skipped,
             },
         ) from exc
     from app.config import get_settings
@@ -301,7 +307,12 @@ def confirm_garmin_plan_sync(
     except WorkoutMappingError as exc:
         raise HTTPException(
             status_code=422,
-            detail={"code": "PLAN_MAPPING_UNSUPPORTED", "issues": exc.issues},
+            detail={
+                "code": "PLAN_MAPPING_UNSUPPORTED",
+                "issues": exc.issues,
+                "excluded": exc.excluded,
+                "skipped": exc.skipped,
+            },
         ) from exc
     except garmin_sync_service.PlanSyncError as exc:
         detail = {"code": exc.error_code, "message": exc.public_message}

@@ -293,6 +293,8 @@ def test_garmin_plan_sync_table_roundtrip(tmp_path):
         "content_hash",
         "synced_hash",
         "payload_json",
+        # ADR §7.2（迁移 b0c1d2e3f4a5）：同步结果与期望 payload 分开存
+        "sync_result_json",
         "workout_id",
         "workout_schedule_id",
         "reschedule_to_date",

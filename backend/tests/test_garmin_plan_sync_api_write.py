@@ -125,13 +125,23 @@ def test_stale_preview_hash_returns_structured_409(client, session):
 
 
 def test_unknown_exercise_returns_all_mapping_issues(client, session):
+    """全部动作都无法映射时整体仍是失败（ADR-P0-3b 后契约有变）。
+
+    ADR §7 引入部分同步后：单个未知动作会被跳过、其余照常写入（见
+    test_plan_sync_partial.py）；但当天**没有任何可写动作**时不得创建空 Workout，
+    必须整体失败（ADR §7.2 边界行为第 2 条），错误细项改为 NO_WRITABLE_MOVEMENTS。
+    """
     make_plan(session, movement="未映射动作")
     response = client.post(
         f"/api/plans/{DAY}/garmin/sync", json={"source_hash": current_hash(session)}
     )
     assert response.status_code == 422
-    assert response.json()["detail"]["code"] == "PLAN_MAPPING_UNSUPPORTED"
-    assert response.json()["detail"]["issues"][0]["movement"] == "未映射动作"
+    detail = response.json()["detail"]
+    assert detail["code"] == "PLAN_MAPPING_UNSUPPORTED"
+    assert detail["issues"][0]["code"] == "NO_WRITABLE_MOVEMENTS"
+    # 缺口明细必须携带，便于前端说明"哪些动作被跳过"
+    assert [m["name"] for m in detail["skipped"]] == ["未映射动作"]
+    assert detail["skipped"][0]["reason"] == "UNKNOWN_EXERCISE"
 
 
 def test_already_synced_returns_200_without_new_attempt(client, session):

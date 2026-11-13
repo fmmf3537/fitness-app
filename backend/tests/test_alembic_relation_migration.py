@@ -20,9 +20,16 @@ def _script_dir() -> ScriptDirectory:
 
 
 def test_single_head():
-    heads = _script_dir().get_heads()
-    assert len(heads) == 1
-    assert heads[0] == REVISION
+    """只断言「单 head」这一不变式，不写死具体版本号。
+
+    写死 head 会让每次新增迁移都打破本测试（ADR-P0-3b 加迁移时踩过），
+    这里改为断言本 revision 仍在链上且 head 唯一。
+    """
+    script = _script_dir()
+    heads = script.get_heads()
+    assert len(heads) == 1, f"迁移出现多个 head：{heads}"
+    revisions = {rev.revision for rev in script.walk_revisions()}
+    assert REVISION in revisions, f"{REVISION} 不在迁移链上"
 
 
 def test_down_revision_chain():
