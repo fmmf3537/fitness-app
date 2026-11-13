@@ -690,8 +690,12 @@ export default function ExerciseMappingsPage() {
           <ul className="space-y-2.5">
             {filteredItems.map((row) => {
               const busy = Boolean(rowBusy[row.id])
-              const showActivate = row.status === 'draft' && Boolean(row.garmin_category)
+              // 除 active 之外都允许「采纳/启用」——特别是 disabled。
+              // 2026-11-13 缺陷：原写法只认 draft，导致「采纳 → 停用」后该行变成
+              // disabled，采纳与停用两个按钮都不渲染，界面上再也无法恢复。
+              const showActivate = row.status !== 'active' && Boolean(row.garmin_category)
               const showDisable = row.status === 'active'
+              const activateLabel = row.status === 'disabled' ? '启用' : '采纳'
               return (
                 <li
                   key={row.id}
@@ -759,7 +763,7 @@ export default function ExerciseMappingsPage() {
                           disabled={busy}
                           onClick={() => handleActivate(row)}
                         >
-                          采纳
+                          {activateLabel}
                         </Button>
                       )}
                       {showDisable && (

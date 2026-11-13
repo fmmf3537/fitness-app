@@ -250,6 +250,23 @@ describe('ExerciseMappingsPage', () => {
     expect(screen.queryByTestId('mapping-activate-3')).not.toBeInTheDocument()
   })
 
+  it('test_disabled_row_can_be_reactivated', async () => {
+    // 回归 2026-11-13 缺陷：「采纳 → 停用」后该行变成 disabled，
+    // 原写法 showActivate 只认 draft、showDisable 只认 active，
+    // 于是两个按钮都不渲染，界面上再也无法恢复。
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    const disabledItem = { ...ITEM_ACTIVE, status: 'disabled' }
+    globalThis.fetch = routeFetch(defaultRoutes({
+      list: { items: [ITEM_DRAFT, disabledItem], total: 2, page: 1, page_size: 50, pages: 1 },
+    }))
+    renderPage()
+    const btn = await screen.findByTestId('mapping-activate-2')
+    expect(btn).toHaveTextContent('启用')
+    await user.click(btn)
+    const calls = globalThis.fetch.mock.calls.map(([url]) => url)
+    expect(calls.some((u) => u.includes('/api/exercise-mappings/2/activate'))).toBe(true)
+  })
+
   it('test_disable_button_calls_api', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     globalThis.fetch = routeFetch(defaultRoutes())
