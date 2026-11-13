@@ -407,3 +407,11 @@ FLEXIBILITY_KEYWORDS: tuple[str, ...] = (
     "开肩",
     "开髋",
 )
+
+
+# 同一器械的不同英文写法：训记「吊环」→ ring，而 Garmin 目录写作 Suspension，
+# 两者是同一器械（悬吊训练带），器械一致性判定时必须视为等价，否则会把
+# 12 条正确的吊环动作误标为「器械不符」。
+EQUIPMENT_SYNONYM_GROUPS: tuple[frozenset[str], ...] = (
+    frozenset({"ring", "suspension"}),
+)

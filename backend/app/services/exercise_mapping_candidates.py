@@ -15,6 +15,7 @@ from garminconnect import exercises as garmin_exercises
 from app.services.exercise_tokens import (
     CARDIO_KEYWORDS,
     CARDIO_ONLY_CATEGORIES,
+    EQUIPMENT_SYNONYM_GROUPS,
     EQUIPMENT_TO_GARMIN_CATEGORY,
     EQUIPMENT_TOKENS,
     FLEXIBILITY_KEYWORDS,
@@ -232,6 +233,13 @@ def _is_inconsistent(xunji_name: str, part: str, name_norm: str) -> bool:
     return False
 
 
+def _equipment_equivalent(a: str, b: str) -> bool:
+    """两个器械英文词根是否指同一器械（同义词组见 EQUIPMENT_SYNONYM_GROUPS）。"""
+    if a == b:
+        return True
+    return any(a in group and b in group for group in EQUIPMENT_SYNONYM_GROUPS)
+
+
 def equipment_mismatch_note(
     xunji_name: str, display_name: str | None
 ) -> str | None:
@@ -263,7 +271,17 @@ def equipment_mismatch_note(
             continue
         if _norm(en) in display_norm:
             found.add(en)
-    wrong = found - expected
+    # 两类假阳性（2026-11-13 审核实测）：
+    # 1) 同一器械的不同英文写法：训记「吊环」→ ring，而 Garmin 写作 Suspension，
+    #    两者是同一器械，不应判为不符（实测 12 条）。
+    # 2) 子串污染：`machine` 是 `smith machine` 的子串，史密斯机条目会被误报
+    #    「器械不符：条目为 machine」（实测 5 条）。
+    wrong = {
+        f
+        for f in found - expected
+        if not any(_equipment_equivalent(f, e) for e in expected)
+        and not any(f in e for e in expected)
+    }
     if not wrong:
         return None
     return (

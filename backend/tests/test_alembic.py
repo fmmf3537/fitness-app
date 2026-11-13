@@ -381,6 +381,10 @@ def test_exercise_mapping_tables_and_mapping_hash_roundtrip(tmp_path):
         "verified_at",
         "mapping_version",
         "note",
+        # ADR-EXERCISE-MAPPING §4.1（迁移 a9b0c1d2e3f4）：语义关系与决策依据分离
+        "relation",
+        "match_basis",
+        "unmapped_reason",
         "created_at",
         "updated_at",
     }

@@ -502,6 +502,11 @@ class ExerciseMapping(Base):
     verified_at: Mapped[datetime | None] = mapped_column(DateTime)
     mapping_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     note: Mapped[str | None] = mapped_column(Text)
+    # ADR-EXERCISE-MAPPING §4.1：把「映射成什么」与「这个决定有多可靠」拆开。
+    # relation 表示 Garmin 能在多大程度上表达训记动作；ALIAS 属于 match_basis，不是 relation 取值。
+    relation: Mapped[str | None] = mapped_column(String(16))
+    match_basis: Mapped[str | None] = mapped_column(String(32))
+    unmapped_reason: Mapped[str | None] = mapped_column(String(32))
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()

@@ -1,7 +1,7 @@
 """动作映射批处理、覆盖率看板与复核/纠错 API（V6-7 / V6-4 / V6-8）。
 
 固定路径（/coverage /generate /catalog /stale-syncs /batch-activate /batch-reset
-/llm-suggest /probe）必须注册在 /{mapping_id} 之前，避免被路径参数吞掉。
+/llm-suggest /probe /backfill-relations）必须注册在 /{mapping_id} 之前，避免被路径参数吞掉。
 """
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from app.db import get_session
 from app.services import exercise_mapping as mapping_svc
 from app.services import exercise_mapping_batch as batch_svc
 from app.services import exercise_mapping_llm as llm_svc
+from app.services import exercise_mapping_relation as relation_svc
 from app.services.exercise_mapping import MappingValueError
 
 router = APIRouter(
@@ -191,6 +192,12 @@ def post_probe(body: ProbeRequest, session: Session = Depends(get_session)) -> d
         probe_results = [ProbeResult(**row) for row in result["results"]]
         applied = apply_probe_results(session, probe_results)
     return {**result, "applied": applied}
+
+
+@router.post("/backfill-relations")
+def post_backfill_relations(session: Session = Depends(get_session)) -> dict:
+    """按 ADR §10.1 回填 relation/match_basis/unmapped_reason（幂等，只处理空值）。"""
+    return relation_svc.backfill_relations(session)
 
 
 @router.get("")

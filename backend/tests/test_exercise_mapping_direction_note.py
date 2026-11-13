@@ -119,3 +119,29 @@ def test_seed_rows_intact():
     assert len(rows) == 16
     assert all(r["status"] == "active" for r in rows)
     assert all(r["verified_level"] == "displayed" for r in rows)
+
+
+class TestEquipmentSynonyms:
+    """两类器械判定假阳性（2026-11-13 P0-1 审核时实测发现并修复）。"""
+
+    def test_ring_and_suspension_are_equivalent(self):
+        """训记「吊环」→ ring，Garmin 写作 Suspension，是同一器械，不得判不符。
+
+        修复前实测 12 条吊环动作被误标「器械不符」。
+        """
+        assert equipment_mismatch_note("吊环弯举", "Suspension Curl") is None
+        assert equipment_mismatch_note("吊环反向飞鸟", "Suspension Chest Fly") is None
+
+    def test_generic_root_inside_specific_root_is_not_mismatch(self):
+        """`machine` 是 `smith machine` 的子串，不得把史密斯机条目误报为 machine。
+
+        修复前实测 5 条史密斯动作被误标「器械不符：条目为 machine」。
+        """
+        assert equipment_mismatch_note("史密斯机卧推", "Smith Machine Bench Press") is None
+
+    def test_genuine_mismatch_still_reported(self):
+        """真器械不符必须保留标注（修复不得把真误判一起吞掉）。"""
+        note = equipment_mismatch_note("下斜杠铃卧推", "Decline Dumbbell Bench Press")
+        assert note is not None and "器械不符" in note
+        note2 = equipment_mismatch_note("器械耸肩", "Barbell Jump Shrug")
+        assert note2 is not None and "barbell" in note2
