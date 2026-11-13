@@ -1,7 +1,8 @@
 """动作映射批处理、覆盖率看板与复核/纠错 API（V6-7 / V6-4 / V6-8）。
 
 固定路径（/coverage /generate /catalog /stale-syncs /batch-activate /batch-reset
-/llm-suggest /probe /backfill-relations /migrate-existing）必须注册在 /{mapping_id} 之前，避免被路径参数吞掉。
+/llm-suggest /probe /backfill-relations /migrate-existing /catalog-diff /catalog-apply）
+必须注册在 /{mapping_id} 之前，避免被路径参数吞掉。
 """
 from __future__ import annotations
 
@@ -15,6 +16,7 @@ from app.api.auth import require_auth
 from app.db import get_session
 from app.services import exercise_mapping as mapping_svc
 from app.services import exercise_mapping_batch as batch_svc
+from app.services import exercise_mapping_catalog as catalog_svc
 from app.services import exercise_mapping_llm as llm_svc
 from app.services import exercise_mapping_relation as relation_svc
 from app.services.exercise_mapping import MappingValueError
@@ -55,6 +57,12 @@ class ProbeRequest(BaseModel):
     pairs: list[dict] = []  # [{"category": str, "exercise_name": str}]
     keep: bool = False
     apply: bool = True  # 是否把结果写回映射表
+
+
+class CatalogApplyBody(BaseModel):
+    action: str  # rename / new / delete
+    old_name: str | None = None
+    new_name: str | None = None
 
 
 def _http_from_mapping_error(exc: MappingValueError) -> HTTPException:
@@ -207,6 +215,31 @@ def post_backfill_relations(session: Session = Depends(get_session)) -> dict:
 def post_migrate_existing(session: Session = Depends(get_session)) -> dict:
     """ADR §10：把 B 策略应用到存量 active 映射并输出迁移报告（幂等）。"""
     return relation_svc.migrate_existing_active(session)
+
+
+@router.get("/catalog-diff")
+def get_catalog_diff(session: Session = Depends(get_session)) -> dict:
+    """比较训记动作全集与映射表，返回新增/消失/疑似改名候选（只读）。"""
+    return catalog_svc.catalog_diff(session)
+
+
+@router.post("/catalog-apply")
+def post_catalog_apply(
+    body: CatalogApplyBody, session: Session = Depends(get_session)
+) -> dict:
+    """应用人工判定的改名 / 新动作 / 删除。"""
+    try:
+        return catalog_svc.apply_catalog_change(
+            session,
+            action=body.action,
+            old_name=body.old_name,
+            new_name=body.new_name,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "INVALID_CATALOG_CHANGE", "message": str(exc)},
+        ) from exc
 
 
 @router.get("")
