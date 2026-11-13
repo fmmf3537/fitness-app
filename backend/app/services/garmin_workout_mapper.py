@@ -148,6 +148,12 @@ CONDITION_ITERATIONS = {
 WEIGHT_KG = {"unitId": 8, "unitKey": "kilogram", "factor": 1000.0}
 MAX_WORKOUT_NAME_LENGTH = 100
 
+# ADR §7.1：只有「可定位到具体动作的映射缺口」允许进入部分同步。
+# 其余问题（鉴权/网络/非法字段/组次不可表达等）必须继续整日失败，不得降级。
+PARTIAL_ELIGIBLE_CODES: frozenset[str] = frozenset(
+    {"UNKNOWN_EXERCISE", "MAPPING_NOT_APPROVED"}
+)
+
 
 class WorkoutMappingError(ValueError):
     """计划不能完整映射；issues 包含所有已发现问题，不静默跳过。"""
@@ -156,9 +162,11 @@ class WorkoutMappingError(ValueError):
         self,
         issues: list[dict[str, Any]],
         excluded: list[dict[str, Any]] | None = None,
+        skipped: list[dict[str, Any]] | None = None,
     ):
         self.issues = issues
         self.excluded = excluded or []
+        self.skipped = skipped or []
         message = "；".join(issue["message"] for issue in issues) or "计划无法映射"
         super().__init__(message)
 
@@ -294,10 +302,12 @@ def map_plan_day(
     *,
     plan_ref: str | None = None,
     mappings: dict[str, dict[str, Any]] | None = None,
+    allow_partial: bool = False,
 ) -> dict[str, Any]:
     """返回完整本地预览与 Workout payload；有任何问题则抛出全部 issues。
 
     `mappings` 为 None 时回退 `EXERCISE_WHITELIST`（保持既有调用与测试完全不变）。
+    `allow_partial=True` 时仅将 UNKNOWN_EXERCISE / MAPPING_NOT_APPROVED 降级为 skipped。
     """
     issues: list[dict[str, Any]] = []
     day = plan_day.get("date")
@@ -318,6 +328,7 @@ def map_plan_day(
     # 每项是 {name, mapping, groups:[{count, set_type, weight, reps, rest, source_start/end}]}
     mapped_movements: list[dict[str, Any]] = []
     excluded_movements: list[dict[str, Any]] = []
+    skipped_movements: list[dict[str, Any]] = []
     for movement_index, movement in enumerate(source_movements, 1):
         name = (movement.get("name") or "").strip()
         mapping = active_mappings.get(name)
@@ -330,6 +341,11 @@ def map_plan_day(
             )
             continue
         if mapping is None:
+            if allow_partial:
+                skipped_movements.append(
+                    {"name": name, "reason": "UNKNOWN_EXERCISE", "detail": "未找到映射行"}
+                )
+                continue
             issues.append(
                 {
                     "code": "UNKNOWN_EXERCISE",
@@ -340,6 +356,15 @@ def map_plan_day(
             continue
         status = mapping.get("status")
         if status not in (None, "active"):
+            if allow_partial:
+                skipped_movements.append(
+                    {
+                        "name": name,
+                        "reason": "MAPPING_NOT_APPROVED",
+                        "detail": f"当前状态 {status}",
+                    }
+                )
+                continue
             issues.append(
                 {
                     "code": "MAPPING_NOT_APPROVED",
@@ -408,7 +433,22 @@ def map_plan_day(
         mapped_movements.append({"name": name, "mapping": mapping, "groups": groups})
 
     if issues:
-        raise WorkoutMappingError(issues, excluded=excluded_movements)
+        raise WorkoutMappingError(
+            issues, excluded=excluded_movements, skipped=skipped_movements
+        )
+
+    if allow_partial and not mapped_movements and skipped_movements:
+        raise WorkoutMappingError(
+            [
+                {
+                    "code": "NO_WRITABLE_MOVEMENTS",
+                    "message": "没有可写入 Garmin 的动作，已跳过全部 "
+                    f"{len(skipped_movements)} 个动作",
+                }
+            ],
+            excluded=excluded_movements,
+            skipped=skipped_movements,
+        )
 
     hash_value = source_hash(plan_day, plan_ref=plan_ref)
     source_key = f"xunji-plan:v1:{plan_ref}:{day}"
@@ -488,6 +528,11 @@ def map_plan_day(
         "estimatedDistanceInMeters": 0,
         "estimateType": None,
     }
+    # ADR §7.2：远端辅助提示，便于日后在 Garmin 历史里发现"那天的记录不完整"。
+    # 本地结构化记录才是事实来源；补齐后 mapper 重新生成，标记自然消失。
+    if allow_partial and skipped_movements and "workoutName" in payload:
+        marker = f"（缺 {len(skipped_movements)} 个动作）"
+        payload["workoutName"] = payload["workoutName"] + marker
     return {
         "source_key": source_key,
         "source_hash": hash_value,
@@ -497,6 +542,7 @@ def map_plan_day(
         "workout": payload,
         "movements": preview_movements,
         "excluded": excluded_movements,
+        "skipped": skipped_movements,
         "stats": {
             "movements": len(mapped_movements),
             "sets": total_sets,
