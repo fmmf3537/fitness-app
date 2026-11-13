@@ -519,11 +519,55 @@ def update_mapping(
             candidate_count=_pending_candidate_counts(session).get(row.xunji_name, 0),
         )
 
-    before = {key: getattr(row, key) for key in updates}
+    # ADR §9：Garmin 目标变化后不得继承旧目标的验证等级。
+    target_changed = (
+        ("garmin_category" in updates
+         and updates["garmin_category"] != row.garmin_category)
+        or ("garmin_exercise_name" in updates
+            and updates["garmin_exercise_name"] != row.garmin_exercise_name)
+    )
+
+    before_keys = set(updates)
+    if target_changed:
+        before_keys.update({"verified_level", "verified_at"})
+        if "status" not in before_keys:
+            before_keys.add("status")
+
+    def _audit_value(key: str) -> Any:
+        value = getattr(row, key)
+        if key == "verified_at" and value is not None:
+            return value.isoformat()
+        return value
+
+    before = {key: _audit_value(key) for key in before_keys}
     for key, value in updates.items():
         setattr(row, key, value)
     row.mapping_version = int(row.mapping_version or 0) + 1
-    after = {key: getattr(row, key) for key in updates}
+
+    if target_changed:
+        previous_level = row.verified_level
+        previous_at = row.verified_at
+        # 目标有效性依据**新的** category/exercise 判断
+        target_valid = bool(row.garmin_category) and _catalog_pair_exists(
+            row.garmin_category, row.garmin_exercise_name or ""
+        )
+        row.verified_level = "catalog" if target_valid else "none"
+        row.verified_at = None
+        # ADR §9 第 3 条：目标无效时不得保持 active
+        if not target_valid and row.status == "active":
+            row.status = "draft"
+        audit_extra = {
+            "previous_verified_level": previous_level,
+            "previous_verified_at": (
+                previous_at.isoformat() if previous_at else None
+            ),
+            "target_valid": target_valid,
+        }
+    else:
+        audit_extra = {}
+
+    after = {key: _audit_value(key) for key in before_keys}
+    after.update(audit_extra)
     _write_audit(
         session,
         row,
