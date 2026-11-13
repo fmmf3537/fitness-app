@@ -188,6 +188,13 @@ MOVEMENT_TOKENS: dict[str, str] = {
     # 臀/髋（Garmin 归 HIP_RAISE / HIP_STABILITY / HIP_SWING）
     "臀冲": "hip thrust",
     "臀外展": "abduction",
+    # Garmin 把「侧躺/侧卧抬腿」类动作登记为 Leg Raise 而不是 Abduction，
+    # 只靠「外展 → abduction」永远命中不到 Band Side-lying Leg Raise（2026-11-13
+    # AI 审核发现：弹力带侧躺腿外展 被映射成 Banded Leg Abduction，丢了"侧躺"）。
+    "侧躺腿外展": "leg raise",
+    "侧卧腿外展": "leg raise",
+    "侧躺抬腿": "leg raise",
+    "侧卧抬腿": "leg raise",
     "外展": "abduction",
     "内收": "adduction",
     "蚌式": "clam",

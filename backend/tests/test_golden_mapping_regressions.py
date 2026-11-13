@@ -7,8 +7,10 @@
 - 新增确认错例时，在这里追加一条断言（并在文件头注释里写明来源与日期），
   而不是只改提示词或只调规则；
 - 断言分两层：
-  1. **排除断言**：这次错配的形态绝不能再出现（如「绳索夹胸 → REVERSE_FLY」）；
-  2. **正向断言**：应当选中什么（允许随目录演进调整，但要写明理由）。
+    1. **排除断言**：这次错配的形态绝不能再出现（如「绳索夹胸 → REVERSE_FLY」）；
+    2. **正向断言**：应当选中什么（允许随目录演进调整，但要写明理由）。
+
+五类之外第 6 条：侧躺腿外展应命中 Leg Raise（2026-11-13 AI 审核发现）。
 """
 
 from __future__ import annotations
@@ -89,6 +91,20 @@ class TestGoldenRegressions:
         """
         assert not any("CHEST_FLY" in ex for ex in _ex_names("TRX-后束飞鸟"))
         assert _top("TRX-后束飞鸟").garmin_category == "SUSPENSION"
+
+    def test_case6_side_lying_leg_abduction_uses_leg_raise(self):
+        """⑥ 弹力带侧躺腿外展须能命中 Band Side-lying Leg Raise（2026-11-13 AI 审核）。
+
+        结构缺口：Garmin 叫 Leg Raise 不叫 Abduction；仅靠「外展→abduction」永远找不到。
+        断言「候选里存在」而非 rank-1，避免被同名条目排序影响。
+        """
+        assert "BAND_SIDE_LYING_LEG_RAISE" in _ex_names("弹力带侧躺腿外展")
+
+    def test_case6_regression_plain_leg_abduction_unchanged(self):
+        """⑥ 回归：无「侧躺」的腿外展不得被复合词条污染为 SIDE_LYING。"""
+        top = _top("弹力带-腿外展")
+        assert "LEG" in top.garmin_exercise_name
+        assert "SIDE_LYING" not in top.garmin_exercise_name
 
 
 class TestRegressionAdjacentCoverage:
