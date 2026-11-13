@@ -348,6 +348,35 @@ MOVEMENT_NAME_EXCLUDES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("弯举", "手腕", ("wrist",)),
 )
 
+# 候选名里出现「中文没要求」的限定词时的扣分规则。
+# 每项 = (候选名里要检查的英文写法, 中文名里必须出现的任一关键词)
+# 只收特异性限定词；不要把 dumbbell/barbell/cable 等器械词放进来——
+# 中文没写器械通常是「不限定器材」，不是「不是该器材」。
+QUALIFIER_CONSISTENCY: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (("single", "one-arm", "one arm", "one-leg", "one leg"), ("单",)),
+    (("alternating",), ("交替", "左右")),
+    (("behind-the-back", "behind the back"), ("背后",)),
+    (("reverse",), ("反",)),
+    (("leaning",), ("斜身",)),
+    (("side-lying", "side lying"), ("侧躺", "侧卧")),
+    (("seated",), ("坐",)),
+    (("standing",), ("站", "立")),
+    (("kneeling",), ("跪",)),
+    (("prone",), ("俯卧")),
+    (("supine",), ("仰卧")),
+    (("incline",), ("上斜",)),
+    (("decline",), ("下斜",)),
+    (("crossover",), ("夹胸",)),
+)
+
+QUALIFIER_MISSING_PENALTY = 20   # 每个「不该有」的限定词扣多少分
+QUALIFIER_PENALTY_CAP = 40       # 单条候选最多扣多少分
+
+# 同一中文动作在 Garmin 里可能有两种英文命名，匹配时都要试。
+MOVEMENT_ALIASES: dict[str, tuple[str, ...]] = {
+    "fly": ("crossover",),   # 夹胸：Cable Crossover 不含 "fly"，只靠 fly 永远找不到
+}
+
 CARDIO_KEYWORDS: tuple[str, ...] = (
     "跑步",
     "跑",

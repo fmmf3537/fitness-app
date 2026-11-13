@@ -18,11 +18,15 @@ from app.services.exercise_tokens import (
     EQUIPMENT_TO_GARMIN_CATEGORY,
     EQUIPMENT_TOKENS,
     FLEXIBILITY_KEYWORDS,
+    MOVEMENT_ALIASES,
     MOVEMENT_NAME_EXCLUDES,
     MOVEMENT_TOKENS,
     PART_ANCHORED_MOVEMENTS,
     PART_TO_GARMIN_CATEGORIES,
     POSTURE_TOKENS,
+    QUALIFIER_CONSISTENCY,
+    QUALIFIER_MISSING_PENALTY,
+    QUALIFIER_PENALTY_CAP,
 )
 from app.services.stats import classify_part
 
@@ -132,16 +136,40 @@ def _equipment_bonus(equip_list: list[str], name_norm: str) -> tuple[int, str]:
 
 
 def _movement_alternatives(mv: str) -> tuple[str, ...]:
-    """同一语义的不同英文写法。Garmin 里单臂动作常写作 One-arm / Single-arm。"""
-    base = _norm(mv)
-    if not base:
-        return ()
-    alts = {base}
-    if "singlearm" in base:
-        alts.add(base.replace("singlearm", "onearm"))
-    if "onearm" in base:
-        alts.add(base.replace("onearm", "singlearm"))
+    """同一动作的不同英文写法都要能匹配。
+
+    - MOVEMENT_ALIASES：如 fly → crossover（夹胸在 Garmin 叫 Cable Crossover）
+    - 单臂：Garmin 里 single-arm 与 one-arm 混用
+    """
+    alts: set[str] = set()
+    for base in (mv, *MOVEMENT_ALIASES.get(mv, ())):
+        norm = _norm(base)
+        if not norm:
+            continue
+        alts.add(norm)
+        if "singlearm" in norm:
+            alts.add(norm.replace("singlearm", "onearm"))
+        if "onearm" in norm:
+            alts.add(norm.replace("onearm", "singlearm"))
     return tuple(alts)
+
+
+def _qualifier_penalty(xunji_name: str, name_norm: str) -> int:
+    """候选名含中文没要求的限定词时返回负分（0 或 -20/-40）。
+
+    背景：英文名里出现 single/alternating/behind-the-back/reverse/seated/standing/
+    incline/smith 等词，若中文没有对应要求，说明这是「另一个变体」而不是同一动作。
+    典型：「绳索夹胸」被判成 Single-arm Standing Cable Reverse Fly ——
+    reverse fly 练后束、夹胸练胸，是完全不同的动作。
+    """
+    penalty = 0
+    for eng_terms, zh_terms in QUALIFIER_CONSISTENCY:
+        if not any(_norm(t) in name_norm for t in eng_terms):
+            continue
+        if any(z in xunji_name for z in zh_terms):
+            continue
+        penalty += QUALIFIER_MISSING_PENALTY
+    return -min(QUALIFIER_PENALTY_CAP, penalty)
 
 
 def _posture_bonus(postures: list[str], name_norm: str) -> int:
@@ -193,6 +221,10 @@ def _is_inconsistent(xunji_name: str, part: str, name_norm: str) -> bool:
     # 姿态的 ±20 打分已经能让带 incline/decline 的变体胜出；若目录里根本没有
     # 对应变体（如 DECLINE_BARBELL 不存在），硬过滤会让动作直接变成「无候选」，
     # 而降到 flat 变体 + medium 置信度是有用得多的降级（实测误杀 28 条）。
+    # 史密斯机是独立器械，泛词 "machine" 也会命中 "Smith Machine"；
+    # 中文没写「史密斯」时不应映射到史密斯机条目（实测误配 3 条）。
+    if "smith" in name_norm and "史密斯" not in xunji_name:
+        return True
     return False
 
 
@@ -385,6 +417,7 @@ def generate_candidates(
                 eq_bonus, eq_label = _equipment_bonus(equipment, name_norm)
                 score += eq_bonus
                 score += _posture_bonus(postures, name_norm)
+                score += _qualifier_penalty(name, name_norm)
                 # 精确加成：优先用已命中的非空器械词根
                 exact_equip = eq_label if eq_label != "无" else ""
                 if not exact_equip and equipment:
