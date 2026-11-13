@@ -265,10 +265,25 @@ def post_catalog_apply(
 def post_review(
     limit: int = Query(default=200, ge=1, le=400),
     max_batches: int = Query(default=10, ge=1, le=30),
+    status: str | None = Query(
+        default=None, pattern="^(draft|active|disabled|not_applicable)$"
+    ),
+    xunji_name: str | None = Query(default=None, max_length=200),
+    offset: int = Query(default=0, ge=0),
     session: Session = Depends(get_session),
 ) -> dict:
-    """ADR §11：对既有映射做 AI 只读审核（绝不修改映射）。"""
-    return review_svc.review_mappings(session, limit=limit, max_batches=max_batches)
+    """ADR §11：对既有映射做 AI 只读审核（绝不修改映射）。
+
+    支持按状态 / 动作名 / 偏移筛选，便于定点核查与分批推进。
+    """
+    return review_svc.review_mappings(
+        session,
+        limit=limit,
+        max_batches=max_batches,
+        status=status,
+        xunji_name=xunji_name,
+        offset=offset,
+    )
 
 
 @router.get("/reviews")

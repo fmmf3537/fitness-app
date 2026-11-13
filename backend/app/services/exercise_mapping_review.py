@@ -206,10 +206,26 @@ def _select_targets(
     *,
     limit: int,
     only_active: bool,
+    status: str | None = None,
+    xunji_name: str | None = None,
+    offset: int = 0,
 ) -> list[ExerciseMapping]:
+    """按 id 升序选取审核目标。
+
+    ``status`` 优先于 ``only_active``：显式传入 ``status`` 时以其为准，
+    两者不叠加；未传 ``status`` 且 ``only_active=True`` 时才筛 active。
+    ``xunji_name`` 为精确匹配；``offset`` 在 ``limit`` 之前应用。
+    """
     stmt = select(ExerciseMapping).order_by(ExerciseMapping.id)
-    if only_active:
+    if status is not None:
+        # status 优先于 only_active（显式指定时以它为准）
+        stmt = stmt.where(ExerciseMapping.status == status)
+    elif only_active:
         stmt = stmt.where(ExerciseMapping.status == "active")
+    if xunji_name is not None:
+        stmt = stmt.where(ExerciseMapping.xunji_name == xunji_name)
+    if offset > 0:
+        stmt = stmt.offset(offset)
     if limit > 0:
         stmt = stmt.limit(limit)
     return list(session.scalars(stmt).all())
@@ -336,12 +352,20 @@ def review_mappings(
     max_batches: int = REVIEW_MAX_BATCHES,
     chat_fn: Callable[[list[dict]], dict] | None = None,
     only_active: bool = True,
+    status: str | None = None,
+    xunji_name: str | None = None,
+    offset: int = 0,
 ) -> dict:
     """ADR §11：对既有映射做只读审核，结果写入 exercise_mapping_review。
 
     - **绝不修改** ExerciseMapping 的任何字段（status/relation/verified_level 全不动）
     - 每个 verdict 都落库，同一 xunji_name 以最新一条为准（旧记录保留）
     - suggested 未通过 validate_suggestion 时降级为 needs_human，并把原因写进 reason
+
+    典型用法：
+    - 指定动作：xunji_name="哑铃臂屈伸"（对应「这个动作到底该映射到哪」）
+    - 审一批 draft：status="draft", limit=30（批量采纳前先过一遍）
+    - 分批推进：offset=40, limit=40（避免重复审已处理过的行）
     """
     batch_id = uuid.uuid4().hex
     stats = {
@@ -352,7 +376,14 @@ def review_mappings(
         session.commit()
         return stats
 
-    targets = _select_targets(session, limit=limit, only_active=only_active)
+    targets = _select_targets(
+        session,
+        limit=limit,
+        only_active=only_active,
+        status=status,
+        xunji_name=xunji_name,
+        offset=offset,
+    )
     stats["requested"] = len(targets)
     if not targets:
         session.commit()
