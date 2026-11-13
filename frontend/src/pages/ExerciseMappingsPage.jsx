@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, ApiError } from '../api/client'
+import AiReviewPanel from '../components/AiReviewPanel'
 import PageHeader from '../components/PageHeader'
 import Badge from '../components/ui/Badge'
 import Button from '../components/ui/Button'
@@ -152,6 +153,8 @@ export default function ExerciseMappingsPage() {
   const [staleOpen, setStaleOpen] = useState(false)
 
   const [rowBusy, setRowBusy] = useState({})
+  const [reviewBusy, setReviewBusy] = useState({})
+  const [reviewsByRow, setReviewsByRow] = useState({})
   const [batchBusy, setBatchBusy] = useState(false)
   const [batchResult, setBatchResult] = useState(null)
 
@@ -331,15 +334,15 @@ export default function ExerciseMappingsPage() {
     return items.filter((row) => row.relation === relation)
   }, [items, relation])
 
-  const openEdit = async (row) => {
+  const openEdit = async (row, preset) => {
     setEditError('')
     setExerciseQuery('')
     setExerciseResults([])
     setEditingId(row.id)
     setEditForm({
       xunji_name: row.xunji_name || '',
-      garmin_category: row.garmin_category || '',
-      garmin_exercise_name: row.garmin_exercise_name || '',
+      garmin_category: preset?.category || row.garmin_category || '',
+      garmin_exercise_name: preset?.exercise_name || row.garmin_exercise_name || '',
       garmin_display_name: row.garmin_display_name || '',
       weight_strategy: row.weight_strategy || 'total',
       reason: '',
@@ -349,14 +352,49 @@ export default function ExerciseMappingsPage() {
       setEditForm((prev) => ({
         ...prev,
         xunji_name: detail.xunji_name || prev.xunji_name,
-        garmin_category: detail.garmin_category || '',
-        garmin_exercise_name: detail.garmin_exercise_name || '',
+        garmin_category: preset?.category || detail.garmin_category || '',
+        garmin_exercise_name: preset?.exercise_name || detail.garmin_exercise_name || '',
         garmin_display_name: detail.garmin_display_name || '',
         weight_strategy: detail.weight_strategy || 'total',
       }))
     } catch {
       // 列表行数据已够用，详情失败不阻断编辑
     }
+  }
+
+  const handleAiReview = async (row) => {
+    const id = row.id
+    setReviewBusy((prev) => ({ ...prev, [id]: true }))
+    try {
+      const started = await api(
+        `/api/exercise-mappings/review?xunji_name=${encodeURIComponent(row.xunji_name)}`,
+        { method: 'POST' },
+      )
+      const batchId = started?.batch_id
+      if (!batchId) {
+        toast('审核未产生结果', 'error')
+        return
+      }
+      const payload = await api(`/api/exercise-mappings/reviews?batch_id=${batchId}`)
+      const item = (payload?.items || []).find((it) => it.xunji_name === row.xunji_name)
+      if (!item) {
+        toast('审核未返回该动作的结果', 'error')
+        return
+      }
+      setReviewsByRow((prev) => ({ ...prev, [id]: item }))
+      if (item.verdict === 'current_ok') {
+        toast('AI 认为当前映射合理')
+      }
+    } catch (err) {
+      toast(errorMessage(err), 'error')
+    } finally {
+      setReviewBusy((prev) => ({ ...prev, [id]: false }))
+    }
+  }
+
+  const handleApplyReview = (row, suggestion) => {
+    openEdit(row, suggestion)
+    toast('已填入 AI 建议，请确认后保存')
   }
 
   const closeEdit = () => {
@@ -690,6 +728,15 @@ export default function ExerciseMappingsPage() {
                       <Button
                         variant="secondary"
                         size="compact"
+                        testId={`mapping-ai-review-${row.id}`}
+                        disabled={busy || reviewBusy[row.id]}
+                        onClick={() => handleAiReview(row)}
+                      >
+                        {reviewBusy[row.id] ? '审核中…' : 'AI 审核'}
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="compact"
                         testId={`mapping-edit-${row.id}`}
                         disabled={busy}
                         onClick={() => openEdit(row)}
@@ -720,6 +767,15 @@ export default function ExerciseMappingsPage() {
                       )}
                     </div>
                   </div>
+                  {reviewsByRow[row.id] && (
+                    <div className="mt-3 w-full">
+                      <AiReviewPanel
+                        review={reviewsByRow[row.id]}
+                        busy={busy}
+                        onApply={(sug) => handleApplyReview(row, sug)}
+                      />
+                    </div>
+                  )}
                 </li>
               )
             })}
