@@ -534,9 +534,9 @@ def _workout_matches(
     mappings: dict | None = None,
 ) -> bool:
     try:
-        semantics_match = expand_workout(remote, mappings=mappings) == expand_workout(
-            desired, mappings=mappings
-        )
+        semantics_match = expand_workout(
+            remote, mappings=mappings, expected_payload=desired
+        ) == expand_workout(desired, mappings=mappings)
     except (TypeError, ValueError, KeyError):
         semantics_match = False
     return (

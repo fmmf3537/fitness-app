@@ -7,7 +7,7 @@ import pytest
 
 import app.main  # noqa: F401  先加载配置，再由共享夹具切换临时数据库
 from app.adapters.garmin_workout_adapter import GarminWorkoutAdapterError
-from app.models import GarminPlanSync, JobRun, XunjiPlan
+from app.models import ExerciseMapping, GarminPlanSync, JobRun, XunjiPlan
 from app.services.garmin_plan_sync import (
     PlanSyncError,
     claim_plan_sync,
@@ -20,7 +20,7 @@ PLAN_DATE = date(2026, 11, 12)
 PLAN_REF = "platform:155"
 
 
-def make_plan(session):
+def make_plan(session, movement="杠铃卧推"):
     payload = {
         "plan": {"plan_ref": PLAN_REF, "name": "增肌计划"},
         "days": [{
@@ -28,7 +28,7 @@ def make_plan(session):
             "workout": {
                 "name": "胸部训练",
                 "movements": [{
-                    "name": "杠铃卧推",
+                    "name": movement,
                     "rest_seconds": 60,
                     "target_sets": [
                         {"weight": 20, "unit": "kg", "reps": 8},
@@ -75,11 +75,22 @@ class FakeAdapter:
         self.lose_create_response = False
         self.lose_schedule_response = False
         self.corrupt_readback = False
+        self.normalize_curl = False
 
     def _fail(self, operation):
         if operation in self.fail_once:
             self.fail_once.remove(operation)
             raise adapter_error(operation)
+
+    def _store_workout(self, workout_id, payload):
+        stored = {**copy.deepcopy(payload), "workoutId": workout_id}
+        if self.normalize_curl:
+            for segment in stored.get("workoutSegments", []):
+                for step in segment.get("workoutSteps", []):
+                    for child in step.get("workoutSteps", [step]):
+                        if child.get("category") == "CURL" and child.get("exerciseName") == "CURL":
+                            child["exerciseName"] = ""
+        self.workouts[workout_id] = stored
 
     def find_workouts_by_source_key(self, source_key):
         self.calls.append("find_workouts")
@@ -92,7 +103,7 @@ class FakeAdapter:
     def create_workout(self, payload):
         self.calls.append("create")
         workout_id = f"w{len(self.workouts) + 1}"
-        self.workouts[workout_id] = {**copy.deepcopy(payload), "workoutId": workout_id}
+        self._store_workout(workout_id, payload)
         if self.lose_create_response:
             self.lose_create_response = False
             raise adapter_error("create")
@@ -113,7 +124,7 @@ class FakeAdapter:
     def update_workout(self, workout_id, payload):
         self.calls.append("update")
         self._fail("update")
-        self.workouts[workout_id] = {**copy.deepcopy(payload), "workoutId": workout_id}
+        self._store_workout(workout_id, payload)
 
     def find_schedules(self, workout_id, training_date):
         self.calls.append("find_schedules")
@@ -444,3 +455,104 @@ def test_stale_runner_cannot_finish_reclaimed_attempt(session):
     assert record.attempt_count == 2
     assert adapter.calls.count("create") == 1
     assert adapter.calls.count("schedule") == 1
+
+
+def _make_curl_mappings(session):
+    session.add_all([
+        ExerciseMapping(
+            xunji_name="牧师凳弯举",
+            garmin_category="CURL",
+            garmin_exercise_name="CURL",
+            garmin_display_name="Preacher Curl",
+            weight_strategy="total",
+            status="active",
+            verified_level="displayed",
+        ),
+        ExerciseMapping(
+            xunji_name="草稿弯举",
+            garmin_category="CURL",
+            garmin_exercise_name="CURL",
+            garmin_display_name="Draft Curl",
+            weight_strategy="total",
+            status="draft",
+        ),
+    ])
+    session.commit()
+
+
+def test_generic_curl_empty_readback_is_accepted_in_expected_context(session):
+    make_plan(session, movement="牧师凳弯举")
+    _make_curl_mappings(session)
+    adapter = FakeAdapter()
+    adapter.normalize_curl = True
+    record, _ = claim(session)
+
+    run_plan_sync(session, record.id, adapter=adapter)
+
+    assert record.status == "synced"
+    assert record.workout_id == "w1"
+    assert record.workout_schedule_id == "s1"
+    assert adapter.calls.count("create") == 1
+    assert adapter.calls.count("update") == 0
+    assert adapter.calls.count("schedule") == 1
+    work = adapter.workouts["w1"]["workoutSegments"][0]["workoutSteps"][0]["workoutSteps"][0]
+    assert (work["category"], work["exerciseName"]) == ("CURL", "")
+
+
+def test_explicit_conflict_recovery_reconciles_without_duplicate_writes(session):
+    make_plan(session, movement="牧师凳弯举")
+    _make_curl_mappings(session)
+    adapter = FakeAdapter()
+    adapter.normalize_curl = True
+    record, _ = claim(session)
+    record.workout_id = adapter.create_workout(json.loads(record.payload_json))
+    adapter.calls.clear()
+    record.status = "conflict"
+    record.phase = "update"
+    record.error_code = "GARMIN_WORKOUT_READBACK_INVALID"
+    record.last_error = "注入的历史回读冲突"
+    session.commit()
+
+    plan_day = query_plan_day(session, PLAN_DATE)
+    recovered, started = claim_plan_sync(
+        session,
+        plan_day,
+        expected_source_hash=source_hash(plan_day),
+        enabled=True,
+        recover_conflict=True,
+    )
+    assert started is True
+    assert recovered.attempt_count == 2
+    run_plan_sync(session, recovered.id, adapter=adapter)
+
+    assert recovered.status == "synced"
+    assert recovered.workout_id == "w1"
+    assert recovered.workout_schedule_id == "s1"
+    assert adapter.calls.count("create") == 0
+    assert adapter.calls.count("update") == 0
+    assert adapter.calls.count("schedule") == 1
+
+
+def test_unknown_readback_enum_conflict_records_diagnostic_path(session):
+    make_plan(session)
+    adapter = FakeAdapter()
+    original_get_workout = adapter.get_workout
+
+    def get_unknown_workout(workout_id):
+        result = original_get_workout(workout_id)
+        work = result["workoutSegments"][0]["workoutSteps"][0]["workoutSteps"][0]
+        work["exerciseName"] = "UNKNOWN_ENUM"
+        return result
+
+    adapter.get_workout = get_unknown_workout
+    record, _ = claim(session)
+    run_plan_sync(session, record.id, adapter=adapter)
+
+    assert record.status == "conflict"
+    assert record.error_code == "GARMIN_WORKOUT_READBACK_INVALID"
+    job = session.query(JobRun).filter_by(job_name="garmin_plan_sync").one()
+    detail = json.loads(job.detail_json)["conflict_detail"]
+    assert detail["payload"] == "remote"
+    assert detail["path"] == "workoutSegments[0].workoutSteps[0].workoutSteps[0]"
+    assert detail["category"] == "BENCH_PRESS"
+    assert detail["exerciseName"] == "UNKNOWN_ENUM"

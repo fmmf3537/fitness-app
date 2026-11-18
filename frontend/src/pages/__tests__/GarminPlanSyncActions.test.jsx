@@ -191,6 +191,43 @@ describe('Garmin 计划确认同步交互', () => {
     expect(writes).toHaveLength(1)
   })
 
+  it('冲突只能经二次确认调用显式恢复入口', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    const conflict = makeSync({
+      status: 'conflict', phase: 'update', workout_id: 'w1', attempt_count: 1,
+      error_code: 'GARMIN_WORKOUT_READBACK_INVALID',
+      last_error: 'Garmin 回读训练结构无法核验，未标记同步成功',
+    })
+    globalThis.fetch = routeFetch([
+      ['/api/plans/upcoming', makeUpcoming(conflict)],
+      [`/api/plans/${DATE}/garmin/preview`, makePreview({ sync: conflict })],
+      [`/api/plans/${DATE}/garmin/sync/recover`, () => response({
+        started: true,
+        sync: makeSync({ status: 'syncing', phase: 'update', workout_id: 'w1', attempt_count: 2 }),
+      }, 202)],
+      [`/api/plans/${DATE}/garmin/sync`, makeSync({
+        status: 'syncing', phase: 'update', workout_id: 'w1', attempt_count: 2,
+      })],
+      ['/api/plans/review/', response({}, 404)],
+    ])
+    renderPage()
+    await user.click(await screen.findByTestId(`garmin-preview-button-${DATE}`))
+    const recoverButton = await screen.findByTestId('garmin-confirm-sync')
+    expect(recoverButton).toHaveTextContent('确认恢复同步')
+    expect(globalThis.fetch.mock.calls.filter(([, options]) => options.method === 'POST')).toHaveLength(0)
+
+    await user.click(recoverButton)
+    const dialog = await screen.findByTestId('confirm-dialog')
+    expect(dialog).toHaveTextContent('内容一致时不会重复创建或覆盖')
+    expect(globalThis.fetch.mock.calls.filter(([, options]) => options.method === 'POST')).toHaveLength(0)
+    await user.click(screen.getByTestId('confirm-dialog-confirm'))
+
+    const writes = globalThis.fetch.mock.calls.filter(([url, options]) => url.includes('/garmin/') && options.method === 'POST')
+    expect(writes).toHaveLength(1)
+    expect(writes[0][0]).toBe(`/api/plans/${DATE}/garmin/sync/recover`)
+    expect(JSON.parse(writes[0][1].body)).toEqual({ source_hash: HASH_A })
+  })
+
   it('P2/P3 已验证动作不再显示待远端验收', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     const groups = [{ source_sets: '1', count: 1, set_type: 'working', weight_kg: 20, reps: 8, rest_seconds: 60 }]

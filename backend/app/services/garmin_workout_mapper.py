@@ -555,23 +555,58 @@ def map_plan_day(
     }
 
 
-def _walk_work_steps(steps: list[dict[str, Any]]) -> Iterator[tuple[dict[str, Any], int, float | None]]:
+class WorkoutExpansionError(ValueError):
+    """回读结构无法展开；保留可安全落日志的定位信息。"""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        path: str,
+        category: Any = None,
+        exercise_name: Any = None,
+    ) -> None:
+        super().__init__(message)
+        self.path = path
+        self.category = category
+        self.exercise_name = exercise_name
+
+    def diagnostic(self) -> dict[str, Any]:
+        return {
+            "message": str(self),
+            "path": self.path,
+            "category": self.category,
+            "exerciseName": self.exercise_name,
+        }
+
+
+def _walk_work_steps(
+    steps: list[dict[str, Any]],
+    *,
+    path: str = "workoutSegments[0].workoutSteps",
+) -> Iterator[tuple[dict[str, Any], int, float | None, str]]:
     """展开当前映射器生成的 direct/repeat 结构，拒绝不认识的复杂结构。"""
     index = 0
     while index < len(steps):
         step = steps[index]
+        step_path = f"{path}[{index}]"
         step_type = step.get("type")
         if step_type == "RepeatGroupDTO":
             count = step.get("numberOfIterations")
             if not isinstance(count, int) or count < 1:
-                raise ValueError("RepeatGroupDTO 的 numberOfIterations 无效")
+                raise WorkoutExpansionError(
+                    "RepeatGroupDTO 的 numberOfIterations 无效", path=step_path
+                )
             children = step.get("workoutSteps") or []
             work = [child for child in children if child.get("category") or child.get("exerciseName")]
             rests = [child for child in children if (child.get("stepType") or {}).get("stepTypeKey") == "rest"]
             if len(work) != 1 or len(rests) > 1 or len(children) != len(work) + len(rests):
-                raise ValueError("仅支持每组一个工作步骤和可选休息步骤")
+                raise WorkoutExpansionError(
+                    "仅支持每组一个工作步骤和可选休息步骤", path=step_path
+                )
             rest_value = rests[0].get("endConditionValue") if rests else None
-            yield work[0], count, rest_value
+            work_index = next(i for i, child in enumerate(children) if child is work[0])
+            yield work[0], count, rest_value, f"{step_path}.workoutSteps[{work_index}]"
             index += 1
             continue
         if step_type == "ExecutableStepDTO" and (step.get("category") or step.get("exerciseName")):
@@ -581,44 +616,118 @@ def _walk_work_steps(steps: list[dict[str, Any]]) -> Iterator[tuple[dict[str, An
                 if (following.get("stepType") or {}).get("stepTypeKey") == "rest":
                     rest_value = following.get("endConditionValue")
                     index += 1
-            yield step, 1, rest_value
+            yield step, 1, rest_value, step_path
             index += 1
             continue
-        raise ValueError(f"无法反向展开的步骤：{step_type}")
+        raise WorkoutExpansionError(f"无法反向展开的步骤：{step_type}", path=step_path)
+
+
+def _reverse_mappings(mappings: dict[str, dict[str, Any]]) -> dict[tuple[Any, Any], list[str]]:
+    """只让 active 映射参与反解；draft/disabled 不得覆盖有效动作。"""
+    reverse: dict[tuple[Any, Any], list[str]] = {}
+    for name, item in mappings.items():
+        if item.get("status") not in (None, "active"):
+            continue
+        pair = (item["category"], item["exerciseName"])
+        reverse.setdefault(pair, []).append(name)
+    # P2/P3 实测历史别名：即使没有期望 payload 的 stale 对账也继续兼容。
+    reverse.setdefault(("BENCH_PRESS", ""), []).append("器械推胸")
+    reverse.setdefault(("LATERAL_RAISE", ""), []).append("侧平举")
+    return reverse
+
+
+def _reverse_name(
+    reverse: dict[tuple[Any, Any], list[str]],
+    pair: tuple[Any, Any],
+    *,
+    path: str,
+    require_unique: bool = False,
+) -> str | None:
+    names = reverse.get(pair) or []
+    if len(names) > 1 and require_unique:
+        raise WorkoutExpansionError(
+            f"Garmin 动作枚举对应多个有效映射，无法唯一反解：{pair}",
+            path=path,
+            category=pair[0],
+            exercise_name=pair[1],
+        )
+    # 多个训记别名可合法共用具体 Garmin 枚举；保持原字典反解的最后项语义。
+    # 只有空串规范化回读需要借期望步骤消歧时才强制唯一。
+    return names[-1] if names else None
 
 
 def expand_workout(
     payload: dict[str, Any],
     *,
     mappings: dict[str, dict[str, Any]] | None = None,
+    expected_payload: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """反向展开为动作和逐组序列，用于与 source_set_projection 对账。"""
+    """反向展开为动作和逐组序列，用于与 source_set_projection 对账。
+
+    Garmin 会把部分通用 ``category/category`` 规范化为 ``category/""``。
+    远端校验必须传入 expected_payload：仅当同位置期望步骤是同 category 的通用
+    枚举且 active 反解唯一时接受空串，避免全局别名把多个动作误判成同一动作。
+    """
     active_mappings = mappings if mappings is not None else EXERCISE_WHITELIST
-    reverse = {
-        (item["category"], item["exerciseName"]): name
-        for name, item in active_mappings.items()
-    }
-    # P2/P3 实测：Garmin 创建后会把通用 Bench Press 和 Lateral Raise 的
-    # exerciseName 规范化为空串，category 保持不变；只接受已观测的精确别名。
-    reverse[("BENCH_PRESS", "")] = "器械推胸"
-    # 2026-11-12 起「侧平举」已改用 DUMBBELL_LATERAL_RAISE，但此前同步过的
-    # Workout 在 Garmin 侧仍是 ("LATERAL_RAISE", "")；保留该别名，
-    # 使旧 Workout 仍能反向展开用于 stale 对账。
-    reverse[("LATERAL_RAISE", "")] = "侧平举"
+    reverse = _reverse_mappings(active_mappings)
     segments = payload.get("workoutSegments") or []
     if len(segments) != 1:
-        raise ValueError("仅支持一个 workoutSegment")
+        raise WorkoutExpansionError("仅支持一个 workoutSegment", path="workoutSegments")
+    expected_steps = None
+    if expected_payload is not None:
+        expected_segments = expected_payload.get("workoutSegments") or []
+        if len(expected_segments) != 1:
+            raise WorkoutExpansionError(
+                "仅支持一个 workoutSegment", path="expected_payload.workoutSegments"
+            )
+        expected_steps = list(
+            _walk_work_steps(
+                expected_segments[0].get("workoutSteps") or [],
+                path="expected_payload.workoutSegments[0].workoutSteps",
+            )
+        )
     expanded: list[dict[str, Any]] = []
-    for work, count, rest in _walk_work_steps(segments[0].get("workoutSteps") or []):
+    for step_index, (work, count, rest, path) in enumerate(
+        _walk_work_steps(segments[0].get("workoutSteps") or [])
+    ):
         pair = (work.get("category"), work.get("exerciseName"))
-        name = reverse.get(pair)
+        name = _reverse_name(reverse, pair, path=path)
+        if (
+            name is None
+            and expected_steps is not None
+            and pair[1] == ""
+            and step_index < len(expected_steps)
+        ):
+            expected_work = expected_steps[step_index][0]
+            expected_pair = (
+                expected_work.get("category"), expected_work.get("exerciseName")
+            )
+            if pair[0] == expected_pair[0] and expected_pair[1] == expected_pair[0]:
+                name = _reverse_name(
+                    reverse, expected_pair, path=path, require_unique=True
+                )
         if name is None:
-            raise ValueError(f"未知 Garmin 动作枚举：{pair}")
+            raise WorkoutExpansionError(
+                f"未知 Garmin 动作枚举：{pair}",
+                path=path,
+                category=pair[0],
+                exercise_name=pair[1],
+            )
         if work.get("endCondition", {}).get("conditionTypeKey") != "reps":
-            raise ValueError("反向展开仅支持 reps 工作步骤")
+            raise WorkoutExpansionError(
+                "反向展开仅支持 reps 工作步骤",
+                path=path,
+                category=pair[0],
+                exercise_name=pair[1],
+            )
         step_type = work.get("stepType", {}).get("stepTypeKey")
         if step_type not in {"warmup", "interval"}:
-            raise ValueError(f"未知工作步骤类型：{step_type}")
+            raise WorkoutExpansionError(
+                f"未知工作步骤类型：{step_type}",
+                path=path,
+                category=pair[0],
+                exercise_name=pair[1],
+            )
         set_type = "warmup" if step_type == "warmup" else "working"
         if not expanded or expanded[-1]["name"] != name:
             expanded.append({"name": name, "sets": []})

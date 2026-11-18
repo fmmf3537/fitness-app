@@ -325,3 +325,68 @@ def test_expand_accepts_legacy_normalized_lateral_raise():
     assert source_set_projection(expand_workout(payload)) == source_set_projection(
         day["movements"]
     )
+
+
+def curl_mappings(second_status="draft"):
+    item = {
+        "display_name": "Curl", "category": "CURL", "exerciseName": "CURL",
+    }
+    return {
+        "牧师凳弯举": {**item, "status": "active"},
+        "其他弯举": {**item, "status": second_status},
+    }
+
+
+def normalize_generic_curl(payload):
+    remote = json.loads(json.dumps(payload))
+    for step in remote["workoutSegments"][0]["workoutSteps"]:
+        children = step.get("workoutSteps") or [step]
+        for child in children:
+            if child.get("category") == "CURL" and child.get("exerciseName") == "CURL":
+                child["exerciseName"] = ""
+    return remote
+
+
+def test_expand_accepts_normalized_generic_curl_in_repeat_and_direct_steps():
+    mappings = curl_mappings()
+    day = make_day([make_movement("牧师凳弯举", sets=[
+        make_set(10, reps=12), make_set(10, reps=12), make_set(12.5, reps=9),
+    ])])
+    desired = map_plan_day(day, mappings=mappings)["workout"]
+    remote = normalize_generic_curl(desired)
+
+    assert expand_workout(remote, mappings=mappings, expected_payload=desired) == expand_workout(
+        desired, mappings=mappings
+    )
+
+
+def test_normalized_generic_curl_requires_expected_context_and_unique_active_mapping():
+    mappings = curl_mappings()
+    day = make_day([make_movement("牧师凳弯举", sets=[make_set(), make_set()])])
+    desired = map_plan_day(day, mappings=mappings)["workout"]
+    remote = normalize_generic_curl(desired)
+
+    with pytest.raises(ValueError, match="未知 Garmin 动作枚举") as unknown:
+        expand_workout(remote, mappings=mappings)
+    assert unknown.value.path == "workoutSegments[0].workoutSteps[0].workoutSteps[0]"
+    assert unknown.value.diagnostic()["category"] == "CURL"
+
+    mappings["其他弯举"]["status"] = "active"
+    with pytest.raises(ValueError, match="多个有效映射"):
+        expand_workout(remote, mappings=mappings, expected_payload=desired)
+
+
+def test_blank_exercise_name_is_not_accepted_for_specific_garmin_exercise():
+    mappings = {
+        "坐姿划船": {
+            "display_name": "Seated Cable Row", "category": "ROW",
+            "exerciseName": "SEATED_CABLE_ROW", "status": "active",
+        },
+    }
+    day = make_day([make_movement("坐姿划船")])
+    desired = map_plan_day(day, mappings=mappings)["workout"]
+    remote = json.loads(json.dumps(desired))
+    remote["workoutSegments"][0]["workoutSteps"][0]["exerciseName"] = ""
+
+    with pytest.raises(ValueError, match="未知 Garmin 动作枚举"):
+        expand_workout(remote, mappings=mappings, expected_payload=desired)

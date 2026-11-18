@@ -323,6 +323,47 @@ def confirm_garmin_plan_sync(
     return result
 
 
+@router.post("/{day}/garmin/sync/recover")
+def recover_garmin_plan_sync(
+    day: date,
+    body: GarminPlanSyncRequest,
+    response: Response,
+    session: Session = Depends(get_session),
+    manager: garmin_sync_service.GarminPlanSyncManager = Depends(
+        garmin_sync_service.get_garmin_plan_sync_manager
+    ),
+) -> dict:
+    """显式恢复冲突：重新生成当前预览，并由 runner 对账后再决定是否更新。"""
+    from app.config import get_settings
+
+    plan_day = _require_plan_day(session, day)
+    try:
+        result = manager.start(
+            session,
+            plan_day,
+            expected_source_hash=body.source_hash,
+            enabled=get_settings().garmin_plan_sync_enabled,
+            recover_conflict=True,
+        )
+    except WorkoutMappingError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "PLAN_MAPPING_UNSUPPORTED",
+                "issues": exc.issues,
+                "excluded": exc.excluded,
+                "skipped": exc.skipped,
+            },
+        ) from exc
+    except garmin_sync_service.PlanSyncError as exc:
+        detail = {"code": exc.error_code, "message": exc.public_message}
+        if exc.issues:
+            detail["issues"] = exc.issues
+        raise HTTPException(status_code=exc.status_code, detail=detail) from exc
+    response.status_code = 202 if result["started"] else 200
+    return result
+
+
 # =====================================================================
 # 计划缓存手动刷新（后台线程 + 409 防重）
 # =====================================================================

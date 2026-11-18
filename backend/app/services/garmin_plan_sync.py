@@ -20,6 +20,7 @@ from app.adapters.garmin_workout_adapter import (
 from app.models import GarminPlanSync, JobRun
 from app.services import exercise_mapping as mapping_service
 from app.services.garmin_workout_mapper import (
+    WorkoutExpansionError,
     content_hash as calculate_content_hash,
     expand_workout,
     map_plan_day,
@@ -52,10 +53,13 @@ class PlanSyncError(RuntimeError):
 class PlanSyncConflict(RuntimeError):
     """远端归属、候选数量或日程关联不安全，禁止自动覆盖。"""
 
-    def __init__(self, error_code: str, message: str) -> None:
+    def __init__(
+        self, error_code: str, message: str, *, detail: dict[str, Any] | None = None
+    ) -> None:
         super().__init__(message)
         self.error_code = error_code
         self.public_message = message
+        self.detail = detail or {}
 
 
 def source_key_for(plan_ref: str, training_date: date | str) -> str:
@@ -369,12 +373,18 @@ def _claim_existing(
     payload: dict[str, Any],
     mapping_hash: str | None = None,
     sync_result_json: str | None = None,
+    allow_conflict: bool = False,
 ) -> GarminPlanSync:
+    status_filter = (
+        GarminPlanSync.status != "syncing"
+        if allow_conflict
+        else GarminPlanSync.status.notin_(("syncing", "conflict"))
+    )
     updated = (
         session.query(GarminPlanSync)
         .filter(
             GarminPlanSync.id == record.id,
-            GarminPlanSync.status.notin_(("syncing", "conflict")),
+            status_filter,
         )
         .update(
             {
@@ -411,8 +421,9 @@ def claim_plan_sync(
     *,
     expected_source_hash: str,
     enabled: bool,
+    recover_conflict: bool = False,
 ) -> tuple[GarminPlanSync, bool]:
-    """校验预览哈希并原子抢占；返回 (记录, 是否需要启动 runner)。"""
+    """校验预览哈希并原子抢占；冲突只能经显式恢复入口重新抢占。"""
     if not enabled:
         raise PlanSyncError(
             503,
@@ -445,13 +456,22 @@ def claim_plan_sync(
     record = get_sync_record(
         session, plan_ref=plan_day["plan_ref"], training_date=training_date
     )
-    if record is not None and record.status == "conflict":
+    if recover_conflict:
+        if record is None or record.status != "conflict":
+            raise PlanSyncError(
+                409,
+                "SYNC_RECOVERY_NOT_APPLICABLE",
+                "当前训练没有可恢复的 Garmin 同步冲突，请刷新状态",
+            )
+    elif record is not None and record.status == "conflict":
         _raise_record_busy_or_conflict(record)
     if record is not None and record.status == "syncing":
         _raise_record_busy_or_conflict(record)
     # partial 即使 hash 相同也必须允许重新 claim（补齐映射后清除缺口）。
+    # 冲突恢复必须重新进入 runner 对账，不得按 synced 记录直接 no-op。
     if (
-        record is not None
+        not recover_conflict
+        and record is not None
         and record.status != "partial"
         and record.synced_hash == current_hash
         and record.workout_id
@@ -469,6 +489,7 @@ def claim_plan_sync(
             payload=preview["workout"],
             mapping_hash=mapping_hash,
             sync_result_json=result_json,
+            allow_conflict=recover_conflict,
         ), True
 
     record = GarminPlanSync(
@@ -533,14 +554,36 @@ def _verify_workout_semantics(
 ) -> None:
     _verify_source(record, remote)
     try:
-        matches = expand_workout(remote, mappings=mappings) == expand_workout(
-            desired, mappings=mappings
-        )
+        desired_expanded = expand_workout(desired, mappings=mappings)
+    except WorkoutExpansionError as exc:
+        raise PlanSyncConflict(
+            "GARMIN_WORKOUT_READBACK_INVALID",
+            "Garmin 回读训练结构无法核验，未标记同步成功",
+            detail={**exc.diagnostic(), "payload": "desired"},
+        ) from exc
     except (TypeError, ValueError, KeyError) as exc:
         raise PlanSyncConflict(
             "GARMIN_WORKOUT_READBACK_INVALID",
             "Garmin 回读训练结构无法核验，未标记同步成功",
+            detail={"payload": "desired", "message": str(exc)},
         ) from exc
+    try:
+        remote_expanded = expand_workout(
+            remote, mappings=mappings, expected_payload=desired
+        )
+    except WorkoutExpansionError as exc:
+        raise PlanSyncConflict(
+            "GARMIN_WORKOUT_READBACK_INVALID",
+            "Garmin 回读训练结构无法核验，未标记同步成功",
+            detail={**exc.diagnostic(), "payload": "remote"},
+        ) from exc
+    except (TypeError, ValueError, KeyError) as exc:
+        raise PlanSyncConflict(
+            "GARMIN_WORKOUT_READBACK_INVALID",
+            "Garmin 回读训练结构无法核验，未标记同步成功",
+            detail={"payload": "remote", "message": str(exc)},
+        ) from exc
+    matches = remote_expanded == desired_expanded
     if (
         not matches
         or remote.get("workoutName") != desired.get("workoutName")
@@ -576,6 +619,7 @@ def _finish(
     status: str,
     error_code: str | None = None,
     message: str | None = None,
+    detail: dict[str, Any] | None = None,
 ) -> bool:
     """只结束仍属于当前 attempt 的抢占，旧 runner 不得覆盖恢复后的状态。"""
     finished_at = datetime.now()
@@ -605,6 +649,15 @@ def _finish(
     if updated != 1:
         session.rollback()
         return False
+    job_detail = {
+        "sync_id": record.id,
+        "source_key": record.source_key,
+        "workout_id": record.workout_id,
+        "workout_schedule_id": record.workout_schedule_id,
+        "error_code": error_code,
+    }
+    if detail:
+        job_detail["conflict_detail"] = detail
     session.add(
         JobRun(
             job_name="garmin_plan_sync",
@@ -612,16 +665,7 @@ def _finish(
             finished_at=finished_at,
             status=status,
             error=message,
-            detail_json=json.dumps(
-                {
-                    "sync_id": record.id,
-                    "source_key": record.source_key,
-                    "workout_id": record.workout_id,
-                    "workout_schedule_id": record.workout_schedule_id,
-                    "error_code": error_code,
-                },
-                ensure_ascii=False,
-            ),
+            detail_json=json.dumps(job_detail, ensure_ascii=False),
         )
     )
     session.commit()
@@ -676,7 +720,7 @@ def run_plan_sync(
         current_description_hash = _description_marker(remote, "source_hash")
         try:
             semantics_match = expand_workout(
-                remote, mappings=mappings
+                remote, mappings=mappings, expected_payload=desired
             ) == expand_workout(desired, mappings=mappings)
         except (TypeError, ValueError, KeyError):
             semantics_match = False
@@ -734,6 +778,7 @@ def run_plan_sync(
             status="conflict",
             error_code=exc.error_code,
             message=exc.public_message,
+            detail=exc.detail,
         )
     except GarminWorkoutAdapterError as exc:
         _finish(
@@ -787,12 +832,14 @@ class GarminPlanSyncManager:
         *,
         expected_source_hash: str,
         enabled: bool,
+        recover_conflict: bool = False,
     ) -> dict:
         record, should_start = claim_plan_sync(
             session,
             plan_day,
             expected_source_hash=expected_source_hash,
             enabled=enabled,
+            recover_conflict=recover_conflict,
         )
         if should_start:
             threading.Thread(

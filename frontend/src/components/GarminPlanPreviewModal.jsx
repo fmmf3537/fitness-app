@@ -414,6 +414,7 @@ function PreviewContent({ preview, isReschedule = false, onEditMapping }) {
 
 function confirmLabel(status, isReschedule) {
   if (isReschedule) return status === 'failed' ? '恢复顺延' : '确认顺延'
+  if (status === 'conflict') return '确认恢复同步'
   if (status === 'update_available') return '确认覆盖更新'
   if (status === 'failed') return '恢复同步'
   return '确认同步'
@@ -501,18 +502,23 @@ export default function GarminPlanPreviewModal({ day, onClose, onSyncChange }) {
     : []
   const hasMappingNotApproved = issues.some((issue) => issue.code === 'MAPPING_NOT_APPROVED')
   const status = sync?.status
+  const canRecoverConflict = Boolean(
+    preview?.remote_write_eligible && !isReschedule && status === 'conflict',
+  )
   const canWrite = Boolean(
     preview?.remote_write_eligible
-    && !['synced', 'syncing', 'conflict', 'source_removed'].includes(status),
+    && (canRecoverConflict || !['synced', 'syncing', 'conflict', 'source_removed'].includes(status)),
   )
 
   const confirmDescription = isReschedule
     ? `将从 ${preview?.from_date} 顺延到 ${preview?.to_date}，保留原 Workout ${sync?.workout_id || '—'} 与日程 ${sync?.workout_schedule_id || '—'} 的关联。`
-    : status === 'update_available'
-      ? `将覆盖此应用管理的 Garmin 训练（保留原 Workout 与日程关联），日期 ${dayDate}。`
-      : status === 'failed'
-        ? `将从已保存的阶段恢复，系统会先对账，不会重复创建。日期 ${dayDate}。`
-        : `将在 Garmin Connect 为 ${dayDate} 创建训练并安排日程。Garmin 不支持批量删除，误创建需在 App 中手动删除。`
+    : status === 'conflict'
+      ? `将先核对 Garmin 训练的来源与内容；内容一致时不会重复创建或覆盖，验证通过后继续安排日程。日期 ${dayDate}。`
+      : status === 'update_available'
+        ? `将覆盖此应用管理的 Garmin 训练（保留原 Workout 与日程关联），日期 ${dayDate}。`
+        : status === 'failed'
+          ? `将从已保存的阶段恢复，系统会先对账，不会重复创建。日期 ${dayDate}。`
+          : `将在 Garmin Connect 为 ${dayDate} 创建训练并安排日程。Garmin 不支持批量删除，误创建需在 App 中手动删除。`
 
   const requestConfirm = () => {
     if (!canWrite || submitting || confirmOpen) return
@@ -526,7 +532,9 @@ export default function GarminPlanPreviewModal({ day, onClose, onSyncChange }) {
     try {
       const path = isReschedule
         ? `/api/plans/${fromDate}/garmin/reschedule`
-        : `/api/plans/${dayDate}/garmin/sync`
+        : canRecoverConflict
+          ? `/api/plans/${dayDate}/garmin/sync/recover`
+          : `/api/plans/${dayDate}/garmin/sync`
       const body = isReschedule
         ? { to_date: targetDate, source_hash: preview.source_hash }
         : { source_hash: preview.source_hash }
@@ -707,11 +715,13 @@ export default function GarminPlanPreviewModal({ day, onClose, onSyncChange }) {
                 ? status === 'failed'
                   ? '将从已保存的顺延阶段恢复，先回读原 Workout 和日程；不会重复更新已成功的步骤。'
                   : `确认后保留 Workout ${sync?.workout_id || '—'} 和日程 ${sync?.workout_schedule_id || '—'}，将训练从 ${preview.from_date} 调整到 ${preview.to_date}。`
-                : status === 'update_available'
-                  ? '确认后将覆盖此应用管理的 Garmin 训练，保留原训练与日程关联。'
-                  : status === 'failed'
-                    ? '将从已保存的阶段恢复；系统会先对账，不会盲目重复创建训练或日程。'
-                    : '确认后将创建一个由本应用管理的 Garmin 训练，并安排到该计划日期。'}
+                : status === 'conflict'
+                  ? '将重新核对来源、训练内容与哈希；一致时不重复创建或覆盖，验证通过后才继续日程。'
+                  : status === 'update_available'
+                    ? '确认后将覆盖此应用管理的 Garmin 训练，保留原训练与日程关联。'
+                    : status === 'failed'
+                      ? '将从已保存的阶段恢复；系统会先对账，不会盲目重复创建训练或日程。'
+                      : '确认后将创建一个由本应用管理的 Garmin 训练，并安排到该计划日期。'}
             </div>
           )}
           <div className={canWrite ? 'grid grid-cols-2 gap-2' : ''}>
@@ -734,9 +744,9 @@ export default function GarminPlanPreviewModal({ day, onClose, onSyncChange }) {
       </div>
       <ConfirmDialog
         open={confirmOpen}
-        title={isReschedule ? '确认顺延改期？' : '确认写入 Garmin？'}
+        title={isReschedule ? '确认顺延改期？' : status === 'conflict' ? '确认恢复 Garmin 同步？' : '确认写入 Garmin？'}
         description={confirmDescription}
-        confirmText={isReschedule ? '确认改期' : '确认写入'}
+        confirmText={isReschedule ? '确认改期' : status === 'conflict' ? '确认恢复' : '确认写入'}
         cancelText="取消"
         danger
         onConfirm={handleDialogConfirm}

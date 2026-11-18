@@ -260,7 +260,7 @@ describe('Garmin 顺延确认交互', () => {
     expect(rescheduleWrites()).toHaveLength(1)
   })
 
-  it('冲突预览和写入关闭状态均不提供确认按钮', async () => {
+  it('顺延冲突即使写入开启也不提供普通冲突恢复按钮', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     const conflict = makeSync({
       status: 'conflict',
@@ -270,7 +270,7 @@ describe('Garmin 顺延确认交互', () => {
     globalThis.fetch = routeFetch([
       ['/api/plans/upcoming', makeUpcoming(conflict)],
       [`/api/plans/${FROM_DATE}/garmin/reschedule`, makePreview({
-        remote_write_eligible: false,
+        remote_write_eligible: true,
         sync: conflict,
       })],
       ['/api/plans/review/', response({}, 404)],
@@ -279,8 +279,8 @@ describe('Garmin 顺延确认交互', () => {
     await user.click(await screen.findByTestId(`garmin-preview-button-${TARGET_DATE}`))
 
     expect(await screen.findByText('目标日期已有其他同步记录，未自动覆盖或改期')).toBeInTheDocument()
-    expect(screen.getByText(/Garmin 写入当前未启用/)).toBeInTheDocument()
     expect(screen.queryByTestId('garmin-confirm-reschedule')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('garmin-confirm-sync')).not.toBeInTheDocument()
     expect(rescheduleWrites()).toHaveLength(0)
   })
 

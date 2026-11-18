@@ -42,10 +42,14 @@ def make_plan(session, movement="杠铃卧推"):
 
 
 class ClaimOnlyManager:
-    def start(self, session, plan_day, *, expected_source_hash, enabled):
+    def start(
+        self, session, plan_day, *, expected_source_hash, enabled,
+        recover_conflict=False,
+    ):
         record, started = claim_plan_sync(
             session, plan_day,
             expected_source_hash=expected_source_hash, enabled=enabled,
+            recover_conflict=recover_conflict,
         )
         return {
             "started": started,
@@ -218,3 +222,84 @@ def test_stale_running_status_recovers_and_confirm_retries(client, session):
     session.refresh(record)
     assert record.status == "syncing"
     assert record.attempt_count == 2
+
+
+def add_existing_record(session, status="conflict"):
+    plan_day = query_plan_day(session, DAY)
+    current = source_hash(plan_day)
+    record = GarminPlanSync(
+        plan_ref=PLAN_REF,
+        training_date=DAY,
+        source_key=f"xunji-plan:v1:{PLAN_REF}:{DAY}",
+        source_hash=current,
+        workout_id="w1",
+        status=status,
+        phase="update",
+        attempt_count=4,
+        error_code="GARMIN_WORKOUT_READBACK_INVALID" if status == "conflict" else None,
+        last_error="回读无法核验" if status == "conflict" else None,
+    )
+    session.add(record)
+    session.commit()
+    return record, current
+
+
+def test_normal_confirm_still_rejects_conflict(client, session):
+    make_plan(session)
+    record, current = add_existing_record(session)
+
+    response = client.post(
+        f"/api/plans/{DAY}/garmin/sync", json={"source_hash": current}
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "GARMIN_WORKOUT_READBACK_INVALID"
+    session.refresh(record)
+    assert record.status == "conflict"
+    assert record.attempt_count == 4
+
+
+def test_explicit_recovery_claims_existing_conflict(client, session):
+    make_plan(session)
+    record, current = add_existing_record(session)
+
+    response = client.post(
+        f"/api/plans/{DAY}/garmin/sync/recover", json={"source_hash": current}
+    )
+
+    assert response.status_code == 202
+    assert response.json()["started"] is True
+    assert response.json()["sync"]["status"] == "syncing"
+    session.refresh(record)
+    assert record.status == "syncing"
+    assert record.attempt_count == 5
+
+
+def test_recovery_rejects_non_conflict_record(client, session):
+    make_plan(session)
+    record, current = add_existing_record(session, status="failed")
+
+    response = client.post(
+        f"/api/plans/{DAY}/garmin/sync/recover", json={"source_hash": current}
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "SYNC_RECOVERY_NOT_APPLICABLE"
+    session.refresh(record)
+    assert record.status == "failed"
+    assert record.attempt_count == 4
+
+
+def test_recovery_stale_hash_is_rejected_without_claim(client, session):
+    make_plan(session)
+    record, _ = add_existing_record(session)
+
+    response = client.post(
+        f"/api/plans/{DAY}/garmin/sync/recover", json={"source_hash": "0" * 64}
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "PLAN_CHANGED"
+    session.refresh(record)
+    assert record.status == "conflict"
+    assert record.attempt_count == 4
