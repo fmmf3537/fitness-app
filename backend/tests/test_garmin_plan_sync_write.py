@@ -76,6 +76,7 @@ class FakeAdapter:
         self.lose_schedule_response = False
         self.corrupt_readback = False
         self.normalize_curl = False
+        self.normalize_shoulder = False
 
     def _fail(self, operation):
         if operation in self.fail_once:
@@ -84,12 +85,16 @@ class FakeAdapter:
 
     def _store_workout(self, workout_id, payload):
         stored = {**copy.deepcopy(payload), "workoutId": workout_id}
-        if self.normalize_curl:
-            for segment in stored.get("workoutSegments", []):
-                for step in segment.get("workoutSteps", []):
-                    for child in step.get("workoutSteps", [step]):
-                        if child.get("category") == "CURL" and child.get("exerciseName") == "CURL":
-                            child["exerciseName"] = ""
+        for segment in stored.get("workoutSegments", []):
+            for step in segment.get("workoutSteps", []):
+                for child in step.get("workoutSteps", [step]):
+                    pair = (child.get("category"), child.get("exerciseName"))
+                    if self.normalize_curl and pair == ("CURL", "CURL"):
+                        child["exerciseName"] = ""
+                    if self.normalize_shoulder and pair == (
+                        "SHOULDER_PRESS", "BARBELL_SHOULDER_PRESS"
+                    ):
+                        child["exerciseName"] = "OVERHEAD_BARBELL_PRESS"
         self.workouts[workout_id] = stored
 
     def find_workouts_by_source_key(self, source_key):
@@ -556,3 +561,33 @@ def test_unknown_readback_enum_conflict_records_diagnostic_path(session):
     assert detail["path"] == "workoutSegments[0].workoutSteps[0].workoutSteps[0]"
     assert detail["category"] == "BENCH_PRESS"
     assert detail["exerciseName"] == "UNKNOWN_ENUM"
+
+
+def test_shoulder_alias_completes_sync_without_update_or_duplicate_schedule(session):
+    make_plan(session, movement="站姿杠铃推举")
+    session.add(ExerciseMapping(
+        xunji_name="站姿杠铃推举",
+        garmin_category="SHOULDER_PRESS",
+        garmin_exercise_name="BARBELL_SHOULDER_PRESS",
+        garmin_display_name="Barbell Shoulder Press",
+        weight_strategy="total",
+        status="active",
+        verified_level="catalog",
+    ))
+    session.commit()
+    adapter = FakeAdapter()
+    adapter.normalize_shoulder = True
+    record, _ = claim(session)
+
+    run_plan_sync(session, record.id, adapter=adapter)
+
+    assert record.status == "synced"
+    assert record.workout_id == "w1"
+    assert record.workout_schedule_id == "s1"
+    assert adapter.calls.count("create") == 1
+    assert adapter.calls.count("update") == 0
+    assert adapter.calls.count("schedule") == 1
+    work = adapter.workouts["w1"]["workoutSegments"][0]["workoutSteps"][0]["workoutSteps"][0]
+    assert (work["category"], work["exerciseName"]) == (
+        "SHOULDER_PRESS", "OVERHEAD_BARBELL_PRESS"
+    )

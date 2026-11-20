@@ -580,6 +580,16 @@ class WorkoutExpansionError(ValueError):
         }
 
 
+# 真机回读实测的有向枚举别名：key 是应用写入的期望枚举，value 是 Garmin
+# 返回的等价枚举。只能在同位置 expected_payload 上下文中使用，禁止全局反解。
+_READBACK_ENUM_ALIASES: dict[tuple[str, str], tuple[str, str]] = {
+    # 2026-11-20：站姿杠铃推举，direct 与 RepeatGroup 回读均观察到该改写。
+    ("SHOULDER_PRESS", "BARBELL_SHOULDER_PRESS"): (
+        "SHOULDER_PRESS", "OVERHEAD_BARBELL_PRESS"
+    ),
+}
+
+
 def _walk_work_steps(
     steps: list[dict[str, Any]],
     *,
@@ -664,9 +674,9 @@ def expand_workout(
 ) -> list[dict[str, Any]]:
     """反向展开为动作和逐组序列，用于与 source_set_projection 对账。
 
-    Garmin 会把部分通用 ``category/category`` 规范化为 ``category/""``。
-    远端校验必须传入 expected_payload：仅当同位置期望步骤是同 category 的通用
-    枚举且 active 反解唯一时接受空串，避免全局别名把多个动作误判成同一动作。
+    Garmin 会规范化部分动作枚举。远端校验必须传入 expected_payload：仅接受
+    同位置的通用 ``category/category → category/""`` 或已实测登记的精确枚举
+    别名，且期望枚举的 active 反解必须唯一，避免全局别名造成动作误判。
     """
     active_mappings = mappings if mappings is not None else EXERCISE_WHITELIST
     reverse = _reverse_mappings(active_mappings)
@@ -695,14 +705,19 @@ def expand_workout(
         if (
             name is None
             and expected_steps is not None
-            and pair[1] == ""
             and step_index < len(expected_steps)
         ):
             expected_work = expected_steps[step_index][0]
             expected_pair = (
                 expected_work.get("category"), expected_work.get("exerciseName")
             )
-            if pair[0] == expected_pair[0] and expected_pair[1] == expected_pair[0]:
+            normalized_generic = (
+                pair[0] == expected_pair[0]
+                and pair[1] == ""
+                and expected_pair[1] == expected_pair[0]
+            )
+            observed_alias = _READBACK_ENUM_ALIASES.get(expected_pair) == pair
+            if normalized_generic or observed_alias:
                 name = _reverse_name(
                     reverse, expected_pair, path=path, require_unique=True
                 )

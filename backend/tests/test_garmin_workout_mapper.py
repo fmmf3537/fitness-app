@@ -390,3 +390,70 @@ def test_blank_exercise_name_is_not_accepted_for_specific_garmin_exercise():
 
     with pytest.raises(ValueError, match="未知 Garmin 动作枚举"):
         expand_workout(remote, mappings=mappings, expected_payload=desired)
+
+
+def shoulder_mappings():
+    return {
+        "站姿杠铃推举": {
+            "display_name": "Barbell Shoulder Press", "category": "SHOULDER_PRESS",
+            "exerciseName": "BARBELL_SHOULDER_PRESS", "status": "active",
+        },
+        "草稿杠铃推举": {
+            "display_name": "Barbell Shoulder Press", "category": "SHOULDER_PRESS",
+            "exerciseName": "BARBELL_SHOULDER_PRESS", "status": "draft",
+        },
+        "坐姿杠铃推举": {
+            "display_name": "Seated Barbell Shoulder Press", "category": "SHOULDER_PRESS",
+            "exerciseName": "SEATED_BARBELL_SHOULDER_PRESS", "status": "active",
+        },
+    }
+
+
+def normalize_barbell_shoulder_press(payload):
+    remote = json.loads(json.dumps(payload))
+    for step in remote["workoutSegments"][0]["workoutSteps"]:
+        children = step.get("workoutSteps") or [step]
+        for child in children:
+            pair = (child.get("category"), child.get("exerciseName"))
+            if pair == ("SHOULDER_PRESS", "BARBELL_SHOULDER_PRESS"):
+                child["exerciseName"] = "OVERHEAD_BARBELL_PRESS"
+    return remote
+
+
+def test_expand_accepts_observed_shoulder_alias_in_direct_and_repeat_steps():
+    mappings = shoulder_mappings()
+    day = make_day([make_movement("站姿杠铃推举", sets=[
+        make_set(32.5, reps=8), make_set(37.5, reps=8),
+        make_set(37.5, reps=8), make_set(37.5, reps=8),
+    ], rest=90)])
+    desired = map_plan_day(day, mappings=mappings)["workout"]
+    remote = normalize_barbell_shoulder_press(desired)
+
+    assert steps_of({"workout": remote})[0]["exerciseName"] == "OVERHEAD_BARBELL_PRESS"
+    assert steps_of({"workout": remote})[2]["workoutSteps"][0]["exerciseName"] == (
+        "OVERHEAD_BARBELL_PRESS"
+    )
+    assert expand_workout(remote, mappings=mappings, expected_payload=desired) == expand_workout(
+        desired, mappings=mappings
+    )
+
+
+def test_shoulder_alias_requires_exact_expected_pair_and_unique_active_mapping():
+    mappings = shoulder_mappings()
+    day = make_day([make_movement("站姿杠铃推举", sets=[make_set(32.5, reps=8)])])
+    desired = map_plan_day(day, mappings=mappings)["workout"]
+    remote = normalize_barbell_shoulder_press(desired)
+
+    with pytest.raises(ValueError, match="未知 Garmin 动作枚举"):
+        expand_workout(remote, mappings=mappings)
+
+    seated_day = make_day([make_movement("坐姿杠铃推举", sets=[make_set(32.5, reps=8)])])
+    seated = map_plan_day(seated_day, mappings=mappings)["workout"]
+    with pytest.raises(ValueError, match="未知 Garmin 动作枚举"):
+        expand_workout(remote, mappings=mappings, expected_payload=seated)
+
+    mappings["另一站姿杠铃推举"] = {
+        **mappings["站姿杠铃推举"], "status": "active",
+    }
+    with pytest.raises(ValueError, match="多个有效映射"):
+        expand_workout(remote, mappings=mappings, expected_payload=desired)
